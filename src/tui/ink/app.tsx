@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import React, { useEffect, useState } from "react";
 import { render, Box, Text } from "ink";
+import { execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { Banner, Menu, Separator, t, useInterval, type MenuItem } from "./components.js";
 import { clearScreen } from "../theme.js";
-import { getRootDir, readConfig, getApiPort, getModelPort, getApiBaseUrl, getModelBaseUrl } from "../platform.js";
+import { getRootDir, readConfig, getPlatform, getApiPort, getModelPort, getApiBaseUrl, getModelBaseUrl } from "../platform.js";
 import { performServiceAction } from "../service-actions.js";
 import { checkAutoStartupAsync, detectGpuAsync, isPortReachable } from "../runtime-status.js";
 import {
@@ -504,6 +505,22 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       ? t.ok("CPU")
       : t.warn("GPU");
 
+  const doclingOk = modelHealth?.models?.docling?.ready === true;
+  const ocrInstalled = (() => {
+    try {
+      execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 3000 });
+      return true;
+    } catch {
+      // Check common Windows install locations
+      if (getPlatform() === "windows") {
+        for (const p of ["C:\\Program Files\\Tesseract-OCR\\tesseract.exe", "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"]) {
+          try { execFileSync(p, ["--version"], { stdio: "pipe", timeout: 3000 }); return true; } catch {}
+        }
+      }
+      return false;
+    }
+  })();
+
   const nerReady = modelHealth?.ner?.ready === true;
   const nerLabel = nerReady ? t.ok("en_core_web_sm") : t.dim("off");
 
@@ -552,7 +569,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{"  " + t.dim("Rerank:".padEnd(18)) + t.value(rerankName)}</Text>
       <Text>{"  " + t.dim("Deep Extract:".padEnd(18)) + deepExtractLabel}</Text>
       <Text>{"  " + t.dim("Query Expansion:".padEnd(18)) + expansionLabel}</Text>
-      <Text>{"  " + t.dim("OCR/Docling:".padEnd(18)) + doclingLabel}</Text>
+      <Text>{"  " + t.dim("Docling:".padEnd(18)) + (doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingLabel)}</Text>
+      <Text>{"  " + t.dim("OCR:".padEnd(18)) + (ocrInstalled ? t.ok("Tesseract") : t.dim("off"))}</Text>
       <Text>{"  " + t.dim("NER:".padEnd(18)) + nerLabel}</Text>
       <Text>{"  " + t.dim("File Watcher:".padEnd(18)) + watchLabel}</Text>
       <Text>{"  " + t.dim("Auto-Startup:".padEnd(18)) + (autoStart ? t.ok("on") : t.dim("off")) + "    " + t.dim("Game Mode:") + " " + (gameModeOn ? t.warn("on") : t.dim("off"))}</Text>

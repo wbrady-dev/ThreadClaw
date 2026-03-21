@@ -768,12 +768,28 @@ async function warmModel(choice: ModelInfo, python: string, type: "embed" | "rer
 }
 
 function hasTesseract(): boolean {
+  // Check PATH first
   try {
     execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 5000 });
     return true;
-  } catch {
-    return false;
+  } catch {}
+
+  // Check common Windows install locations
+  if (getPlatform() === "windows") {
+    const candidates = [
+      "C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+      "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+      resolve(process.env.LOCALAPPDATA ?? "", "Programs", "Tesseract-OCR", "tesseract.exe"),
+    ];
+    for (const p of candidates) {
+      try {
+        execFileSync(p, ["--version"], { stdio: "pipe", timeout: 5000 });
+        return true;
+      } catch {}
+    }
   }
+
+  return false;
 }
 
 async function showNotice(title: string, message: string): Promise<void> {
