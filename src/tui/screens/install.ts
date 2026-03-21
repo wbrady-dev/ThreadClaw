@@ -3,6 +3,7 @@ import ora, { type Ora } from "ora";
 import { execFileSync } from "child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { homedir } from "os";
 import { clearScreen, kvLine, section, t } from "../theme.js";
 import { runStreamedCommand, sanitizeCommandLine } from "../process.js";
 import {
@@ -74,6 +75,86 @@ export const OFF_EVIDENCE: EvidenceConfig = {
   attemptTracking: false,
   deepExtraction: false,
 };
+
+/**
+ * Non-interactive install — uses recommended defaults, zero prompts.
+ * Called by install.bat/install.sh via `clawcore install --non-interactive`.
+ * Shell scripts handle venv + pip before this runs.
+ */
+export async function runNonInteractiveInstall(): Promise<void> {
+  const python = getPythonCmd();
+  const platform = getPlatform();
+  const sourceRoot = getRootDir();
+  const openclawDir = findOpenClaw();
+  const gpu = detectGpu();
+  const tier = getRecommendedTier(gpu);
+
+  const presetMap: Record<string, { embed: string; rerank: string }> = {
+    lite: { embed: "sentence-transformers/all-MiniLM-L12-v2", rerank: "cross-encoder/ms-marco-MiniLM-L-6-v2" },
+    standard: { embed: "BAAI/bge-large-en-v1.5", rerank: "BAAI/bge-reranker-large" },
+    premium: { embed: "nvidia/omni-embed-nemotron-3b", rerank: "BAAI/bge-reranker-v2-gemma" },
+  };
+
+  const embedChoice = EMBED_MODELS.find((m) => m.id === presetMap[tier].embed);
+  const rerankChoice = RERANK_MODELS.find((m) => m.id === presetMap[tier].rerank);
+  if (!embedChoice || !rerankChoice) {
+    console.error(t.err("Failed to resolve model preset."));
+    return;
+  }
+
+  console.log(section("Non-Interactive Install"));
+  console.log(kvLine("GPU", gpu.detected ? `${gpu.name} (${gpu.vramTotalMb} MB)` : "CPU mode"));
+  console.log(kvLine("Tier", formatTierName(tier)));
+  console.log(kvLine("Embedding", embedChoice.name));
+  console.log(kvLine("Reranker", rerankChoice.name));
+  console.log("");
+
+  // Determine install root
+  let root = sourceRoot;
+  if (openclawDir) {
+    const ocRoot = resolve(openclawDir, "services", "clawcore");
+    if (existsSync(resolve(ocRoot, "package.json"))) {
+      root = ocRoot;
+    } else if (existsSync(resolve(sourceRoot, "package.json"))) {
+      // Copy source to OpenClaw location
+      mkdirSync(ocRoot, { recursive: true });
+      cpSync(sourceRoot, ocRoot, {
+        recursive: true,
+        filter: (src) => {
+          const rel = src.slice(sourceRoot.length + 1).replace(/\\/g, "/");
+          if ((rel === "node_modules" || rel.startsWith("node_modules/")) && !rel.startsWith("memory-engine/")) return false;
+          if (rel === "data" || rel.startsWith("data/")) return false;
+          if (rel === "logs" || rel.startsWith("logs/")) return false;
+          if (rel === ".git" || rel.startsWith(".git/")) return false;
+          if (rel === ".env") return false;
+          return true;
+        },
+      });
+      root = ocRoot;
+    }
+  }
+
+  await performInstallPlan({
+    sourceRoot,
+    root,
+    python,
+    platform,
+    openclawDir,
+    isRecommended: true,
+    embedChoice,
+    rerankChoice,
+    parser: "cpu",
+    enableOcr: true,
+    enableAudio: true,
+    evidenceConfig: QUICK_EVIDENCE,
+    integrateOpenClaw: Boolean(openclawDir),
+    enableObsidian: false,
+    installWindowsServices: false,
+    huggingFaceToken: "",
+  });
+
+  console.log(t.ok("\n  Installation complete. Run `clawcore` to launch.\n"));
+}
 
 export async function runInstall(): Promise<void> {
   clearScreen();
@@ -376,129 +457,81 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
     }
   }
 
-  // ── Step 3: Global tsx ──
+  // ── Step 3: Python dependencies ──
+  // install.bat/install.sh handle venv creation and pinned pip installs.
+  // If running directly (not via install script), install deps here.
+  const reqsFile = resolve(root, "server", "requirements-pinned.txt");
+  let pythonReady = false;
   try {
-    await runStreamedCommand(npmCmd, ["install", "-g", "tsx"], { timeoutMs: 300000 });
+    execFileSync(python, ["-c", "import sentence_transformers; import flask"], { stdio: "pipe", timeout: 10000 });
+    pythonReady = true;
   } catch {}
 
-  // ── Step 4: Python core dependencies ──
-  sp = ora("Installing Python dependencies...").start();
-  try {
-    let hasGpuRuntime = false;
+  if (pythonReady) {
+    console.log(t.ok("  [ok] Python dependencies already installed"));
+  } else {
+    sp = ora("Installing Python dependencies...").start();
     try {
-      const gpuCheck = execFileSync(python, ["-c", "import torch; print(torch.cuda.is_available() or (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()))"], { stdio: "pipe" }).toString().trim();
-      hasGpuRuntime = gpuCheck === "True";
-    } catch {}
-
-    if (!hasGpuRuntime) {
-      sp.text = "Installing PyTorch...";
-      if (process.platform === "darwin") {
-        await runCommandWithSpinner(sp, "Installing PyTorch...", python, ["-m", "pip", "install", "torch", "torchvision"], {
-          timeoutMs: 600000,
-        });
-      } else {
-        try {
-          await runCommandWithSpinner(sp, "Installing GPU PyTorch...", python,
-            ["-m", "pip", "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"],
-            { timeoutMs: 600000 });
-        } catch {
-          sp.text = "Falling back to CPU PyTorch...";
-          await runCommandWithSpinner(sp, "Installing CPU PyTorch...", python,
-            ["-m", "pip", "install", "torch", "torchvision"], { timeoutMs: 600000 });
-        }
-      }
-    }
-
-    await runCommandWithSpinner(sp, "Installing sentence-transformers and Flask...", python,
-      ["-m", "pip", "install", "sentence-transformers", "flask"], { timeoutMs: 300000 });
-    sp.succeed("Python dependencies installed");
-  } catch (error) {
-    sp.fail(`Python install failed: ${String(error).slice(0, 200)}`);
-    throw error;
-  }
-  // Verify
-  try {
-    execFileSync(python, ["-c", "import sentence_transformers"], { stdio: "pipe" });
-  } catch {
-    failures.push("Python: sentence-transformers not importable. Run: pip install sentence-transformers");
-  }
-
-  // ── Step 5: Docling (install BEFORE spaCy to avoid typer conflict) ──
-  sp = ora("Installing Docling...").start();
-  try {
-    await runCommandWithSpinner(sp, "Installing Docling...", python,
-      ["-m", "pip", "install", "docling"], { timeoutMs: 600000 });
-    sp.succeed("Docling installed");
-  } catch {
-    sp.warn("Docling install failed. Advanced document parsing unavailable.");
-  }
-
-  // ── Step 6: spaCy NER ──
-  sp = ora("Installing spaCy NER...").start();
-  try {
-    await runCommandWithSpinner(sp, "Installing spaCy...", python,
-      ["-m", "pip", "install", "spacy"], { timeoutMs: 300000 });
-    await runCommandWithSpinner(sp, "Downloading NER model...", python,
-      ["-m", "spacy", "download", "en_core_web_sm"], { timeoutMs: 120000 });
-    sp.succeed("spaCy NER model installed");
-  } catch {
-    sp.warn("spaCy NER install failed. Entity extraction will use regex fallback.");
-  }
-  // Verify
-  try {
-    execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 30000 });
-  } catch {
-    failures.push("NER: spaCy model not loadable. Run: pip install spacy && python -m spacy download en_core_web_sm");
-  }
-
-  // ── Step 7: Whisper ──
-  sp = ora("Installing Whisper...").start();
-  try {
-    await runCommandWithSpinner(sp, "Installing Whisper...", python,
-      ["-m", "pip", "install", "openai-whisper"], { timeoutMs: 600000 });
-    sp.succeed("Whisper installed");
-  } catch {
-    sp.warn("Whisper install failed. Audio transcription unavailable.");
-  }
-
-  // ── Step 8: Tesseract OCR ──
-  if (enableOcr) {
-    sp = ora("Checking Tesseract OCR...").start();
-    try {
-      execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 5000 });
-      sp.succeed("Tesseract already installed");
-    } catch {
+      // PyTorch first
+      let hasTorch = false;
       try {
-        if (platform === "windows") {
-          try {
-            await runCommandWithSpinner(sp, "Installing Tesseract with winget...", "winget",
-              ["install", "UB-Mannheim.TesseractOCR", "--accept-source-agreements", "--accept-package-agreements"],
-              { timeoutMs: 120000 });
-          } catch {
-            try {
-              await runCommandWithSpinner(sp, "Installing Tesseract with choco...", "choco",
-                ["install", "tesseract", "-y"], { timeoutMs: 120000 });
-            } catch {
-              throw new Error("No package manager available");
-            }
-          }
-        } else if (platform === "mac") {
-          await runCommandWithSpinner(sp, "Installing Tesseract with brew...", "brew",
-            ["install", "tesseract"], { timeoutMs: 120000 });
+        execFileSync(python, ["-c", "import torch"], { stdio: "pipe", timeout: 10000 });
+        hasTorch = true;
+      } catch {}
+
+      if (!hasTorch) {
+        if (process.platform === "darwin") {
+          await runCommandWithSpinner(sp, "Installing PyTorch...", python,
+            ["-m", "pip", "install", "torch", "torchvision"], { timeoutMs: 600000 });
         } else {
           try {
-            await runCommandWithSpinner(sp, "Installing Tesseract with apt...", "sudo",
-              ["apt", "install", "-y", "tesseract-ocr"], { timeoutMs: 120000 });
+            await runCommandWithSpinner(sp, "Installing GPU PyTorch...", python,
+              ["-m", "pip", "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"],
+              { timeoutMs: 600000 });
           } catch {
-            await runCommandWithSpinner(sp, "Installing Tesseract with yum...", "sudo",
-              ["yum", "install", "-y", "tesseract"], { timeoutMs: 120000 });
+            await runCommandWithSpinner(sp, "Installing CPU PyTorch...", python,
+              ["-m", "pip", "install", "torch", "torchvision"], { timeoutMs: 600000 });
           }
         }
-        sp.succeed("Tesseract installed");
-      } catch {
-        sp.warn("Tesseract not available. Download: https://github.com/UB-Mannheim/tesseract/wiki");
-        failures.push("OCR: Tesseract not installed. Download: https://github.com/UB-Mannheim/tesseract/wiki");
       }
+
+      // All other deps via pinned requirements or individual installs
+      if (existsSync(reqsFile)) {
+        await runCommandWithSpinner(sp, "Installing pinned dependencies...", python,
+          ["-m", "pip", "install", "-r", reqsFile], { timeoutMs: 600000 });
+      } else {
+        await runCommandWithSpinner(sp, "Installing core deps...", python,
+          ["-m", "pip", "install", "sentence-transformers", "flask", "spacy", "docling"], { timeoutMs: 600000 });
+      }
+      sp.succeed("Python dependencies installed");
+    } catch (error) {
+      sp.fail(`Python install failed: ${String(error).slice(0, 200)}`);
+      failures.push(`Python: Install failed. Run: ${python} -m pip install -r server/requirements-pinned.txt`);
+    }
+
+    // spaCy NER model
+    try {
+      execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 30000 });
+    } catch {
+      sp = ora("Downloading spaCy NER model...").start();
+      try {
+        await runCommandWithSpinner(sp, "Downloading NER model...", python,
+          ["-m", "spacy", "download", "en_core_web_sm"], { timeoutMs: 120000 });
+        sp.succeed("spaCy NER model installed");
+      } catch {
+        sp.warn("spaCy NER failed. Entity extraction will use regex fallback.");
+      }
+    }
+  }
+
+  // Tesseract OCR (system-level, not pip)
+  if (enableOcr) {
+    try {
+      execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 5000 });
+      console.log(t.ok("  [ok] Tesseract OCR"));
+    } catch {
+      console.log(t.warn("  [!]  Tesseract not found. Download: https://github.com/UB-Mannheim/tesseract/wiki"));
+      failures.push("OCR: Tesseract not installed. Download: https://github.com/UB-Mannheim/tesseract/wiki");
     }
   }
 
@@ -576,19 +609,33 @@ ${extraEnv ? `\n${extraEnv}\n` : ""}`);
     else console.log(t.dim("  Windows service setup is skipped for now. Use Services later.\n"));
   }
 
-  // Register `clawcore` as a global CLI command
+  // Register `clawcore` as a global CLI command (PATH-based, no npm link / no admin)
   sp = ora("Registering clawcore command...").start();
   try {
-    execFileSync(npmCmd, ["link"], { cwd: root, stdio: "pipe", timeout: 30000 });
-    // Verify it worked
-    try {
-      execFileSync(npmCmd === "npm.cmd" ? "where" : "which", ["clawcore"], { stdio: "pipe", timeout: 5000 });
-      sp.succeed("clawcore command registered globally");
-    } catch {
-      sp.warn("npm link ran but clawcore not found on PATH. Try: npm link (in an admin terminal)");
+    const binEntry = resolve(root, "bin", "clawcore.mjs");
+    if (platform === "windows") {
+      const cmdDir = resolve(process.env.LOCALAPPDATA ?? resolve(homedir(), "AppData", "Local"), "ClawCore");
+      mkdirSync(cmdDir, { recursive: true });
+      writeFileSync(resolve(cmdDir, "clawcore.cmd"), `@echo off\r\nnode "${binEntry}" %*\r\n`);
+      // Add to user PATH if not already there
+      const currentPath = process.env.PATH ?? "";
+      if (!currentPath.toLowerCase().includes("clawcore")) {
+        try {
+          execFileSync("setx", ["PATH", `${currentPath};${cmdDir}`], { stdio: "pipe", timeout: 10000 });
+        } catch {}
+      }
+      sp.succeed("clawcore command registered. Restart terminal to use.");
+    } else {
+      const localBin = resolve(homedir(), ".local", "bin");
+      mkdirSync(localBin, { recursive: true });
+      try {
+        execFileSync("ln", ["-sf", binEntry, resolve(localBin, "clawcore")], { stdio: "pipe" });
+        execFileSync("chmod", ["+x", resolve(localBin, "clawcore")], { stdio: "pipe" });
+      } catch {}
+      sp.succeed("clawcore command registered at ~/.local/bin/clawcore");
     }
   } catch {
-    sp.warn(`Global command not registered. Run manually: cd ${root} && npm link`);
+    sp.warn(`Global command not registered. Run: node ${resolve(root, "bin", "clawcore.mjs")}`);
   }
 
   setRootDirOverride(root);

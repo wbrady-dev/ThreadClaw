@@ -65,6 +65,16 @@ export function getDataDir(root = getRootDir()): string {
 }
 
 export function getPythonCmd(): string {
+  // Check project venv first — isolated, no global pollution
+  try {
+    const root = getRootDir();
+    const venvPython = getPlatform() === "windows"
+      ? resolve(root, ".venv", "Scripts", "python.exe")
+      : resolve(root, ".venv", "bin", "python3");
+    if (existsSync(venvPython)) return venvPython;
+  } catch {}
+
+  // Fallback to system Python
   if (getPlatform() === "windows") {
     try {
       execFileSync("python", ["--version"], { stdio: "pipe" });
@@ -78,6 +88,21 @@ export function getPythonCmd(): string {
   try {
     execFileSync("python", ["--version"], { stdio: "pipe" });
     return "python";
+  } catch {}
+  return "python";
+}
+
+/** Get the system Python (ignoring venv) for venv creation. */
+export function getSystemPythonCmd(): string {
+  if (getPlatform() === "windows") {
+    try {
+      execFileSync("python", ["--version"], { stdio: "pipe" });
+      return "python";
+    } catch {}
+  }
+  try {
+    execFileSync("python3", ["--version"], { stdio: "pipe" });
+    return "python3";
   } catch {}
   return "python";
 }
