@@ -393,9 +393,10 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     setGpu({ detected: gpuState.detected, name: gpuState.name, vramUsedMb: gpuState.vramUsedMb, vramTotalMb: gpuState.vramTotalMb });
     setAutoStart(autoStartState);
 
+    // Only update state on successful responses — keep old data on failures
     try {
-      setStats(statsRes?.ok ? await statsRes.json() : null);
-    } catch { setStats(null); }
+      if (statsRes?.ok) setStats(await statsRes.json());
+    } catch {}
 
     try {
       if (sourcesRes?.ok) {
@@ -405,9 +406,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     } catch {}
 
     try {
-      const hd = healthRes?.ok ? await healthRes.json() : null;
-      setModelHealth(hd);
-    } catch { setModelHealth(null); }
+      if (healthRes?.ok) setModelHealth(await healthRes.json());
+    } catch {}
   };
 
   useEffect(() => { refresh(); }, []);
