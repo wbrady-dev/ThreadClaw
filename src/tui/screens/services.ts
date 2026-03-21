@@ -425,8 +425,8 @@ function checkAutoStartup(): boolean {
   const plat = getPlatform();
   if (plat === "windows") {
     try {
-      const out = execFileSync("powershell", ["-NoProfile", "-Command", "(Get-ScheduledTask -TaskName 'ClawCoreModels' -ErrorAction SilentlyContinue).TaskName"], { stdio: "pipe" }).toString().trim();
-      return out === "ClawCoreModels";
+      execFileSync("schtasks", ["/query", "/tn", "ClawCore_Models"], { stdio: "pipe", timeout: 5000 });
+      return true;
     } catch {
       return false;
     }

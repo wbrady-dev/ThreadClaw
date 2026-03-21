@@ -27,11 +27,11 @@ export async function checkServicesAsync(root = getRootDir()): Promise<ServiceSt
   if (!result.models.running || !result.clawcore.running) {
     if (platform === "windows") {
       const [modelsState, ragState] = await Promise.all([
-        runCommand("powershell", ["-NoProfile", "-Command", "(Get-ScheduledTask -TaskName 'ClawCoreModels' -ErrorAction SilentlyContinue).State"]),
-        runCommand("powershell", ["-NoProfile", "-Command", "(Get-ScheduledTask -TaskName 'ClawCoreRAG' -ErrorAction SilentlyContinue).State"]),
+        runCommand("schtasks", ["/query", "/tn", "ClawCore_Models", "/fo", "csv", "/nh"]),
+        runCommand("schtasks", ["/query", "/tn", "ClawCore_RAG", "/fo", "csv", "/nh"]),
       ]);
-      if (!result.models.running) result.models.running = modelsState === "Running";
-      if (!result.clawcore.running) result.clawcore.running = ragState === "Running";
+      if (!result.models.running) result.models.running = modelsState?.includes('"Running"') ?? false;
+      if (!result.clawcore.running) result.clawcore.running = ragState?.includes('"Running"') ?? false;
     } else if (platform === "linux") {
       const [modelsService, clawcoreService] = await Promise.all([
         runCommand("systemctl", ["is-active", "clawcore-models"]),
@@ -65,8 +65,8 @@ export async function checkAutoStartupAsync(): Promise<boolean> {
   const platform = getPlatform();
 
   if (platform === "windows") {
-    const state = await runCommand("powershell", ["-NoProfile", "-Command", "(Get-ScheduledTask -TaskName 'ClawCoreModels' -ErrorAction SilentlyContinue).TaskName"]);
-    return state === "ClawCoreModels";
+    const out = await runCommand("schtasks", ["/query", "/tn", "ClawCore_Models"]);
+    return out !== null; // task exists = auto-start registered
   }
 
   if (platform === "linux") {

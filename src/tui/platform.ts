@@ -182,21 +182,32 @@ export interface ServiceStatus {
   clawcore: { running: boolean; pid?: number };
 }
 
-// ── Windows Task Scheduler helpers ──
+// ── Windows Task Scheduler helpers (uses schtasks.exe — instant, no PowerShell) ──
 
 const TASK_MODELS = "ClawCore_Models";
 const TASK_RAG = "ClawCore_RAG";
 
-/** Run a PowerShell command and return stdout. */
-function ps(script: string): string {
-  return execFileSync("powershell", ["-NoProfile", "-Command", script], { stdio: "pipe", timeout: 15000 }).toString().trim();
+/** Run schtasks.exe and return stdout. */
+function schtasks(...args: string[]): string {
+  return execFileSync("schtasks", args, { stdio: "pipe", timeout: 10000 }).toString().trim();
 }
 
 /** Check if a Windows scheduled task is currently running. */
 function isTaskRunning(taskName: string): boolean {
   try {
-    const state = ps(`(Get-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue).State`);
-    return state === "Running";
+    const out = schtasks("/query", "/tn", taskName, "/fo", "csv", "/nh");
+    // CSV format: "TaskName","Next Run Time","Status"
+    return out.includes('"Running"');
+  } catch {
+    return false;
+  }
+}
+
+/** Check if a Windows scheduled task exists. */
+function isTaskRegistered(taskName: string): boolean {
+  try {
+    schtasks("/query", "/tn", taskName);
+    return true;
   } catch {
     return false;
   }
@@ -205,7 +216,7 @@ function isTaskRunning(taskName: string): boolean {
 /** Start a Windows scheduled task (no admin required). */
 function startTask(taskName: string): { success: boolean; error?: string } {
   try {
-    ps(`Start-ScheduledTask -TaskName '${taskName}'`);
+    schtasks("/run", "/tn", taskName);
     return { success: true };
   } catch (e) {
     return { success: false, error: String(e) };
@@ -215,7 +226,7 @@ function startTask(taskName: string): { success: boolean; error?: string } {
 /** Stop a Windows scheduled task (no admin required). */
 function endTask(taskName: string): { success: boolean; error?: string } {
   try {
-    ps(`Stop-ScheduledTask -TaskName '${taskName}' -ErrorAction SilentlyContinue`);
+    schtasks("/end", "/tn", taskName);
     return { success: true };
   } catch (e) {
     return { success: false, error: String(e) };
@@ -225,14 +236,14 @@ function endTask(taskName: string): { success: boolean; error?: string } {
 /** Delete a Windows scheduled task. */
 function deleteTask(taskName: string): { success: boolean } {
   try {
-    ps(`Unregister-ScheduledTask -TaskName '${taskName}' -Confirm:$false -ErrorAction SilentlyContinue`);
+    schtasks("/delete", "/tn", taskName, "/f");
   } catch {}
   return { success: true };
 }
 
 /**
- * Ensure both Windows tasks are registered. Uses a SINGLE PowerShell call
- * for check + register to avoid CIM session issues between separate calls.
+ * Ensure both Windows tasks are registered.
+ * Uses schtasks.exe (native, instant) instead of PowerShell.
  */
 function ensureWindowsTasks(root: string): { ready: boolean; error?: string } {
   const binDir = resolve(root, "bin");
@@ -240,7 +251,7 @@ function ensureWindowsTasks(root: string): { ready: boolean; error?: string } {
   mkdirSync(binDir, { recursive: true });
   mkdirSync(logsDir, { recursive: true });
 
-  // Write wrapper scripts
+  // Write wrapper scripts that redirect output to log files
   const pythonCmd = getPythonCmd();
   const modelsScript = findModelsScript(root);
   const modelsWrapper = resolve(binDir, `${TASK_MODELS}.cmd`);
@@ -254,21 +265,17 @@ function ensureWindowsTasks(root: string): { ready: boolean; error?: string } {
   writeFileSync(ragWrapper,
     `@echo off\r\ncd /d "${root}"\r\n"${nodeCmd}" ${argsStr} >> "${resolve(logsDir, "clawcore.log")}" 2>&1\r\n`);
 
-  // Register tasks with -Force. Use cmd.exe /c with windowStyle hidden to prevent
-  // visible console windows. Set $settings.Hidden = $true for Task Scheduler UI.
-  const escapedModels = modelsWrapper.replace(/'/g, "''");
-  const escapedRag = ragWrapper.replace(/'/g, "''");
   try {
-    ps([
-      `$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ""${escapedModels}""'`,
-      `$t = New-ScheduledTaskTrigger -AtLogOn`,
-      `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden`,
-      `Register-ScheduledTask -TaskName '${TASK_MODELS}' -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
-      `$a2 = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ""${escapedRag}""'`,
-      `$t2 = New-ScheduledTaskTrigger -AtLogOn`,
-      `$s2 = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden`,
-      `Register-ScheduledTask -TaskName '${TASK_RAG}' -Action $a2 -Trigger $t2 -Settings $s2 -Force | Out-Null`,
-    ].join("\n"));
+    // Register models task (creates or updates via /f)
+    schtasks("/create", "/tn", TASK_MODELS,
+      "/tr", `cmd.exe /c "${modelsWrapper}"`,
+      "/sc", "onlogon", "/rl", "limited", "/f");
+
+    // Register RAG task
+    schtasks("/create", "/tn", TASK_RAG,
+      "/tr", `cmd.exe /c "${ragWrapper}"`,
+      "/sc", "onlogon", "/rl", "limited", "/f");
+
     return { ready: true };
   } catch (e) {
     return { ready: false, error: String(e) };

@@ -302,10 +302,8 @@ function checkAutoStartup(): boolean {
 
   if (plat === "windows") {
     try {
-      const out = execFileSync("powershell", ["-NoProfile", "-Command",
-        "(Get-ScheduledTask -TaskName 'ClawCore_Models' -ErrorAction SilentlyContinue).TaskName",
-      ], { stdio: "pipe", timeout: 10000 }).toString().trim();
-      return out === "ClawCore_Models";
+      execFileSync("schtasks", ["/query", "/tn", "ClawCore_Models"], { stdio: "pipe", timeout: 5000 });
+      return true; // task exists = auto-start registered
     } catch {
       return false;
     }
