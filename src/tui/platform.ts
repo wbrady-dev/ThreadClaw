@@ -254,17 +254,20 @@ function ensureWindowsTasks(root: string): { ready: boolean; error?: string } {
   writeFileSync(ragWrapper,
     `@echo off\r\ncd /d "${root}"\r\n"${nodeCmd}" ${argsStr} >> "${resolve(logsDir, "clawcore.log")}" 2>&1\r\n`);
 
-  // Register tasks with -Force (creates or updates — no need to check first)
+  // Register tasks with -Force. Use cmd.exe /c with windowStyle hidden to prevent
+  // visible console windows. Set $settings.Hidden = $true for Task Scheduler UI.
   const escapedModels = modelsWrapper.replace(/'/g, "''");
   const escapedRag = ragWrapper.replace(/'/g, "''");
   try {
     ps([
-      `$a = New-ScheduledTaskAction -Execute '${escapedModels}'`,
+      `$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ""${escapedModels}""'`,
       `$t = New-ScheduledTaskTrigger -AtLogOn`,
-      `Register-ScheduledTask -TaskName '${TASK_MODELS}' -Action $a -Trigger $t -Force | Out-Null`,
-      `$a2 = New-ScheduledTaskAction -Execute '${escapedRag}'`,
+      `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden`,
+      `Register-ScheduledTask -TaskName '${TASK_MODELS}' -Action $a -Trigger $t -Settings $s -Force | Out-Null`,
+      `$a2 = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c ""${escapedRag}""'`,
       `$t2 = New-ScheduledTaskTrigger -AtLogOn`,
-      `Register-ScheduledTask -TaskName '${TASK_RAG}' -Action $a2 -Trigger $t2 -Force | Out-Null`,
+      `$s2 = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden`,
+      `Register-ScheduledTask -TaskName '${TASK_RAG}' -Action $a2 -Trigger $t2 -Settings $s2 -Force | Out-Null`,
     ].join("\n"));
     return { ready: true };
   } catch (e) {

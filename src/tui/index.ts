@@ -298,18 +298,20 @@ async function launchTui(): Promise<void> {
 }
 
 function checkAutoStartup(): boolean {
-  const platform = getPlatform();
+  const plat = getPlatform();
 
-  if (platform === "windows") {
+  if (plat === "windows") {
     try {
-      const output = execFileSync("sc", ["query", "ClawCoreModels"], { stdio: "pipe" }).toString();
-      return !output.includes("does not exist");
+      const out = execFileSync("powershell", ["-NoProfile", "-Command",
+        "(Get-ScheduledTask -TaskName 'ClawCore_Models' -ErrorAction SilentlyContinue).TaskName",
+      ], { stdio: "pipe", timeout: 10000 }).toString().trim();
+      return out === "ClawCore_Models";
     } catch {
       return false;
     }
   }
 
-  if (platform === "linux") {
+  if (plat === "linux") {
     try {
       const output = execFileSync("systemctl", ["is-enabled", "clawcore-models"], { stdio: "pipe" }).toString().trim();
       return output === "enabled";

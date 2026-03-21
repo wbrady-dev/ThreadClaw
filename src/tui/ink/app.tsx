@@ -68,7 +68,9 @@ export async function launchInkTui(): Promise<void> {
       continue;
     }
 
-    await runLegacyAction(action);
+    if (action === "start" || action === "stop" || action === "restart") {
+      await runServiceAction(action as "start" | "stop" | "restart");
+    }
   }
 }
 
@@ -133,33 +135,6 @@ function showInkScreen(screen: "home" | "status" | "sources" | "services" | "con
   });
 }
 
-async function runLegacyAction(action: string): Promise<void> {
-  // Restore normal terminal state for legacy console output
-  process.stdin.resume();
-  if (process.stdin.isTTY) {
-    try { process.stdin.setRawMode(false); } catch {}
-  }
-  process.stdout.write("\x1b[?25h"); // show cursor
-  clearScreen();
-
-  try {
-    if (action === "configure") {
-      const { runConfigure } = await import("../screens/configure.js");
-      await runConfigure();
-    } else if (action === "services") {
-      const { manageServices } = await import("../screens/services.js");
-      await manageServices();
-    } else if (action === "start" || action === "stop" || action === "restart") {
-      await runServiceAction(action);
-    }
-  } catch (error) {
-    console.error(t.err(`\n  Error: ${String(error)}`));
-    await sleep(1500);
-  }
-
-  resetStdin();
-}
-
 async function runSourcesScreenAction(action: string): Promise<void> {
   process.stdin.resume();
   if (process.stdin.isTTY) {
@@ -217,15 +192,8 @@ async function runConfigureScreenAction(action: string): Promise<void> {
 }
 
 async function runServiceAction(action: "start" | "stop" | "restart"): Promise<void> {
-  // Ensure terminal is in a clean state for ora spinner output
-  process.stdin.resume();
-  if (process.stdin.isTTY) {
-    try { process.stdin.setRawMode(false); } catch {}
-  }
-  process.stdout.write("\x1b[?25h"); // show cursor
-
-  const ora = (await import("ora")).default;
-
+  // Run service action in background — don't leave the Ink screen.
+  // Progress is tracked via the task system and shown in Recent Activity.
   const taskId = `services:${action}:${Date.now()}`;
   const actionLabel = action === "start"
     ? "Starting services"
@@ -234,32 +202,25 @@ async function runServiceAction(action: "start" | "stop" | "restart"): Promise<v
       : "Restarting services";
   startTask(taskId, actionLabel, "Preparing...");
 
-  console.log(""); // blank line before spinner
-  const spinner = ora(actionLabel + "...").start();
-
-  try {
-    const result = await performServiceAction(action, {
-      onStatus: (detail) => {
-        const state = detail.startsWith("Waiting") ? "waiting" : "running";
-        updateTask(taskId, { state, detail });
-        spinner.text = detail;
-      },
-    });
-
+  // Run async — the home screen will re-render via task subscription
+  performServiceAction(action, {
+    onStatus: (detail) => {
+      const state = detail.startsWith("Waiting") ? "waiting" : "running";
+      updateTask(taskId, { state, detail });
+    },
+  }).then((result) => {
     if (result.success) {
       finishTask(taskId, result.message);
-      spinner.succeed(result.message);
     } else {
       failTask(taskId, result.message);
-      spinner.fail(result.message);
     }
-  } catch (error) {
+  }).catch((error) => {
     const msg = error instanceof Error ? error.message : String(error);
     failTask(taskId, msg);
-    spinner.fail(msg);
-  }
+  });
 
-  await sleep(1000);
+  // Brief pause so the task appears before menu re-renders
+  await sleep(200);
 }
 
 async function runServicesScreenAction(action: string): Promise<void> {
@@ -345,6 +306,7 @@ async function runServicesScreenAction(action: string): Promise<void> {
 // Module-level cache so re-mounts don't flash red
 let cachedModelsUp = false;
 let cachedClawcoreUp = false;
+let cachedOcrInstalled: boolean | null = null;
 
 function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const root = getRootDir();
@@ -352,188 +314,158 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
   const [modelsUp, setModelsUp] = useState(cachedModelsUp);
   const [clawcoreUp, setClawcoreUp] = useState(cachedClawcoreUp);
-  const [gpu, setGpu] = useState({
-    detected: false,
-    name: "",
-    vramUsedMb: 0,
-    vramTotalMb: 0,
-  });
+  const [gpu, setGpu] = useState({ detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 });
   const [stats, setStats] = useState<any>(null);
-  const [statsLoaded, setStatsLoaded] = useState(false);
   const [sources, setSources] = useState<any[]>([]);
   const [autoStart, setAutoStart] = useState(false);
   const [recentTasks, setRecentTasks] = useState<UiTask[]>(getTaskSnapshot());
   const [modelHealth, setModelHealth] = useState<any>(null);
 
+  // Detect OCR once (async, not on render)
+  const [ocrInstalled, setOcrInstalled] = useState(cachedOcrInstalled ?? false);
+  useEffect(() => {
+    if (cachedOcrInstalled !== null) return;
+    setTimeout(() => {
+      let found = false;
+      try {
+        execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 3000 });
+        found = true;
+      } catch {
+        if (getPlatform() === "windows") {
+          for (const p of ["C:\\Program Files\\Tesseract-OCR\\tesseract.exe", "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"]) {
+            try { execFileSync(p, ["--version"], { stdio: "pipe", timeout: 3000 }); found = true; break; } catch {}
+          }
+        }
+      }
+      cachedOcrInstalled = found;
+      setOcrInstalled(found);
+    }, 0);
+  }, []);
+
   const refresh = async () => {
-    const [
-      modelsHealth,
-      clawcoreHealth,
-      gpuState,
-      autoStartState,
-      statsResponse,
-      sourcesResponse,
-      healthResponse,
-    ] = await Promise.all([
+    const [mUp, cUp, gpuState, autoStartState, statsRes, sourcesRes, healthRes] = await Promise.all([
       isPortReachable(getModelPort()),
       isPortReachable(getApiPort()),
-      detectGpuAsync().catch(() => ({
-        detected: false,
-        name: "",
-        vramUsedMb: 0,
-        vramTotalMb: 0,
-        vramFreeMb: 0,
-      })),
+      detectGpuAsync().catch(() => ({ detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0, vramFreeMb: 0 })),
       checkAutoStartupAsync().catch(() => false),
-      fetch(`${getApiBaseUrl()}/stats`, {
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => null),
-      fetch(`${getApiBaseUrl()}/sources`, {
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => null),
-      fetch(`${getModelBaseUrl()}/health`, {
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => null),
+      fetch(`${getApiBaseUrl()}/stats`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
+      fetch(`${getApiBaseUrl()}/sources`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
+      fetch(`${getModelBaseUrl()}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
     ]);
 
-    cachedModelsUp = modelsHealth as boolean;
-    cachedClawcoreUp = clawcoreHealth as boolean;
+    cachedModelsUp = mUp as boolean;
+    cachedClawcoreUp = cUp as boolean;
     setModelsUp(cachedModelsUp);
     setClawcoreUp(cachedClawcoreUp);
-    setGpu({
-      detected: gpuState.detected,
-      name: gpuState.name,
-      vramUsedMb: gpuState.vramUsedMb,
-      vramTotalMb: gpuState.vramTotalMb,
-    });
+    setGpu({ detected: gpuState.detected, name: gpuState.name, vramUsedMb: gpuState.vramUsedMb, vramTotalMb: gpuState.vramTotalMb });
     setAutoStart(autoStartState);
 
     try {
-      const statsData = statsResponse?.ok ? await statsResponse.json() : null;
-      setStats(statsData);
-      if (statsData) setStatsLoaded(true);
-    } catch {
-      setStats(null);
-    }
+      setStats(statsRes?.ok ? await statsRes.json() : null);
+    } catch { setStats(null); }
 
     try {
-      if (sourcesResponse?.ok) {
-        const payload = await sourcesResponse.json() as { sources?: any[] };
+      if (sourcesRes?.ok) {
+        const payload = await sourcesRes.json() as { sources?: any[] };
         setSources(payload.sources ?? []);
       }
     } catch {}
 
     try {
-      const healthData = healthResponse?.ok ? await healthResponse.json() : null;
-      setModelHealth(healthData);
-    } catch {
-      setModelHealth(null);
-    }
+      const hd = healthRes?.ok ? await healthRes.json() : null;
+      setModelHealth(hd);
+    } catch { setModelHealth(null); }
   };
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  useEffect(() => { refresh(); }, []);
+  useEffect(() => subscribeTasks(() => { setRecentTasks(getTaskSnapshot()); void refresh(); }), []);
+  useInterval(refresh, modelsUp || clawcoreUp ? 3000 : 5000);
 
-  useEffect(() => subscribeTasks(() => {
-    setRecentTasks(getTaskSnapshot());
-    void refresh();
-  }), []);
-
-  useInterval(refresh, modelsUp || clawcoreUp ? 3000 : 8000);
+  // ── Derive display values (no sync I/O in render) ──
 
   const embedName = config?.embed_model?.split("/").pop() ?? "not configured";
   const rerankName = config?.rerank_model?.split("/").pop() ?? "not configured";
 
-  let deepExtractLabel = t.dim("off");
-  let expansionLabel = t.dim("off");
+  // Read .env once for all labels
+  let envContent = "";
   try {
     const envPath = resolve(root, ".env");
-    if (existsSync(envPath)) {
-      const envContent = readFileSync(envPath, "utf-8");
-
-      // Deep extraction model
-      const deepEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true";
-      if (deepEnabled) {
-        const explicitModel = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL=(.+)/)?.[1]?.trim();
-        const explicitProvider = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER=(.+)/)?.[1]?.trim();
-        if (explicitModel) {
-          const providerTag = explicitProvider ? `${explicitProvider}/` : "";
-          deepExtractLabel = t.value(`${providerTag}${explicitModel}`);
-        } else {
-          // Try to read OpenClaw's primary model
-          try {
-            const ocPath = resolve(root, "..", "..", "openclaw.json");
-            if (existsSync(ocPath)) {
-              const oc = JSON.parse(readFileSync(ocPath, "utf-8"));
-              const ocModel = oc?.agents?.defaults?.model?.primary;
-              if (ocModel) {
-                deepExtractLabel = t.value(ocModel.split("/").pop()) + t.dim(" (via OpenClaw)");
-              } else {
-                deepExtractLabel = t.dim("summary model fallback");
-              }
-            } else {
-              deepExtractLabel = t.dim("summary model fallback");
-            }
-          } catch {
-            deepExtractLabel = t.dim("summary model fallback");
-          }
-        }
-      }
-
-      // Query expansion
-      const enabled = envContent.match(/QUERY_EXPANSION_ENABLED=(\w+)/)?.[1];
-      const model = envContent.match(/QUERY_EXPANSION_MODEL=(.+)/)?.[1]?.trim();
-      if (enabled === "true" && model) expansionLabel = t.value(model);
-    }
+    if (existsSync(envPath)) envContent = readFileSync(envPath, "utf-8");
   } catch {}
+
+  const deepEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true";
+  let deepExtractLabel = t.dim("off");
+  if (deepEnabled) {
+    const explicitModel = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL=(.+)/)?.[1]?.trim();
+    const explicitProvider = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER=(.+)/)?.[1]?.trim();
+    if (explicitModel) {
+      deepExtractLabel = t.value(`${explicitProvider ? explicitProvider + "/" : ""}${explicitModel}`);
+    } else {
+      try {
+        const ocPath = resolve(root, "..", "..", "openclaw.json");
+        if (existsSync(ocPath)) {
+          const ocModel = JSON.parse(readFileSync(ocPath, "utf-8"))?.agents?.defaults?.model?.primary;
+          deepExtractLabel = ocModel ? t.value(ocModel.split("/").pop()) + t.dim(" (via OpenClaw)") : t.dim("summary model fallback");
+        }
+      } catch {}
+    }
+  }
+
+  let expansionLabel = t.dim("off");
+  const qeEnabled = envContent.match(/QUERY_EXPANSION_ENABLED=(\w+)/)?.[1];
+  const qeModel = envContent.match(/QUERY_EXPANSION_MODEL=(.+)/)?.[1]?.trim();
+  if (qeEnabled === "true" && qeModel) expansionLabel = t.value(qeModel);
 
   const doclingDevice = config?.docling_device ?? "off";
-  const doclingLabel = doclingDevice === "off"
-    ? t.dim("off")
-    : doclingDevice === "cpu"
-      ? t.ok("CPU")
-      : t.warn("GPU");
-
   const doclingOk = modelHealth?.models?.docling?.ready === true;
-  const ocrInstalled = (() => {
-    try {
-      execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 3000 });
-      return true;
-    } catch {
-      // Check common Windows install locations
-      if (getPlatform() === "windows") {
-        for (const p of ["C:\\Program Files\\Tesseract-OCR\\tesseract.exe", "C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"]) {
-          try { execFileSync(p, ["--version"], { stdio: "pipe", timeout: 3000 }); return true; } catch {}
-        }
-      }
-      return false;
-    }
-  })();
+  const doclingLabel = doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.value(doclingDevice.toUpperCase());
 
   const nerReady = modelHealth?.ner?.ready === true;
-  const nerLabel = nerReady ? t.ok("en_core_web_sm") : t.dim("off");
 
-  let watchCount = 0;
-  try {
-    const envPath = resolve(root, ".env");
-    if (existsSync(envPath)) {
-      const envContent = readFileSync(envPath, "utf-8");
-      const raw = envContent.match(/WATCH_PATHS=(.+)/)?.[1]?.trim();
-      if (raw) watchCount = raw.split(",").filter(Boolean).length;
-    }
-  } catch {}
-  const watchLabel = watchCount > 0 ? t.ok(`${watchCount} paths`) : t.dim("off");
-  const gameModeOn = !modelsUp && !clawcoreUp;
+  const watchPaths = envContent.match(/WATCH_PATHS=(.+)/)?.[1]?.trim();
+  const watchCount = watchPaths ? watchPaths.split(",").filter(Boolean).length : 0;
 
+  const relationsEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_ENABLED=(\w+)/)?.[1] === "true";
+  const awarenessEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_AWARENESS_ENABLED=(\w+)/)?.[1] === "true";
+  const claimsEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true";
+  const attemptEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED=(\w+)/)?.[1] === "true";
+
+  let evidenceLabel = t.dim("off");
+  if (relationsEnabled) {
+    const features = ["entities"];
+    if (awarenessEnabled) features.push("awareness");
+    if (claimsEnabled) features.push("claims");
+    if (attemptEnabled) features.push("attempts");
+    if (deepEnabled) features.push("deep");
+    evidenceLabel = t.ok(`on (${features.join(", ")})`);
+  }
+
+  // Source summary from .env (fast, no API needed)
+  const sourceIcons: string[] = [];
+  if (watchCount > 0) sourceIcons.push(`${t.ok("●")} Local Files`);
+  if (envContent.includes("OBSIDIAN_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Obsidian`);
+  if (envContent.includes("GDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Google Drive`);
+  if (envContent.includes("ONEDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} OneDrive`);
+  if (envContent.includes("NOTION_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Notion`);
+  if (envContent.includes("APPLE_NOTES_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Apple Notes`);
+
+  const P = 16; // label padding
+
+  // GPU line
   let gpuLine: string;
   if (gpu.detected && gpu.vramTotalMb > 0) {
-    const usedPct = Math.round((gpu.vramUsedMb / gpu.vramTotalMb) * 100);
-    const vramColor = usedPct >= 80 ? t.err : usedPct >= 50 ? t.warn : t.ok;
-    gpuLine = `${t.dim("GPU:")} ${gpu.name}  ${vramColor(`${gpu.vramUsedMb}/${gpu.vramTotalMb} MB (${usedPct}%)`)}`;
+    const pct = Math.round((gpu.vramUsedMb / gpu.vramTotalMb) * 100);
+    const c = pct >= 80 ? t.err : pct >= 50 ? t.warn : t.ok;
+    gpuLine = `${gpu.name}  ${c(`${gpu.vramUsedMb}/${gpu.vramTotalMb} MB (${pct}%)`)}`;
   } else {
-    gpuLine = `${t.dim("GPU:")} ${t.err("not detected")}`;
+    gpuLine = t.dim("not detected");
   }
+
+  // Knowledge base stats (always shown, not gated on API)
+  const docCount = stats?.documents ?? 0;
+  const chunkCount = stats?.chunks ?? 0;
+  const collCount = stats?.collections ?? 0;
+  const dbSize = ((stats?.dbSizeMB ?? 0) as number).toFixed(1);
 
   const anyRunning = modelsUp || clawcoreUp;
   const items: MenuItem[] = [
@@ -542,11 +474,12 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     { label: "Configure", value: "configure" },
     { label: "Services", value: "services" },
   ];
-  if (anyRunning) {
-    items.push({ label: "Stop", value: "stop" });
-    items.push({ label: "Restart", value: "restart" });
+  if (!anyRunning) {
+    items.push({ label: "Start Services", value: "start" });
+  } else {
+    items.push({ label: "Restart Services", value: "restart" });
+    items.push({ label: "Stop Services", value: "stop" });
   }
-  items.push({ label: "Start", value: "start" });
   items.push({ label: "Uninstall", value: "uninstall", color: t.err });
   items.push({ label: "Exit", value: "exit", color: t.dim });
 
@@ -554,65 +487,44 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     <Box flexDirection="column">
       <Banner />
 
-      <Text>{"  " + (modelsUp ? t.ok("●") : t.err("○")) + " Models " + t.dim("|") + " " + (clawcoreUp ? t.ok("●") : t.err("○")) + " ClawCore"}</Text>
-      <Text>{"  " + t.dim("Embed:".padEnd(18)) + t.value(embedName)}</Text>
-      <Text>{"  " + t.dim("Rerank:".padEnd(18)) + t.value(rerankName)}</Text>
-      <Text>{"  " + t.dim("Deep Extract:".padEnd(18)) + deepExtractLabel}</Text>
-      <Text>{"  " + t.dim("Query Expansion:".padEnd(18)) + expansionLabel}</Text>
-      <Text>{"  " + t.dim("Docling:".padEnd(18)) + (doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingLabel)}</Text>
-      <Text>{"  " + t.dim("OCR:".padEnd(18)) + (ocrInstalled ? t.ok("Tesseract") : t.dim("off"))}</Text>
-      <Text>{"  " + t.dim("NER:".padEnd(18)) + nerLabel}</Text>
-      <Text>{"  " + t.dim("File Watcher:".padEnd(18)) + watchLabel}</Text>
-      <Text>{"  " + t.dim("Auto-Startup:".padEnd(18)) + (autoStart ? t.ok("on") : t.dim("off")) + "    " + t.dim("Game Mode:") + " " + (gameModeOn ? t.warn("on") : t.dim("off"))}</Text>
-      <Text>{"  " + gpuLine}</Text>
+      {/* ── Services ── */}
+      <Text>{"  " + (modelsUp ? t.ok("●") : t.err("○")) + " Models " + t.dim("|") + " " + (clawcoreUp ? t.ok("●") : t.err("○")) + " ClawCore" + (autoStart ? t.dim("  (auto-start on)") : "")}</Text>
 
-      {statsLoaded && <Box flexDirection="column" marginTop={1}>
-        <Text>{t.title("  --- Knowledge Base ---")}</Text>
-        {stats ? (
-          <Box flexDirection="column">
-            <Text>{"  " + t.dim("Documents:".padEnd(18)) + t.value(String(stats.documents ?? 0)) + t.dim("    Chunks: ") + t.value(String(stats.chunks ?? 0))}</Text>
-            <Text>{"  " + t.dim("Collections:".padEnd(18)) + t.value(String(stats.collections ?? 0)) + t.dim("    Size: ") + t.value(((stats.dbSizeMB ?? 0) as number).toFixed(1) + " MB")}</Text>
-          </Box>
-        ) : (
-          <Text>{"  " + t.dim("API offline")}</Text>
-        )}
-        {(() => {
-          const active = sources.filter((source) => source.enabled).length;
-          const syncing = sources.filter((source) => source.status?.state === "syncing").length;
-          const syncingNames = sources
-            .filter((source) => source.status?.state === "syncing")
-            .slice(0, 2)
-            .map((source) => source.name);
-          const errored = sources.filter((source) => source.status?.error).slice(0, 1);
-          if (active > 0) {
-            const syncingText = syncing > 0 ? t.ok(`  - ${syncing} syncing`) : "";
-            return (
-              <>
-                <Text>{"  " + t.dim("Sources:".padEnd(18)) + t.value(`${active} active`) + syncingText}</Text>
-                {syncingNames.length > 0 && (
-                  <Text>{"  " + t.dim("Syncing:".padEnd(18)) + t.value(syncingNames.join(", "))}</Text>
-                )}
-                {errored.map((source) => (
-                  <Text key={source.id}>{"  " + t.dim("Source alert:".padEnd(18)) + t.err(`${source.name}: ${source.status.error}`)}</Text>
-                ))}
-              </>
-            );
-          }
-          return <Text>{"  " + t.dim("Sources:".padEnd(18)) + t.dim("none configured")}</Text>;
-        })()}
-      </Box>}
+      {/* ── Models & Processing ── */}
+      <Text>{""}</Text>
+      <Text>{"  " + t.dim("Embed:".padEnd(P)) + t.value(embedName)}</Text>
+      <Text>{"  " + t.dim("Rerank:".padEnd(P)) + t.value(rerankName)}</Text>
+      <Text>{"  " + t.dim("Deep Extract:".padEnd(P)) + deepExtractLabel}</Text>
+      <Text>{"  " + t.dim("Expansion:".padEnd(P)) + expansionLabel}</Text>
+      <Text>{"  " + t.dim("Docling:".padEnd(P)) + doclingLabel + t.dim("  |  ") + t.dim("OCR: ") + (ocrInstalled ? t.ok("on") : t.dim("off")) + t.dim("  |  ") + t.dim("NER: ") + (nerReady ? t.ok("on") : t.dim("off"))}</Text>
+      <Text>{"  " + t.dim("GPU:".padEnd(P)) + gpuLine}</Text>
 
-      <Box flexDirection="column" marginTop={1}>
-        <Text>{t.title("  --- Recent Activity ---")}</Text>
-        {recentTasks.length > 0 ? recentTasks.slice(0, 4).map((task) => (
-          <Text key={task.id}>{"  " + formatTask(task)}</Text>
-        )) : (
-          <Text>{"  " + t.dim("No recent activity yet")}</Text>
-        )}
-      </Box>
+      {/* ── Knowledge Base (always shown) ── */}
+      <Text>{""}</Text>
+      <Text>{t.title("  --- Knowledge Base ---")}</Text>
+      {stats ? (
+        <>
+          <Text>{"  " + t.dim("Documents:".padEnd(P)) + t.value(String(docCount)) + t.dim("  |  Chunks: ") + t.value(String(chunkCount)) + t.dim("  |  Size: ") + t.value(dbSize + " MB")}</Text>
+          <Text>{"  " + t.dim("Collections:".padEnd(P)) + t.value(String(collCount))}</Text>
+        </>
+      ) : (
+        <Text>{"  " + t.dim(clawcoreUp ? "Loading..." : "API offline — start services to see stats")}</Text>
+      )}
+      <Text>{"  " + t.dim("Sources:".padEnd(P)) + (sourceIcons.length > 0 ? sourceIcons.join(t.dim("  |  ")) : t.dim("none configured"))}</Text>
+      <Text>{"  " + t.dim("Watch Paths:".padEnd(P)) + (watchCount > 0 ? t.ok(`${watchCount} paths`) : t.dim("none"))}</Text>
+      <Text>{"  " + t.dim("Evidence OS:".padEnd(P)) + evidenceLabel}</Text>
+
+      {/* ── Recent Activity ── */}
+      {recentTasks.length > 0 && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>{t.title("  --- Activity ---")}</Text>
+          {recentTasks.slice(0, 4).map((task) => (
+            <Text key={task.id}>{"  " + formatTask(task)}</Text>
+          ))}
+        </Box>
+      )}
 
       <Separator />
-
       <Menu items={items} onSelect={onAction} />
     </Box>
   );
