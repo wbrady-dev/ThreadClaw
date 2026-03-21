@@ -249,6 +249,11 @@ function deleteTask(taskName: string): { success: boolean } {
   return { success: true };
 }
 
+/** Escape XML special characters for safe interpolation into XML/plist documents. */
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 /**
  * Ensure both Windows tasks are registered.
  * Uses schtasks.exe (native, instant) instead of PowerShell.
@@ -267,7 +272,7 @@ function ensureWindowsTasks(root: string): { ready: boolean; error?: string } {
   // Use XML task definitions so we can set WorkingDirectory and run the
   // executable directly (not via cmd.exe). This way schtasks /end kills
   // the actual python/node process, not just a cmd.exe wrapper.
-  const escXml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const escXml = escapeXml;
 
   // Write XML as UTF-16LE with BOM — required by schtasks /xml on Windows
   const writeXml = (path: string, content: string) => {
@@ -631,7 +636,7 @@ After=network.target
 Type=simple
 User=${user}
 WorkingDirectory=${root}
-ExecStart=${pythonCmd} ${findModelsScript(root)}
+ExecStart="${pythonCmd}" "${findModelsScript(root)}"
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${resolve(logsDir, "models.log")}
@@ -650,7 +655,7 @@ Requires=clawcore-models.service
 Type=simple
 User=${user}
 WorkingDirectory=${root}
-ExecStart=${nodeCmd} ${entryArgs.join(" ")}
+ExecStart="${nodeCmd}" ${entryArgs.map(a => `"${a}"`).join(" ")}
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${resolve(logsDir, "clawcore.log")}
@@ -711,14 +716,14 @@ export function installMacServices(root: string): { success: boolean; error?: st
   <key>Label</key><string>com.clawcore.models</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${pythonCmd}</string>
-    <string>${findModelsScript(root)}</string>
+    <string>${escapeXml(pythonCmd)}</string>
+    <string>${escapeXml(findModelsScript(root))}</string>
   </array>
-  <key>WorkingDirectory</key><string>${root}</string>
+  <key>WorkingDirectory</key><string>${escapeXml(root)}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${resolve(logsDir, "models.log")}</string>
-  <key>StandardErrorPath</key><string>${resolve(logsDir, "models.log")}</string>
+  <key>StandardOutPath</key><string>${escapeXml(resolve(logsDir, "models.log"))}</string>
+  <key>StandardErrorPath</key><string>${escapeXml(resolve(logsDir, "models.log"))}</string>
 </dict>
 </plist>
 `;
@@ -730,14 +735,14 @@ export function installMacServices(root: string): { success: boolean; error?: st
   <key>Label</key><string>com.clawcore.rag</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${nodeCmd}</string>
-${entryArgs.map(a => `    <string>${a}</string>`).join("\n")}
+    <string>${escapeXml(nodeCmd)}</string>
+${entryArgs.map(a => `    <string>${escapeXml(a)}</string>`).join("\n")}
   </array>
-  <key>WorkingDirectory</key><string>${root}</string>
+  <key>WorkingDirectory</key><string>${escapeXml(root)}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${resolve(logsDir, "clawcore.log")}</string>
-  <key>StandardErrorPath</key><string>${resolve(logsDir, "clawcore.log")}</string>
+  <key>StandardOutPath</key><string>${escapeXml(resolve(logsDir, "clawcore.log"))}</string>
+  <key>StandardErrorPath</key><string>${escapeXml(resolve(logsDir, "clawcore.log"))}</string>
 </dict>
 </plist>
 `;

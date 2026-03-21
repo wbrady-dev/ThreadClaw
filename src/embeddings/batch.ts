@@ -31,7 +31,7 @@ export async function embedBatch(
 
   // Process batches with limited concurrency
   const queue = [...batches];
-  const running: Promise<void>[] = [];
+  const running = new Set<Promise<void>>();
 
   async function processBatch(batch: { texts: string[]; startIdx: number }) {
     const embeddings = await embedWithRetry(batch.texts, type);
@@ -43,12 +43,10 @@ export async function embedBatch(
   }
 
   for (const item of queue) {
-    const p = processBatch(item).then(() => {
-      running.splice(running.indexOf(p), 1);
-    });
-    running.push(p);
+    const p = processBatch(item).finally(() => running.delete(p));
+    running.add(p);
 
-    if (running.length >= MAX_CONCURRENT) {
+    if (running.size >= MAX_CONCURRENT) {
       await Promise.race(running);
     }
   }
