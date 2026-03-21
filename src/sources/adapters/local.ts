@@ -58,7 +58,7 @@ export class LocalAdapter implements SourceAdapter {
         paths: [resolve(c.path)],
         collection: c.collection,
         debounceMs: 3000,
-        ingestExisting: true,
+        ingestExisting: false,
       }));
 
     if (watchConfigs.length === 0) {
