@@ -74,13 +74,21 @@ export function getPythonCmd(): string {
     if (existsSync(venvPython)) return venvPython;
   } catch {}
 
-  // Fallback to system Python
+  // Fallback to system Python — resolve full path for Task Scheduler compatibility
   if (getPlatform() === "windows") {
+    try {
+      const fullPath = execFileSync("where", ["python"], { stdio: "pipe" }).toString().trim().split("\n")[0].trim();
+      if (fullPath && existsSync(fullPath)) return fullPath;
+    } catch {}
     try {
       execFileSync("python", ["--version"], { stdio: "pipe" });
       return "python";
     } catch {}
   }
+  try {
+    const fullPath = execFileSync("which", ["python3"], { stdio: "pipe" }).toString().trim();
+    if (fullPath && existsSync(fullPath)) return fullPath;
+  } catch {}
   try {
     execFileSync("python3", ["--version"], { stdio: "pipe" });
     return "python3";
