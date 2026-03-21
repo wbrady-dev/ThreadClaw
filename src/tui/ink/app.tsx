@@ -68,9 +68,7 @@ export async function launchInkTui(): Promise<void> {
       continue;
     }
 
-    if (action === "start" || action === "stop" || action === "restart") {
-      await runServiceAction(action as "start" | "stop" | "restart");
-    }
+    // start/stop/restart are handled inside HomeScreen — should not reach here
   }
 }
 
@@ -191,49 +189,76 @@ async function runConfigureScreenAction(action: string): Promise<void> {
   resetStdin();
 }
 
-async function runServiceAction(action: "start" | "stop" | "restart"): Promise<void> {
-  // Run service action in background — don't leave the Ink screen.
-  // Progress is tracked via the task system and shown in Recent Activity.
-  const taskId = `services:${action}:${Date.now()}`;
-  const actionLabel = action === "start"
-    ? "Starting services"
-    : action === "stop"
-      ? "Stopping services"
-      : "Restarting services";
-  startTask(taskId, actionLabel, "Preparing...");
+// Module-level service action state — survives HomeScreen re-mounts
+let activeServiceAction: {
+  label: string;
+  detail: string;
+  done: boolean;
+  success: boolean;
+  message: string;
+} | null = null;
+let serviceActionListeners = new Set<() => void>();
 
-  // Run async — the home screen will re-render via task subscription
+function notifyServiceActionListeners() {
+  for (const fn of serviceActionListeners) fn();
+}
+
+function fireServiceAction(action: "start" | "stop" | "restart"): void {
+  if (activeServiceAction && !activeServiceAction.done) return; // already running
+
+  const label = action === "start" ? "Starting services"
+    : action === "stop" ? "Stopping services"
+    : "Restarting services";
+
+  activeServiceAction = { label, detail: "Preparing...", done: false, success: false, message: "" };
+  notifyServiceActionListeners();
+
+  const taskId = `services:${action}:${Date.now()}`;
+  startTask(taskId, label, "Preparing...");
+
   performServiceAction(action, {
     onStatus: (detail) => {
-      const state = detail.startsWith("Waiting") ? "waiting" : "running";
+      if (activeServiceAction) {
+        activeServiceAction.detail = detail;
+        notifyServiceActionListeners();
+      }
+      const state = detail.startsWith("Waiting") ? "waiting" as const : "running" as const;
       updateTask(taskId, { state, detail });
     },
   }).then((result) => {
-    if (result.success) {
-      finishTask(taskId, result.message);
-    } else {
-      failTask(taskId, result.message);
+    if (activeServiceAction) {
+      activeServiceAction.done = true;
+      activeServiceAction.success = result.success;
+      activeServiceAction.message = result.message;
+      notifyServiceActionListeners();
     }
+    result.success ? finishTask(taskId, result.message) : failTask(taskId, result.message);
+    // Clear after 4s so the success/fail message is visible
+    setTimeout(() => { activeServiceAction = null; notifyServiceActionListeners(); }, 4000);
   }).catch((error) => {
     const msg = error instanceof Error ? error.message : String(error);
+    if (activeServiceAction) {
+      activeServiceAction.done = true;
+      activeServiceAction.success = false;
+      activeServiceAction.message = msg;
+      notifyServiceActionListeners();
+    }
     failTask(taskId, msg);
+    setTimeout(() => { activeServiceAction = null; notifyServiceActionListeners(); }, 4000);
   });
-
-  // Brief pause so the task appears before menu re-renders
-  await sleep(200);
 }
 
 async function runServicesScreenAction(action: string): Promise<void> {
   if (action === "services-start") {
-    await runServiceAction("start");
+    fireServiceAction("start");
     return;
   }
   if (action === "services-stop" || action === "services-game-on") {
-    await runServiceAction("stop");
+    fireServiceAction("stop");
     return;
   }
   if (action === "services-restart" || action === "services-game-off") {
-    await runServiceAction("restart");
+    fireServiceAction("restart");
     return;
   }
 
@@ -320,6 +345,14 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const [autoStart, setAutoStart] = useState(false);
   const [recentTasks, setRecentTasks] = useState<UiTask[]>(getTaskSnapshot());
   const [modelHealth, setModelHealth] = useState<any>(null);
+  const [svcAction, setSvcAction] = useState(activeServiceAction);
+
+  // Subscribe to service action progress
+  useEffect(() => {
+    const listener = () => setSvcAction(activeServiceAction ? { ...activeServiceAction } : null);
+    serviceActionListeners.add(listener);
+    return () => { serviceActionListeners.delete(listener); };
+  }, []);
 
   // Detect OCR once (async, not on render)
   const [ocrInstalled, setOcrInstalled] = useState(cachedOcrInstalled ?? false);
@@ -524,8 +557,24 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
         </Box>
       )}
 
+      {/* ── Service action progress ── */}
+      {svcAction && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>{"  " + (svcAction.done
+            ? (svcAction.success ? t.ok("✓ ") : t.err("✗ ")) + (svcAction.success ? t.ok(svcAction.message) : t.err(svcAction.message))
+            : t.warn("⟳ ") + t.warn(svcAction.label) + t.dim(" — " + svcAction.detail)
+          )}</Text>
+        </Box>
+      )}
+
       <Separator />
-      <Menu items={items} onSelect={onAction} />
+      <Menu items={items} onSelect={(value) => {
+        if (value === "start" || value === "stop" || value === "restart") {
+          fireServiceAction(value);
+          return;
+        }
+        onAction(value);
+      }} />
     </Box>
   );
 }
