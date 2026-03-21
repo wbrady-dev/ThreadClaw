@@ -545,7 +545,6 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Models ── */}
       <Text>{""}</Text>
-      <Text>{""}</Text>
       <Text>{t.title("--- Models ---")}</Text>
       <Text>{"  " + t.dim("Embed: ") + t.value(embedName)}</Text>
       <Text>{"  " + t.dim("Rerank: ") + t.value(rerankName)}</Text>
@@ -555,12 +554,10 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Document Intelligence ── */}
       <Text>{""}</Text>
-      <Text>{""}</Text>
       <Text>{t.title("--- Document Intelligence ---")}</Text>
       <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○"))}</Text>
 
       {/* ── Knowledge Base ── */}
-      <Text>{""}</Text>
       <Text>{""}</Text>
       <Text>{t.title("--- Knowledge Base ---")}</Text>
       <Text>{"  " + t.dim("Sources: ") + (sourceIcons.length > 0 ? sourceIcons.join(t.dim("  |  ")) : t.dim("none configured"))}</Text>
@@ -576,16 +573,15 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Evidence OS ── */}
       <Text>{""}</Text>
-      <Text>{""}</Text>
       <Text>{t.title("--- Evidence OS ---")}</Text>
       <Text>{"  " + t.dim("Status:    ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○"))}</Text>
       <Text>{"  " + t.dim("Entities:  ") + t.ok("●") + "  " + t.dim("Awareness:       ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
       <Text>{"  " + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Attempts:        ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
+      <Text>{""}</Text>
 
       {/* ── Activity / Service Action ── */}
       {(recentTasks.length > 0 || svcAction) && (
         <Box flexDirection="column">
-          <Text>{""}</Text>
           <Text>{""}</Text>
           <Text>{t.title("--- Activity ---")}</Text>
           {svcAction && (
