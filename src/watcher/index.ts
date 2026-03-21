@@ -3,6 +3,7 @@ import { resolve, extname } from "path";
 import { config } from "../config.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import { getSupportedExtensions } from "../ingest/parsers/index.js";
+import { isCircuitBreakerOpen } from "../embeddings/client.js";
 import { getDb } from "../storage/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -128,6 +129,13 @@ export class ClawCoreWatcher {
   }
 
   private drainQueue(): void {
+    // Pause ingestion while the embedding server is unreachable
+    if (isCircuitBreakerOpen()) {
+      // Re-check after cooldown
+      setTimeout(() => this.drainQueue(), 5000);
+      return;
+    }
+
     while (this.activeIngests < MAX_CONCURRENT_INGESTS && this.ingestQueue.length > 0) {
       const item = this.ingestQueue.shift()!;
       if (this.processing.has(item.filePath)) continue;

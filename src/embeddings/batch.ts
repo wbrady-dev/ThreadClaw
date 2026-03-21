@@ -75,8 +75,13 @@ async function embedWithRetry(
   try {
     return await embed(texts, type);
   } catch (err) {
+    // If circuit breaker is open, don't retry — fail immediately
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("circuit breaker")) {
+      throw err;
+    }
+
     if (batchSize <= 1) {
-      // Can't split further — fail
       throw err;
     }
 
@@ -86,7 +91,6 @@ async function embedWithRetry(
       "Embedding batch failed, retrying with smaller batches",
     );
 
-    // Split and retry each half
     const results: number[][] = [];
     for (let i = 0; i < texts.length; i += halfSize) {
       const sub = texts.slice(i, i + halfSize);

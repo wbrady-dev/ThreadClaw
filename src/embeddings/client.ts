@@ -18,6 +18,14 @@ function checkCircuit(): void {
   }
 }
 
+/** Check if the embedding circuit breaker is currently open. */
+export function isCircuitBreakerOpen(): boolean {
+  if (circuitOpen && Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
+    circuitOpen = false;
+  }
+  return circuitOpen;
+}
+
 function tripCircuit(): void {
   if (!circuitOpen) {
     circuitOpen = true;
