@@ -2,6 +2,30 @@ import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { EmbeddingError } from "../utils/errors.js";
 
+// Circuit breaker: when embedding server is unreachable, stop trying for a cooldown
+let circuitOpen = false;
+let circuitOpenedAt = 0;
+const CIRCUIT_COOLDOWN_MS = 30_000; // 30 seconds
+
+function checkCircuit(): void {
+  if (circuitOpen && Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
+    circuitOpen = false;
+    logger.info("Embedding circuit breaker reset — retrying server");
+  }
+  if (circuitOpen) {
+    throw new EmbeddingError("Embedding server unreachable (circuit breaker open — will retry in " +
+      Math.ceil((CIRCUIT_COOLDOWN_MS - (Date.now() - circuitOpenedAt)) / 1000) + "s)");
+  }
+}
+
+function tripCircuit(): void {
+  if (!circuitOpen) {
+    circuitOpen = true;
+    circuitOpenedAt = Date.now();
+    logger.error("Embedding server unreachable — circuit breaker tripped, pausing for 30s");
+  }
+}
+
 export interface EmbeddingResponse {
   data: { embedding: number[]; index: number }[];
   model: string;
@@ -25,6 +49,8 @@ export async function embed(
       config.embedding.model.includes("nv-embed")
     ));
   const input = needsPrefix ? texts.map((t) => `${type}: ${t}`) : texts;
+
+  checkCircuit();
 
   const url = `${config.embedding.url}/embeddings`;
 
@@ -89,6 +115,10 @@ export async function embed(
       .map((d) => d.embedding);
   }
 
+  // If all retries failed with connection errors, trip the circuit breaker
+  if (lastError && lastError.message.includes("Failed to connect")) {
+    tripCircuit();
+  }
   throw lastError ?? new EmbeddingError("Embedding failed after retries");
 
 }
