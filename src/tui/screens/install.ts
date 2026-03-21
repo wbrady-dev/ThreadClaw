@@ -325,18 +325,33 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
     }
   }
 
-  // Memory-engine dependencies: copy from source if target is missing node_modules
-  // (memory-engine uses monorepo packages that can't be installed from public npm)
+  // Memory-engine dependencies
   const memoryEngineDir = resolve(root, "memory-engine");
   const meNodeModules = resolve(memoryEngineDir, "node_modules");
-  const meSourceModules = resolve(sourceRoot, "memory-engine", "node_modules");
-  if (existsSync(resolve(memoryEngineDir, "package.json")) && !existsSync(meNodeModules) && existsSync(meSourceModules)) {
-    sp = ora("Copying memory-engine dependencies...").start();
-    try {
-      cpSync(meSourceModules, meNodeModules, { recursive: true });
-      sp.succeed("Memory-engine dependencies installed");
-    } catch {
-      sp.warn("Memory-engine dependency copy failed. OpenClaw plugin may not load until resolved.");
+  if (existsSync(resolve(memoryEngineDir, "package.json")) && !existsSync(meNodeModules)) {
+    const meSourceModules = resolve(sourceRoot, "memory-engine", "node_modules");
+    if (root !== sourceRoot && existsSync(meSourceModules)) {
+      // Different target — copy from source
+      sp = ora("Copying memory-engine dependencies...").start();
+      try {
+        cpSync(meSourceModules, meNodeModules, { recursive: true });
+        sp.succeed("Memory-engine dependencies installed");
+      } catch {
+        sp.warn("Memory-engine dependency copy failed. OpenClaw plugin may not load until resolved.");
+      }
+    } else {
+      // Same directory or source has no node_modules — npm install
+      sp = ora("Installing memory-engine dependencies...").start();
+      try {
+        const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
+        await runCommandWithSpinner(sp, "Installing memory-engine dependencies...", npmCmd, ["install"], {
+          cwd: memoryEngineDir,
+          timeoutMs: 300000,
+        });
+        sp.succeed("Memory-engine dependencies installed");
+      } catch {
+        sp.warn("Memory-engine npm install failed. Run: cd memory-engine && npm install");
+      }
     }
   }
 
