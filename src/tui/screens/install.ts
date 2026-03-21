@@ -307,13 +307,16 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
   const hadExistingEnv = existsSync(envPath);
   const existingEnv = hadExistingEnv ? readFileSync(envPath, "utf-8") : "";
 
+  const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
+  const failures: string[] = [];
+
+  // ── Step 1: Node.js dependencies ──
   let sp = ora("Installing Node.js dependencies...").start();
   if (process.env.CLAWCORE_SKIP_NODE_INSTALL === "1") {
     sp.succeed("Node.js dependencies already bootstrapped");
     delete process.env.CLAWCORE_SKIP_NODE_INSTALL;
   } else {
     try {
-      const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
       await runCommandWithSpinner(sp, "Installing Node.js dependencies...", npmCmd, ["install"], {
         cwd: root,
         timeoutMs: 300000,
@@ -324,42 +327,61 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
       throw error;
     }
   }
+  // Verify
+  if (!existsSync(resolve(root, "node_modules"))) {
+    failures.push("Node.js: node_modules missing after install. Run: npm install");
+  }
 
-  // Memory-engine dependencies
+  // ── Step 2: Memory-engine dependencies ──
   const memoryEngineDir = resolve(root, "memory-engine");
   const meNodeModules = resolve(memoryEngineDir, "node_modules");
-  if (existsSync(resolve(memoryEngineDir, "package.json")) && !existsSync(meNodeModules)) {
-    const meSourceModules = resolve(sourceRoot, "memory-engine", "node_modules");
-    if (root !== sourceRoot && existsSync(meSourceModules)) {
-      // Different target — copy from source
-      sp = ora("Copying memory-engine dependencies...").start();
-      try {
-        cpSync(meSourceModules, meNodeModules, { recursive: true });
-        sp.succeed("Memory-engine dependencies installed");
-      } catch {
-        sp.warn("Memory-engine dependency copy failed. OpenClaw plugin may not load until resolved.");
+  if (existsSync(resolve(memoryEngineDir, "package.json"))) {
+    if (!existsSync(meNodeModules)) {
+      const meSourceModules = resolve(sourceRoot, "memory-engine", "node_modules");
+      if (root !== sourceRoot && existsSync(meSourceModules)) {
+        sp = ora("Copying memory-engine dependencies...").start();
+        try {
+          cpSync(meSourceModules, meNodeModules, { recursive: true });
+          sp.succeed("Memory-engine dependencies copied");
+        } catch {
+          sp.warn("Copy failed, trying npm install...");
+          try {
+            await runCommandWithSpinner(sp, "Installing memory-engine dependencies...", npmCmd, ["install"], {
+              cwd: memoryEngineDir, timeoutMs: 300000,
+            });
+            sp.succeed("Memory-engine dependencies installed");
+          } catch {
+            failures.push("Memory-engine: npm install failed. Run: cd memory-engine && npm install");
+            sp.fail("Memory-engine install failed");
+          }
+        }
+      } else {
+        sp = ora("Installing memory-engine dependencies...").start();
+        try {
+          await runCommandWithSpinner(sp, "Installing memory-engine dependencies...", npmCmd, ["install"], {
+            cwd: memoryEngineDir, timeoutMs: 300000,
+          });
+          sp.succeed("Memory-engine dependencies installed");
+        } catch {
+          failures.push("Memory-engine: npm install failed. Run: cd memory-engine && npm install");
+          sp.fail("Memory-engine install failed");
+        }
       }
     } else {
-      // Same directory or source has no node_modules — npm install
-      sp = ora("Installing memory-engine dependencies...").start();
-      try {
-        const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
-        await runCommandWithSpinner(sp, "Installing memory-engine dependencies...", npmCmd, ["install"], {
-          cwd: memoryEngineDir,
-          timeoutMs: 300000,
-        });
-        sp.succeed("Memory-engine dependencies installed");
-      } catch {
-        sp.warn("Memory-engine npm install failed. Run: cd memory-engine && npm install");
-      }
+      console.log(t.ok("  [ok] Memory-engine dependencies already present"));
+    }
+    // Verify
+    if (!existsSync(resolve(meNodeModules, "@sinclair", "typebox"))) {
+      failures.push("Memory-engine: @sinclair/typebox missing. Run: cd memory-engine && npm install");
     }
   }
 
+  // ── Step 3: Global tsx ──
   try {
-    const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
     await runStreamedCommand(npmCmd, ["install", "-g", "tsx"], { timeoutMs: 300000 });
   } catch {}
 
+  // ── Step 4: Python core dependencies ──
   sp = ora("Installing Python dependencies...").start();
   try {
     let hasGpuRuntime = false;
@@ -376,69 +398,70 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
         });
       } else {
         try {
-          await runCommandWithSpinner(
-            sp,
-            "Installing GPU PyTorch...",
-            python,
+          await runCommandWithSpinner(sp, "Installing GPU PyTorch...", python,
             ["-m", "pip", "install", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu124"],
-            { timeoutMs: 600000 },
-          );
+            { timeoutMs: 600000 });
         } catch {
           sp.text = "Falling back to CPU PyTorch...";
-          await runCommandWithSpinner(
-            sp,
-            "Installing CPU PyTorch...",
-            python,
-            ["-m", "pip", "install", "torch", "torchvision"],
-            { timeoutMs: 600000 },
-          );
+          await runCommandWithSpinner(sp, "Installing CPU PyTorch...", python,
+            ["-m", "pip", "install", "torch", "torchvision"], { timeoutMs: 600000 });
         }
       }
     }
 
-    await runCommandWithSpinner(
-      sp,
-      "Installing sentence-transformers and Flask...",
-      python,
-      ["-m", "pip", "install", "sentence-transformers", "flask"],
-      { timeoutMs: 300000 },
-    );
+    await runCommandWithSpinner(sp, "Installing sentence-transformers and Flask...", python,
+      ["-m", "pip", "install", "sentence-transformers", "flask"], { timeoutMs: 300000 });
     sp.succeed("Python dependencies installed");
   } catch (error) {
     sp.fail(`Python install failed: ${String(error).slice(0, 200)}`);
     throw error;
   }
+  // Verify
+  try {
+    execFileSync(python, ["-c", "import sentence_transformers"], { stdio: "pipe" });
+  } catch {
+    failures.push("Python: sentence-transformers not importable. Run: pip install sentence-transformers");
+  }
 
-  // Install spaCy BEFORE Docling to avoid typer version conflict
-  // (spaCy needs typer <0.22, Docling pulls in newer typer)
+  // ── Step 5: Docling (install BEFORE spaCy to avoid typer conflict) ──
+  sp = ora("Installing Docling...").start();
+  try {
+    await runCommandWithSpinner(sp, "Installing Docling...", python,
+      ["-m", "pip", "install", "docling"], { timeoutMs: 600000 });
+    sp.succeed("Docling installed");
+  } catch {
+    sp.warn("Docling install failed. Advanced document parsing unavailable.");
+  }
+
+  // ── Step 6: spaCy NER ──
   sp = ora("Installing spaCy NER...").start();
   try {
-    await runCommandWithSpinner(sp, "Installing spaCy...", python, ["-m", "pip", "install", "spacy"], {
-      timeoutMs: 300000,
-    });
-    await runCommandWithSpinner(sp, "Downloading NER model...", python, ["-m", "spacy", "download", "en_core_web_sm"], {
-      timeoutMs: 120000,
-    });
+    await runCommandWithSpinner(sp, "Installing spaCy...", python,
+      ["-m", "pip", "install", "spacy"], { timeoutMs: 300000 });
+    await runCommandWithSpinner(sp, "Downloading NER model...", python,
+      ["-m", "spacy", "download", "en_core_web_sm"], { timeoutMs: 120000 });
     sp.succeed("spaCy NER model installed");
   } catch {
     sp.warn("spaCy NER install failed. Entity extraction will use regex fallback.");
   }
-
-  for (const pkg of [
-    { label: "Docling", args: ["docling"] },
-    { label: "Whisper", args: ["openai-whisper"] },
-  ]) {
-    sp = ora(`Installing ${pkg.label}...`).start();
-    try {
-      await runCommandWithSpinner(sp, `Installing ${pkg.label}...`, python, ["-m", "pip", "install", ...pkg.args], {
-        timeoutMs: 600000,
-      });
-      sp.succeed(`${pkg.label} installed`);
-    } catch {
-      sp.warn(`${pkg.label} install failed. You can install it later.`);
-    }
+  // Verify
+  try {
+    execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 30000 });
+  } catch {
+    failures.push("NER: spaCy model not loadable. Run: pip install spacy && python -m spacy download en_core_web_sm");
   }
 
+  // ── Step 7: Whisper ──
+  sp = ora("Installing Whisper...").start();
+  try {
+    await runCommandWithSpinner(sp, "Installing Whisper...", python,
+      ["-m", "pip", "install", "openai-whisper"], { timeoutMs: 600000 });
+    sp.succeed("Whisper installed");
+  } catch {
+    sp.warn("Whisper install failed. Audio transcription unavailable.");
+  }
+
+  // ── Step 8: Tesseract OCR ──
   if (enableOcr) {
     sp = ora("Checking Tesseract OCR...").start();
     try {
@@ -448,42 +471,42 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
       try {
         if (platform === "windows") {
           try {
-            await runCommandWithSpinner(
-              sp,
-              "Installing Tesseract with winget...",
-              "winget",
+            await runCommandWithSpinner(sp, "Installing Tesseract with winget...", "winget",
               ["install", "UB-Mannheim.TesseractOCR", "--accept-source-agreements", "--accept-package-agreements"],
-              { timeoutMs: 120000 },
-            );
+              { timeoutMs: 120000 });
           } catch {
-            await runCommandWithSpinner(
-              sp,
-              "Installing Tesseract with choco...",
-              "choco",
-              ["install", "tesseract", "-y"],
-              { timeoutMs: 120000 },
-            );
+            try {
+              await runCommandWithSpinner(sp, "Installing Tesseract with choco...", "choco",
+                ["install", "tesseract", "-y"], { timeoutMs: 120000 });
+            } catch {
+              throw new Error("No package manager available");
+            }
           }
         } else if (platform === "mac") {
-          await runCommandWithSpinner(sp, "Installing Tesseract with brew...", "brew", ["install", "tesseract"], {
-            timeoutMs: 120000,
-          });
+          await runCommandWithSpinner(sp, "Installing Tesseract with brew...", "brew",
+            ["install", "tesseract"], { timeoutMs: 120000 });
         } else {
           try {
-            await runCommandWithSpinner(sp, "Installing Tesseract with apt...", "sudo", ["apt", "install", "-y", "tesseract-ocr"], {
-              timeoutMs: 120000,
-            });
+            await runCommandWithSpinner(sp, "Installing Tesseract with apt...", "sudo",
+              ["apt", "install", "-y", "tesseract-ocr"], { timeoutMs: 120000 });
           } catch {
-            await runCommandWithSpinner(sp, "Installing Tesseract with yum...", "sudo", ["yum", "install", "-y", "tesseract"], {
-              timeoutMs: 120000,
-            });
+            await runCommandWithSpinner(sp, "Installing Tesseract with yum...", "sudo",
+              ["yum", "install", "-y", "tesseract"], { timeoutMs: 120000 });
           }
         }
         sp.succeed("Tesseract installed");
       } catch {
-        sp.warn("Tesseract install failed. Download from: https://github.com/UB-Mannheim/tesseract/wiki");
+        sp.warn("Tesseract not available. Download: https://github.com/UB-Mannheim/tesseract/wiki");
+        failures.push("OCR: Tesseract not installed. Download: https://github.com/UB-Mannheim/tesseract/wiki");
       }
     }
+  }
+
+  // ── Report any failures ──
+  if (failures.length > 0) {
+    console.log(t.warn("\n  Some components need attention:"));
+    for (const f of failures) console.log(t.err(`    • ${f}`));
+    console.log(t.dim("  These are non-fatal — ClawCore will work with reduced functionality.\n"));
   }
 
   sp = ora("Writing configuration...").start();
@@ -554,10 +577,19 @@ ${extraEnv ? `\n${extraEnv}\n` : ""}`);
   }
 
   // Register `clawcore` as a global CLI command
+  sp = ora("Registering clawcore command...").start();
   try {
-    const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
     execFileSync(npmCmd, ["link"], { cwd: root, stdio: "pipe", timeout: 30000 });
-  } catch {}
+    // Verify it worked
+    try {
+      execFileSync(npmCmd === "npm.cmd" ? "where" : "which", ["clawcore"], { stdio: "pipe", timeout: 5000 });
+      sp.succeed("clawcore command registered globally");
+    } catch {
+      sp.warn("npm link ran but clawcore not found on PATH. Try: npm link (in an admin terminal)");
+    }
+  } catch {
+    sp.warn(`Global command not registered. Run manually: cd ${root} && npm link`);
+  }
 
   setRootDirOverride(root);
   printVerification(root, python, envPath);
@@ -748,24 +780,77 @@ export async function installWindowsServicesNow(root: string): Promise<void> {
 
 function printVerification(root: string, python: string, envPath: string): void {
   console.log(section("Verification"));
-  const checks: Array<[string, boolean]> = [];
-  checks.push(["Node.js dependencies", existsSync(resolve(root, "node_modules"))]);
+  const checks: Array<[string, boolean, string?]> = [];
+
+  // Node
+  checks.push(["Node.js dependencies", existsSync(resolve(root, "node_modules")), "Run: npm install"]);
+  checks.push(["Memory-engine dependencies", existsSync(resolve(root, "memory-engine", "node_modules", "@sinclair", "typebox")), "Run: cd memory-engine && npm install"]);
+
+  // Python
   try {
-    execFileSync(python, ["-c", "import sentence_transformers"], { stdio: "pipe" });
+    execFileSync(python, ["-c", "import sentence_transformers"], { stdio: "pipe", timeout: 10000 });
     checks.push(["sentence-transformers", true]);
   } catch {
-    checks.push(["sentence-transformers", false]);
+    checks.push(["sentence-transformers", false, "Run: pip install sentence-transformers"]);
   }
   try {
-    execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe" });
-    checks.push(["spaCy NER (en_core_web_sm)", true]);
+    execFileSync(python, ["-c", "import flask"], { stdio: "pipe", timeout: 10000 });
+    checks.push(["Flask", true]);
   } catch {
-    checks.push(["spaCy NER (en_core_web_sm)", false]);
+    checks.push(["Flask", false, "Run: pip install flask"]);
   }
+  try {
+    execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 30000 });
+    checks.push(["spaCy NER", true]);
+  } catch {
+    checks.push(["spaCy NER", false, "Run: pip install spacy && python -m spacy download en_core_web_sm"]);
+  }
+  try {
+    execFileSync(python, ["-c", "import docling"], { stdio: "pipe", timeout: 10000 });
+    checks.push(["Docling", true]);
+  } catch {
+    checks.push(["Docling", false, "Run: pip install docling"]);
+  }
+  try {
+    execFileSync(python, ["-c", "import whisper"], { stdio: "pipe", timeout: 10000 });
+    checks.push(["Whisper", true]);
+  } catch {
+    checks.push(["Whisper", false, "Run: pip install openai-whisper"]);
+  }
+  try {
+    execFileSync("tesseract", ["--version"], { stdio: "pipe", timeout: 5000 });
+    checks.push(["Tesseract OCR", true]);
+  } catch {
+    checks.push(["Tesseract OCR", false, "Download: https://github.com/UB-Mannheim/tesseract/wiki"]);
+  }
+
+  // Config
   checks.push(["Configuration file", existsSync(envPath)]);
   checks.push(["Model configuration", existsSync(resolve(root, "server", "config.json")) || existsSync(resolve(root, "config.json"))]);
-  for (const [label, ok] of checks) console.log(ok ? t.ok(`  [ok] ${label}`) : t.err(`  [x] ${label}`));
+
+  // Global command
+  try {
+    const which = getPlatform() === "windows" ? "where" : "which";
+    execFileSync(which, ["clawcore"], { stdio: "pipe", timeout: 5000 });
+    checks.push(["clawcore global command", true]);
+  } catch {
+    checks.push(["clawcore global command", false, `Run: cd ${root} && npm link`]);
+  }
+
+  let allOk = true;
+  for (const [label, ok, fix] of checks) {
+    if (ok) {
+      console.log(t.ok(`  [ok] ${label}`));
+    } else {
+      console.log(t.err(`  [x]  ${label}`) + (fix ? t.dim(`  → ${fix}`) : ""));
+      allOk = false;
+    }
+  }
   console.log("");
+  if (!allOk) {
+    console.log(t.warn("  Some checks failed. ClawCore will work with reduced functionality."));
+    console.log(t.dim("  Fix the items above and restart services to enable all features.\n"));
+  }
 }
 
 function installSkills(openclawDir: string | null, sourceRoot: string, root: string): void {
