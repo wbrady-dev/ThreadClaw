@@ -1,5 +1,7 @@
 node_modules/
 dist/
+build/
+.venv/
 logs/
 .env
 *.db
@@ -15,4 +17,3 @@ package-lock.json
 .DS_Store
 data/*
 !data/.gitkeep
-.venv/
