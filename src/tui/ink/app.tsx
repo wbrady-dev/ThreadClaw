@@ -328,10 +328,15 @@ async function runServicesScreenAction(action: string): Promise<void> {
   }
 }
 
-// Module-level cache so re-mounts don't flash red
+// Module-level cache so re-mounts don't flash or lose data
 let cachedModelsUp = false;
 let cachedClawcoreUp = false;
 let cachedOcrInstalled: boolean | null = null;
+let cachedStats: any = null;
+let cachedSources: any[] = [];
+let cachedModelHealth: any = null;
+let cachedGpu = { detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 };
+let cachedAutoStart = false;
 
 function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const root = getRootDir();
@@ -339,12 +344,12 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
   const [modelsUp, setModelsUp] = useState(cachedModelsUp);
   const [clawcoreUp, setClawcoreUp] = useState(cachedClawcoreUp);
-  const [gpu, setGpu] = useState({ detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 });
-  const [stats, setStats] = useState<any>(null);
-  const [sources, setSources] = useState<any[]>([]);
-  const [autoStart, setAutoStart] = useState(false);
+  const [gpu, setGpu] = useState(cachedGpu);
+  const [stats, setStats] = useState<any>(cachedStats);
+  const [sources, setSources] = useState<any[]>(cachedSources);
+  const [autoStart, setAutoStart] = useState(cachedAutoStart);
   const [recentTasks, setRecentTasks] = useState<UiTask[]>(getTaskSnapshot());
-  const [modelHealth, setModelHealth] = useState<any>(null);
+  const [modelHealth, setModelHealth] = useState<any>(cachedModelHealth);
   const [svcAction, setSvcAction] = useState(activeServiceAction);
 
   // Subscribe to service action progress
@@ -388,25 +393,28 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
     cachedModelsUp = mUp as boolean;
     cachedClawcoreUp = cUp as boolean;
+    cachedGpu = { detected: gpuState.detected, name: gpuState.name, vramUsedMb: gpuState.vramUsedMb, vramTotalMb: gpuState.vramTotalMb };
+    cachedAutoStart = autoStartState;
     setModelsUp(cachedModelsUp);
     setClawcoreUp(cachedClawcoreUp);
-    setGpu({ detected: gpuState.detected, name: gpuState.name, vramUsedMb: gpuState.vramUsedMb, vramTotalMb: gpuState.vramTotalMb });
-    setAutoStart(autoStartState);
+    setGpu(cachedGpu);
+    setAutoStart(cachedAutoStart);
 
-    // Only update state on successful responses — keep old data on failures
+    // Only update cache + state on successful responses — keep old data on failures
     try {
-      if (statsRes?.ok) setStats(await statsRes.json());
+      if (statsRes?.ok) { cachedStats = await statsRes.json(); setStats(cachedStats); }
     } catch {}
 
     try {
       if (sourcesRes?.ok) {
         const payload = await sourcesRes.json() as { sources?: any[] };
-        setSources(payload.sources ?? []);
+        cachedSources = payload.sources ?? [];
+        setSources(cachedSources);
       }
     } catch {}
 
     try {
-      if (healthRes?.ok) setModelHealth(await healthRes.json());
+      if (healthRes?.ok) { cachedModelHealth = await healthRes.json(); setModelHealth(cachedModelHealth); }
     } catch {}
   };
 
