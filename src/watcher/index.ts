@@ -20,6 +20,7 @@ export interface WatchConfig {
 }
 
 const DEFAULT_DEBOUNCE = 2000;
+const MAX_CONCURRENT_INGESTS = 5;
 const supportedExts = new Set(getSupportedExtensions());
 
 function log(msg: string): void {
@@ -70,6 +71,16 @@ export class ClawCoreWatcher {
           "**/node_modules/**",
           "**/.git/**",
           "**/.*",
+          "**/.venv/**",
+          "**/venv/**",
+          "**/__pycache__/**",
+          "**/site-packages/**",
+          "**/dist-packages/**",
+          "**/.tox/**",
+          "**/.mypy_cache/**",
+          "**/.pytest_cache/**",
+          "**/build/**",
+          "**/dist/**",
           "**/*.tmp",
           "**/*.swp",
           "**/*.db",
@@ -93,6 +104,9 @@ export class ClawCoreWatcher {
     }
   }
 
+  private ingestQueue: { filePath: string; wc: WatchConfig }[] = [];
+  private activeIngests = 0;
+
   private handleFile(filePath: string, wc: WatchConfig): void {
     const ext = extname(filePath).toLowerCase();
     if (!supportedExts.has(ext)) return;
@@ -106,14 +120,26 @@ export class ClawCoreWatcher {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
-      this.processing.add(filePath);
-
-      this.ingestSafe(filePath, wc).finally(() => {
-        this.processing.delete(filePath);
-      });
+      this.ingestQueue.push({ filePath, wc });
+      this.drainQueue();
     }, wc.debounceMs ?? DEFAULT_DEBOUNCE);
 
     this.debounceTimers.set(filePath, timer);
+  }
+
+  private drainQueue(): void {
+    while (this.activeIngests < MAX_CONCURRENT_INGESTS && this.ingestQueue.length > 0) {
+      const item = this.ingestQueue.shift()!;
+      if (this.processing.has(item.filePath)) continue;
+      this.processing.add(item.filePath);
+      this.activeIngests++;
+
+      this.ingestSafe(item.filePath, item.wc).finally(() => {
+        this.processing.delete(item.filePath);
+        this.activeIngests--;
+        this.drainQueue();
+      });
+    }
   }
 
   private async ingestSafe(filePath: string, wc: WatchConfig): Promise<void> {
