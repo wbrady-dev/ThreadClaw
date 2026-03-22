@@ -67,18 +67,25 @@ export function registerHealthRoutes(server: FastifyInstance) {
       LEFT JOIN chunks c ON c.document_id = d.id
     `).get() as { documents: number; chunks: number; tokens: number };
 
+    // Use SQLite's internal page accounting for accurate size (not affected by WAL bloat)
     const dbPath = resolve(config.dataDir, "clawcore.db");
-    let dbSizeBytes = 0;
+    let dbSizeMB = 0;
     try {
-      dbSizeBytes = statSync(dbPath).size;
-    } catch {}
+      const pageCount = (db.pragma("page_count") as { page_count: number }[])[0]?.page_count ?? 0;
+      const pageSize = (db.pragma("page_size") as { page_size: number }[])[0]?.page_size ?? 4096;
+      const freePages = (db.pragma("freelist_count") as { freelist_count: number }[])[0]?.freelist_count ?? 0;
+      dbSizeMB = Math.round((pageCount - freePages) * pageSize / 1024 / 1024 * 100) / 100;
+    } catch {
+      // Fallback to file size
+      try { dbSizeMB = Math.round(statSync(dbPath).size / 1024 / 1024 * 100) / 100; } catch {}
+    }
 
     return {
       collections: collections.length,
       documents: totals.documents,
       chunks: totals.chunks,
       tokens: totals.tokens,
-      dbSizeMB: Math.round(dbSizeBytes / 1024 / 1024 * 100) / 100,
+      dbSizeMB,
       localTokens: getTokenCounts(),
     };
   });
