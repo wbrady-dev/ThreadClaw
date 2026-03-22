@@ -312,7 +312,7 @@ let activeServiceAction: {
   success: boolean;
   message: string;
 } | null = null;
-let serviceActionListeners = new Set<() => void>();
+const serviceActionListeners = new Set<() => void>();
 
 function notifyServiceActionListeners() {
   for (const fn of serviceActionListeners) fn();

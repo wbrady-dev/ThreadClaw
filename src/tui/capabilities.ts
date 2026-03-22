@@ -36,13 +36,11 @@ function hasAnsiSupport(interactive: boolean): boolean {
     return true;
   }
 
-  if (Boolean(
-    process.env.WT_SESSION
+  if (process.env.WT_SESSION
     || process.env.ANSICON
     || process.env.ConEmuANSI === "ON"
     || process.env.TERM_PROGRAM
-    || process.env.TERM,
-  )) {
+    || process.env.TERM) {
     return true;
   }
 

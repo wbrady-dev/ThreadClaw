@@ -24,7 +24,7 @@ interface DocumentData {
 /* ── Module-level cache ───────────────────────────────────────────── */
 
 let cachedCollections: CollectionData[] = [];
-let cachedDocuments: Record<string, DocumentData[]> = {};
+const cachedDocuments: Record<string, DocumentData[]> = {};
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 

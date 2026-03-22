@@ -24,7 +24,7 @@ export async function parseEpub(filePath: string): Promise<ParsedDocument> {
     // Extract OPF metadata + spine reading order
     const opfEntry = entries.find((e) => e.entryName.endsWith(".opf"));
     const opfDir = opfEntry ? opfEntry.entryName.replace(/[^/]*$/, "") : "";
-    let spineOrder: string[] = [];
+    const spineOrder: string[] = [];
 
     if (opfEntry) {
       const opf = opfEntry.getData().toString("utf-8");

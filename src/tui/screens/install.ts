@@ -176,7 +176,7 @@ export async function runInstall(): Promise<void> {
 
   clearScreen();
   console.log(section("Prerequisites"));
-  let sp = ora("Checking system...").start();
+  const sp = ora("Checking system...").start();
 
   try {
     const nodeVersion = execFileSync("node", ["--version"], { stdio: "pipe" }).toString().trim();
@@ -271,7 +271,7 @@ export async function runInstall(): Promise<void> {
 
   clearScreen();
   console.log(section("Model Selection"));
-  let tier = isRecommended ? getRecommendedTier(gpu) : await selectTier();
+  const tier = isRecommended ? getRecommendedTier(gpu) : await selectTier();
   if (!tier) return;
   if (isRecommended) {
     console.log(kvLine("Selected preset", formatTierName(tier)));

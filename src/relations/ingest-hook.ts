@@ -7,9 +7,15 @@
  * Uses better-sqlite3 (the main ClawCore DB driver) for the graph DB.
  *
  * The entity extraction logic is intentionally duplicated from
- * memory-engine/src/relations/ to avoid cross-module dependencies.
- * Parity with memory-engine: entity_type storage, evidence logging,
- * scope_id on mentions, word-boundary terms matching.
+ * memory-engine/src/relations/ to avoid cross-module dependencies
+ * (different DB drivers: better-sqlite3 vs node:sqlite).
+ *
+ * CANONICAL SOURCE: memory-engine/src/relations/schema.ts (DDL) and
+ * memory-engine/src/relations/entity-extract.ts (extraction).
+ * When updating schema or extraction logic, update both locations.
+ *
+ * Parity: entity_type storage, evidence logging, scope_id on mentions,
+ * word-boundary terms matching.
  */
 
 import type Database from "better-sqlite3";
