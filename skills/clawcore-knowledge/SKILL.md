@@ -21,7 +21,7 @@ This skill is for **documents and reference material only**.
 
 ## When NOT to use ClawCore Knowledge
 - "What did we discuss earlier?" — use `cc_grep` or `cc_recall`
-- "What does ClawCore know about X right now?" — use `cc_state` or `cc_claims`
+- "What does ClawCore know about X right now?" — use `cc_memory` or `cc_claims`
 - "What decisions have been made?" — use `cc_decisions`
 - "What is still open?" — use `cc_loops`
 - Any question about conversation history, structured evidence, or current state

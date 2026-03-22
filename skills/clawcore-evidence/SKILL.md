@@ -12,8 +12,8 @@ ClawCore automatically extracts and tracks structured knowledge from conversatio
 ## What happens automatically (no tool call needed)
 - **Awareness notes** injected into your system prompt every turn — surfaces mismatches, stale references, and entity connections
 - **Named entity extraction** via spaCy NER — people, organizations, locations, dates extracted from all ingested content and conversations
-- **Claims** extracted from "Remember:" statements, narrative facts, document headings, YAML frontmatter
-- **Decisions** extracted from "We decided..." and similar patterns
+- **Claims** extracted from "Remember:" statements, narrative facts, tool results, document headings, YAML frontmatter, and assistant project descriptions
+- **Decisions** extracted from "We decided..." and similar patterns (user messages only)
 - **Tool outcomes** tracked from every tool execution (success/fail, duration, error)
 - **Procedures** learned automatically — success patterns (runbooks) and failure patterns (anti-runbooks)
 - **Context capsules** compiled and injected each turn (top claims, decisions, warnings, constraints) within a token budget
