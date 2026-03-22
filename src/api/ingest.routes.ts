@@ -15,7 +15,7 @@ function validateIngestPath(filePath: string): string | null {
   const resolved = resolve(filePath);
 
   // Must be an absolute path to a real file
-  if (!existsSync(resolved)) return `File not found: ${resolved}`;
+  if (!existsSync(resolved)) return "File not found";
 
   // Block obvious sensitive paths
   const lower = resolved.toLowerCase().replace(/\\/g, "/");

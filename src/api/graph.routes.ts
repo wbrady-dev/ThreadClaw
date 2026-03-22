@@ -5,12 +5,14 @@ import { join, dirname } from "path";
 import { config } from "../config.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
 import { ensureGraphSchema } from "../relations/ingest-hook.js";
+import { logger } from "../utils/logger.js";
+import { isLocalRequest } from "./guards.js";
 
 const TERMS_PATH = join(homedir(), ".clawcore", "relations-terms.json");
 const VALID_TERM_RE = /^[\p{L}\p{N}\s\-_.'"]+$/u;
 
-function isLocal(ip: string): boolean {
-  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+function escapeLike(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/_/g, "\\_").replace(/%/g, "\\%");
 }
 
 export function registerGraphRoutes(server: FastifyInstance) {
@@ -19,7 +21,7 @@ export function registerGraphRoutes(server: FastifyInstance) {
    * Query params: limit (default 50), offset (default 0), search (optional).
    */
   server.get("/graph/entities", async (req, reply) => {
-    if (!isLocal(req.ip ?? "")) return reply.status(403).send({ error: "Forbidden" });
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
 
     const { limit: limitStr, offset: offsetStr, search } = req.query as {
       limit?: string; offset?: string; search?: string;
@@ -38,9 +40,9 @@ export function registerGraphRoutes(server: FastifyInstance) {
 
       let entities;
       if (search && search.trim()) {
-        const pattern = `%${search.toLowerCase().trim()}%`;
+        const pattern = `%${escapeLike(search.toLowerCase().trim())}%`;
         entities = db.prepare(
-          "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE name LIKE ? ORDER BY mention_count DESC LIMIT ? OFFSET ?",
+          "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE name LIKE ? ESCAPE '\\' ORDER BY mention_count DESC LIMIT ? OFFSET ?",
         ).all(pattern, limit, offset);
       } else {
         entities = db.prepare(
@@ -60,7 +62,7 @@ export function registerGraphRoutes(server: FastifyInstance) {
    * GET /graph/entities/:id — entity detail with recent mentions.
    */
   server.get("/graph/entities/:id", async (req, reply) => {
-    if (!isLocal(req.ip ?? "")) return reply.status(403).send({ error: "Forbidden" });
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
 
     const { id } = req.params as { id: string };
     const idNum = parseInt(id, 10);
@@ -92,7 +94,7 @@ export function registerGraphRoutes(server: FastifyInstance) {
    * GET /graph/terms — read the user terms list.
    */
   server.get("/graph/terms", async (req, reply) => {
-    if (!isLocal(req.ip ?? "")) return reply.status(403).send({ error: "Forbidden" });
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
 
     try {
       const raw = readFileSync(TERMS_PATH, "utf-8");
@@ -108,7 +110,7 @@ export function registerGraphRoutes(server: FastifyInstance) {
    * Body: { terms: string[] }
    */
   server.put("/graph/terms", async (req, reply) => {
-    if (!isLocal(req.ip ?? "")) return reply.status(403).send({ error: "Forbidden" });
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
 
     const { terms } = (req.body as { terms?: unknown }) ?? {};
     if (!Array.isArray(terms)) {
@@ -125,7 +127,8 @@ export function registerGraphRoutes(server: FastifyInstance) {
       mkdirSync(dirname(TERMS_PATH), { recursive: true });
       writeFileSync(TERMS_PATH, JSON.stringify({ terms: cleaned }, null, 2));
     } catch (e: any) {
-      return reply.status(500).send({ error: "Failed to save terms", detail: e.message });
+      logger.warn({ error: e?.message }, "Failed to save terms");
+      return reply.status(500).send({ error: "Failed to save terms" });
     }
 
     return { terms: cleaned, count: cleaned.length };

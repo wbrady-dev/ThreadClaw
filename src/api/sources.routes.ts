@@ -1,10 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { stopSources, startSources, getSourceEntries } from "../sources/index.js";
 import { logger } from "../utils/logger.js";
+import { isLocalRequest } from "./guards.js";
 
 export function registerSourceRoutes(server: FastifyInstance) {
   /** Reload source config — stop all adapters, re-read .env, restart enabled ones */
-  server.post("/sources/reload", async (_req, reply) => {
+  server.post("/sources/reload", async (req, reply) => {
+    if (!isLocalRequest(req)) {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
     try {
       logger.info("Reloading source adapters...");
       await stopSources();

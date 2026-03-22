@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { logger } from "../utils/logger.js";
+import { isLocalRequest } from "./guards.js";
 
 /**
  * Query analytics — tracks search quality metrics for diagnostics.
@@ -117,7 +118,8 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
    */
   server.get("/analytics/recent", async (req) => {
     const { limit } = req.query as { limit?: string };
-    const n = Math.min(parseInt(limit ?? "20", 10), 100);
+    const parsed = parseInt(limit ?? "20", 10);
+    const n = Math.min(isNaN(parsed) ? 20 : Math.max(1, parsed), 100);
     return { queries: records.slice(-n).reverse() };
   });
 
@@ -143,7 +145,7 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
     // memory-engine plugin is colocated. Try to access it.
     if (awarenessStatsGetter) {
       const { window } = req.query as { window?: string };
-      const windowMs = window ? parseInt(window, 10) * 1000 : 86_400_000;
+      const windowMs = window ? (parseInt(window, 10) || 86400) * 1000 : 86_400_000;
       return awarenessStatsGetter(windowMs);
     }
     return {
@@ -184,9 +186,7 @@ export function registerAwarenessStatsGetter(getter: AwarenessStatsGetter): void
  */
 export function registerDiagnosticsRoute(server: FastifyInstance) {
   server.get("/analytics/diagnostics", async (req, reply) => {
-    // Localhost-only — exposes internal paths and config
-    const ip = req.ip ?? "";
-    if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
+    if (!isLocalRequest(req)) {
       return reply.status(403).send({ error: "Forbidden" });
     }
 

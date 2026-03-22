@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { getDb, listCollections } from "../storage/index.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
 import { getTokenCounts } from "../utils/token-tracker.js";
+import { isLocalRequest } from "./guards.js";
 
 export function registerHealthRoutes(server: FastifyInstance) {
   server.get("/health", async () => {
@@ -29,7 +30,7 @@ export function registerHealthRoutes(server: FastifyInstance) {
     try {
       const dbPath = resolve(config.dataDir, "clawcore.db");
       statSync(dbPath);
-      checks.database = { status: "ok", detail: dbPath };
+      checks.database = { status: "ok" };
     } catch {
       checks.database = { status: "missing" };
     }
@@ -43,10 +44,7 @@ export function registerHealthRoutes(server: FastifyInstance) {
   });
 
   server.post("/shutdown", async (request, reply) => {
-    // Only allow from localhost
-    const remote = request.ip ?? "";
-    const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-    if (!isLocal) {
+    if (!isLocalRequest(request)) {
       return reply.code(403).send({ error: "Forbidden" });
     }
     reply.send({ status: "shutting down" });

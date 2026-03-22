@@ -60,17 +60,19 @@ export function listCollections(db: Database.Database): Collection[] {
 }
 
 export function deleteCollection(db: Database.Database, id: string): void {
-  // Delete vectors for chunks in this collection
-  db.prepare(
-    `DELETE FROM chunk_vectors WHERE chunk_id IN (
-      SELECT c.id FROM chunks c
-      JOIN documents d ON d.id = c.document_id
-      WHERE d.collection_id = ?
-    )`,
-  ).run(id);
+  db.transaction(() => {
+    // Delete vectors for chunks in this collection
+    db.prepare(
+      `DELETE FROM chunk_vectors WHERE chunk_id IN (
+        SELECT c.id FROM chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE d.collection_id = ?
+      )`,
+    ).run(id);
 
-  // Cascading deletes handle documents -> chunks -> metadata_index
-  db.prepare("DELETE FROM collections WHERE id = ?").run(id);
+    // Cascading deletes handle documents -> chunks -> metadata_index
+    db.prepare("DELETE FROM collections WHERE id = ?").run(id);
+  })();
 }
 
 export function getCollectionStats(
@@ -137,18 +139,18 @@ export function listDocuments(
 }
 
 export function deleteDocument(db: Database.Database, documentId: string): { chunksDeleted: number } {
-  // Get chunk IDs for vector cleanup
   const chunks = db.prepare("SELECT id FROM chunks WHERE document_id = ?").all(documentId) as { id: string }[];
   const chunkIds = chunks.map((c) => c.id);
 
-  // Delete vectors explicitly (virtual table, not cascade-aware)
-  if (chunkIds.length > 0) {
-    const placeholders = chunkIds.map(() => "?").join(",");
-    db.prepare(`DELETE FROM chunk_vectors WHERE chunk_id IN (${placeholders})`).run(...chunkIds);
-  }
-
-  // Delete document (cascades to chunks, metadata_index; FTS triggers handle chunk_fts)
-  db.prepare("DELETE FROM documents WHERE id = ?").run(documentId);
+  // Atomic: delete vectors + document in a single transaction
+  db.transaction(() => {
+    if (chunkIds.length > 0) {
+      const placeholders = chunkIds.map(() => "?").join(",");
+      db.prepare(`DELETE FROM chunk_vectors WHERE chunk_id IN (${placeholders})`).run(...chunkIds);
+    }
+    // Cascading deletes handle chunks, metadata_index; FTS triggers handle chunk_fts
+    db.prepare("DELETE FROM documents WHERE id = ?").run(documentId);
+  })();
 
   return { chunksDeleted: chunkIds.length };
 }

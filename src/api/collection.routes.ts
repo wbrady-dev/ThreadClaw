@@ -32,12 +32,23 @@ export function registerCollectionRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "name required" });
     }
 
-    const existing = getCollectionByName(db(), name);
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      return reply.status(400).send({ error: "name required" });
+    }
+    if (trimmedName.length > 100) {
+      return reply.status(400).send({ error: "Collection name too long (max 100 characters)" });
+    }
+    if (description && description.length > 1000) {
+      return reply.status(400).send({ error: "Description too long (max 1000 characters)" });
+    }
+
+    const existing = getCollectionByName(db(), trimmedName);
     if (existing) {
       return reply.status(409).send({ error: "collection with this name already exists", collection: existing });
     }
 
-    const collection = createCollection(db(), name, description);
+    const collection = createCollection(db(), trimmedName, description);
     return reply.status(201).send(collection);
   });
 

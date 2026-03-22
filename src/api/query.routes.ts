@@ -6,14 +6,14 @@ const MAX_TOP_K = 100;
 const MAX_TOKEN_BUDGET = 50000;
 
 function clampTopK(v?: number): number | undefined {
-  if (v == null) return undefined;
+  if (v == null || typeof v !== "number" || isNaN(v)) return undefined;
   const clamped = Math.min(Math.max(1, v), MAX_TOP_K);
   if (clamped !== v) logger.warn({ requested: v, clamped }, "top_k clamped to safe range");
   return clamped;
 }
 
 function clampBudget(v?: number): number | undefined {
-  if (v == null) return undefined;
+  if (v == null || typeof v !== "number" || isNaN(v)) return undefined;
   const clamped = Math.min(Math.max(100, v), MAX_TOKEN_BUDGET);
   if (clamped !== v) logger.warn({ requested: v, clamped }, "token_budget clamped to safe range");
   return clamped;

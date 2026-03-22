@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { getDb } from "../storage/index.js";
 import { listDocuments, deleteDocument, getCollectionByName } from "../storage/collections.js";
 import { clearCache } from "../query/cache.js";
+import { logger } from "../utils/logger.js";
 
 function db() {
   return getDb(resolve(config.dataDir, "clawcore.db"));
@@ -45,7 +46,9 @@ export function registerDocumentRoutes(server: FastifyInstance) {
         const { deleteSourceData } = await import("../relations/ingest-hook.js");
         const graphDb = getGraphDb(config.relations.graphDbPath);
         deleteSourceData(graphDb, "document", id);
-      } catch {}
+      } catch (e) {
+        logger.warn({ documentId: id, error: String(e) }, "Graph cleanup failed during document deletion");
+      }
     }
 
     return { deleted: true, chunksRemoved: result.chunksDeleted, source_path: doc.source_path };

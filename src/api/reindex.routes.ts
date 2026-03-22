@@ -6,6 +6,7 @@ import { getDb } from "../storage/index.js";
 import { logger } from "../utils/logger.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import { clearCache } from "../query/cache.js";
+import { isLocalRequest } from "./guards.js";
 
 /**
  * Re-indexing routes.
@@ -22,6 +23,10 @@ export function registerReindexRoutes(server: FastifyInstance) {
    * Returns: { reindexed, skipped, failed, elapsed_ms }
    */
   server.post("/reindex", async (req, reply) => {
+    if (!isLocalRequest(req)) {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
     const { collection, dry_run } = req.body as {
       collection?: string;
       dry_run?: boolean;
@@ -100,6 +105,10 @@ export function registerReindexRoutes(server: FastifyInstance) {
    * since last ingestion (based on file_mtime).
    */
   server.post("/reindex/stale", async (req, reply) => {
+    if (!isLocalRequest(req)) {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
     const { collection } = req.body as { collection?: string } ?? {};
     const db = getDb(resolve(config.dataDir, "clawcore.db"));
     const { stat } = await import("fs/promises");
