@@ -27,6 +27,7 @@ export function checkPromotionPolicy(
   confidence: number,
   evidenceCount: number,
   userConfirmed = false,
+  createdAt?: string,
 ): PromotionCheckResult {
   const policy = db.prepare(
     "SELECT * FROM promotion_policies WHERE object_type = ?",
@@ -35,6 +36,7 @@ export function checkPromotionPolicy(
     requires_user_confirm: number;
     auto_promote_above_confidence: number | null;
     requires_evidence_count: number;
+    max_age_hours: number | null;
   } | undefined;
 
   if (!policy) {
@@ -55,6 +57,17 @@ export function checkPromotionPolicy(
       canPromote: false,
       reason: `Evidence count ${evidenceCount} below required ${policy.requires_evidence_count}`,
     };
+  }
+
+  // Check age limit (if policy specifies max_age_hours and caller provides createdAt)
+  if (policy.max_age_hours != null && createdAt) {
+    const ageHours = (Date.now() - new Date(createdAt).getTime()) / 3_600_000;
+    if (ageHours > policy.max_age_hours) {
+      return {
+        canPromote: false,
+        reason: `Age ${ageHours.toFixed(1)}h exceeds max ${policy.max_age_hours}h`,
+      };
+    }
   }
 
   // Check user confirmation (unless auto-promote threshold is met)

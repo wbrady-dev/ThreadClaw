@@ -122,17 +122,25 @@ export function getOpenLoops(
   scopeId: number,
   branchId?: number,
   limit = 50,
+  statusFilter?: string,
 ): LoopRow[] {
+  // Determine status clause based on filter
+  const statusClause = statusFilter === "all"
+    ? "1=1"
+    : statusFilter
+      ? `status = '${statusFilter.replace(/'/g, "''")}'`
+      : "status IN ('open', 'blocked')";
+
   if (branchId != null) {
     return db.prepare(`
       SELECT * FROM open_loops
-      WHERE scope_id = ? AND (branch_id = 0 OR branch_id = ?) AND status IN ('open', 'blocked')
+      WHERE scope_id = ? AND (branch_id = 0 OR branch_id = ?) AND ${statusClause}
       ORDER BY priority DESC, opened_at ASC LIMIT ?
     `).all(scopeId, branchId, limit) as LoopRow[];
   }
   return db.prepare(`
     SELECT * FROM open_loops
-    WHERE scope_id = ? AND branch_id = 0 AND status IN ('open', 'blocked')
+    WHERE scope_id = ? AND branch_id = 0 AND ${statusClause}
     ORDER BY priority DESC, opened_at ASC LIMIT ?
   `).all(scopeId, limit) as LoopRow[];
 }

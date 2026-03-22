@@ -516,9 +516,10 @@ export function createCcLoopsTool(input: { deps: LcmDependencies; graphDb: Graph
     async execute(_toolCallId, params) {
       const p = params as Record<string, unknown>;
       const scopeId = typeof p.scope_id === "number" ? Math.trunc(p.scope_id) : 1;
+      const status = typeof p.status === "string" ? p.status.trim() : undefined;
       const limit = typeof p.limit === "number" ? Math.min(100, Math.max(1, Math.trunc(p.limit))) : 20;
       try {
-        const loops = getOpenLoops(input.graphDb, scopeId, undefined, limit);
+        const loops = getOpenLoops(input.graphDb, scopeId, undefined, limit, status);
         if (loops.length === 0) return { content: [{ type: "text", text: "No open loops." }], details: { count: 0 } };
         const lines: string[] = [`${loops.length} loop(s):\n`];
         for (const l of loops) {
