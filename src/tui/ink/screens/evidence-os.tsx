@@ -56,6 +56,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
   const [mentions, setMentions] = useState<MentionRow[]>([]);
   const [status, setStatus] = useState("");
   const [online, setOnline] = useState(false);
+  const [relationsEnabled, setRelationsEnabled] = useState(true);
   const [, setTick] = useState(0);
 
   const fetchData = async () => {
@@ -67,10 +68,13 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
       // Fetch stats
       const statsRes = await fetch(`${getApiBaseUrl()}/stats`, { signal: AbortSignal.timeout(3000) });
       if (statsRes.ok) {
-        const data = await statsRes.json() as { graphStats?: GraphStats };
+        const data = await statsRes.json() as { graphStats?: GraphStats | null };
         if (data.graphStats) {
           cachedGraphStats = data.graphStats;
           setGraphStats(data.graphStats);
+          setRelationsEnabled(true);
+        } else {
+          setRelationsEnabled(false);
         }
       }
 
@@ -142,6 +146,18 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
       );
     }
 
+    if (!relationsEnabled) {
+      return (
+        <Box flexDirection="column">
+          <Section title="Evidence OS" />
+          <Text>{"  " + t.warn("Relations are not enabled.")}</Text>
+          <Text>{"  " + t.dim("Enable in Configure → Evidence OS, or set CLAWCORE_RELATIONS_ENABLED=true in .env")}</Text>
+          <Separator />
+          <Menu items={[{ label: "← Back", value: "back" }]} onSelect={onBack} />
+        </Box>
+      );
+    }
+
     const items: MenuItem[] = [];
 
     // Entity list
@@ -174,7 +190,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         ) : (
           <Text>{"  " + t.dim("Loading...")}</Text>
         )}
-        {status && <Text>{"  " + t.ok(status)}</Text>}
+        {status && <Text>{"  " + (status.startsWith("Failed") ? t.err(status) : t.ok(status))}</Text>}
         <Separator />
         <Menu items={items} onSelect={(value) => {
           if (value === "back") return onBack();
@@ -239,7 +255,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         <Text>{"  " + t.dim("Terms are matched with high confidence (0.9) during entity extraction.")}</Text>
         <Text>{"  " + t.dim(`File: ~/.clawcore/relations-terms.json`)}</Text>
         <KV label="Terms" value={String(terms.length)} />
-        {status && <Text>{"  " + t.ok(status)}</Text>}
+        {status && <Text>{"  " + (status.startsWith("Failed") ? t.err(status) : t.ok(status))}</Text>}
         <Separator />
         <Menu items={items} onSelect={(value) => {
           if (value === "back") { setStatus(""); setLevel("overview"); return; }
