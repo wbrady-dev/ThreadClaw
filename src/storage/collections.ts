@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
+import { config } from "../config.js";
 
 export interface Collection {
   id: string;
@@ -158,22 +159,25 @@ export function resetKnowledgeBase(db: Database.Database): { collectionsDeleted:
   const chunkCount = (db.prepare("SELECT COUNT(*) as n FROM chunks").get() as { n: number }).n;
   const collCount = (db.prepare("SELECT COUNT(*) as n FROM collections").get() as { n: number }).n;
 
-  // Delete all vectors (virtual table, must be explicit)
-  db.prepare("DELETE FROM chunk_vectors").run();
+  // Drop and recreate virtual tables to fully reclaim shadow table space
+  const dim = config.embedding.dimensions;
+  try { db.exec("DROP TABLE IF EXISTS chunk_vectors"); } catch {}
+  try {
+    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
+      chunk_id TEXT PRIMARY KEY,
+      embedding float[${dim}]
+    )`);
+  } catch {}
 
   // Delete all collections (cascades: documents, chunks, metadata_index, watch_paths; triggers: chunk_fts)
   db.prepare("DELETE FROM collections").run();
 
-  // Compact database file — VACUUM reclaims freed pages, checkpoint flushes WAL
-  try {
-    db.pragma("wal_checkpoint(TRUNCATE)");
-  } catch {}
-  try {
-    db.exec("VACUUM");
-  } catch (e) {
-    // VACUUM may fail with sqlite-vec virtual tables; try page-level shrink instead
-    try { db.pragma("incremental_vacuum"); } catch {}
-  }
+  // Rebuild FTS index to clear shadow table bloat
+  try { db.exec("INSERT INTO chunk_fts(chunk_fts) VALUES('rebuild')"); } catch {}
+
+  // Compact database file
+  try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch {}
+  try { db.exec("VACUUM"); } catch {}
 
   return { collectionsDeleted: collCount, documentsDeleted: docCount, chunksDeleted: chunkCount };
 }
