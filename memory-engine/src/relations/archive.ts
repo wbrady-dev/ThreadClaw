@@ -19,8 +19,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { randomUUID } from "crypto";
-
-type GraphDb = DatabaseSync;
+import type { GraphDb } from "./types.js";
 
 // ── Archive DB schema ──
 

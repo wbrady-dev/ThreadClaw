@@ -132,7 +132,7 @@ function shortTzAbbr(value: Date, timezone: string): string {
   }
 }
 
-/** Generate a deterministic summary ID from content + timestamp. */
+/** Generate a unique summary ID from content + current timestamp. */
 function generateSummaryId(content: string): string {
   return (
     "sum_" +
@@ -1020,7 +1020,7 @@ export class CompactionEngine {
     previousSummaryContent?: string,
   ): Promise<{ summaryId: string; level: CompactionLevel; content: string }> {
     // Fetch full message content for each context item
-    const messageContents: { messageId: number; content: string; createdAt: Date; tokenCount: number }[] =
+    const messageContents: { messageId: number; role: string; content: string; createdAt: Date; tokenCount: number }[] =
       [];
     for (const item of messageItems) {
       if (item.messageId == null) {
@@ -1030,6 +1030,7 @@ export class CompactionEngine {
       if (msg) {
         messageContents.push({
           messageId: msg.messageId,
+          role: msg.role,
           content: msg.content,
           createdAt: msg.createdAt,
           tokenCount: this.resolveMessageTokenCount(msg),
@@ -1066,8 +1067,9 @@ export class CompactionEngine {
             });
           }
         }
-      } catch {
+      } catch (err) {
         // Non-fatal: entity extraction failure must not break compaction
+        console.warn("[cc-mem] compaction entity extraction failed:", err instanceof Error ? err.message : String(err));
       }
     }
 
@@ -1090,8 +1092,9 @@ export class CompactionEngine {
             }
           }
         });
-      } catch {
+      } catch (err) {
         // Non-fatal: claim extraction failure must not break compaction
+        console.warn("[cc-mem] compaction claim extraction failed:", err instanceof Error ? err.message : String(err));
       }
 
       // Decision extraction from user messages
@@ -1112,8 +1115,9 @@ export class CompactionEngine {
             }
           }
         });
-      } catch {
-        // Non-fatal
+      } catch (err) {
+        // Non-fatal: decision extraction failure must not break compaction
+        console.warn("[cc-mem] compaction decision extraction failed:", err instanceof Error ? err.message : String(err));
       }
     }
 

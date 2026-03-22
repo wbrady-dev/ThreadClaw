@@ -1303,18 +1303,18 @@ export class LcmContextEngine implements ContextEngine {
     await this.summaryStore.appendContextMessage(conversationId, msgRecord.messageId);
 
     // Real-time attempt tracking from tool results
-    if (this.graphDb && this.config.relationsAttemptTrackingEnabled && stored.role === "toolResult") {
+    const messageRole = (message as Record<string, unknown>).role;
+    // Extract tool name once for use by both attempt tracking and claim extraction
+    const toolMsg = message as Record<string, unknown>;
+    const toolName = (toolMsg.toolName as string)
+      ?? (toolMsg.name as string)
+      ?? (typeof toolMsg.content === "object" && toolMsg.content !== null ? (toolMsg.content as any).toolName : null)
+      ?? "unknown";
+    if (this.graphDb && this.config.relationsAttemptTrackingEnabled && messageRole === "toolResult") {
       try {
         const { recordAttempt } = await import("./relations/attempt-store.js");
         const { withWriteTransaction } = await import("./relations/evidence-log.js");
         const graphDb = this.graphDb;
-
-        // Extract tool name and outcome from message content/parts
-        const msg = message as Record<string, unknown>;
-        const toolName = (msg.toolName as string)
-          ?? (msg.name as string)
-          ?? (typeof msg.content === "object" && msg.content !== null ? (msg.content as any).toolName : null)
-          ?? "unknown";
         const content = stored.content ?? "";
         const contentLower = content.toLowerCase();
         const isError = contentLower.includes("error")
@@ -1340,14 +1340,60 @@ export class LcmContextEngine implements ContextEngine {
             outputSummary: isError ? undefined : content.substring(0, 200),
           });
         });
-      } catch {
-        // Non-fatal
+      } catch (err) {
+        // Non-fatal: attempt tracking failure must not break message ingest
+        console.warn("[cc-mem] attempt tracking failed:", err instanceof Error ? err.message : String(err));
+      }
+
+      // Tool result claim extraction (Strategy 1: highest trust, 1.0)
+      if (this.graphDb && this.config.relationsClaimExtractionEnabled) {
+        try {
+          const { extractClaimsFromToolResult } = await import("./relations/claim-extract.js");
+          const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
+          const { withWriteTransaction: wt } = await import("./relations/evidence-log.js");
+          const gdb = this.graphDb;
+
+          // Parse tool result from raw message content (stored.content is text, not JSON)
+          let toolResult: unknown = undefined;
+          const rawContent = (message as Record<string, unknown>).content;
+          if (typeof rawContent === "string") {
+            try { toolResult = JSON.parse(rawContent); } catch { /* not JSON text */ }
+          } else if (Array.isArray(rawContent)) {
+            // Find tool_result block in content array
+            for (const block of rawContent) {
+              if (block && typeof block === "object" && (block as Record<string, unknown>).type === "tool_result") {
+                const output = (block as Record<string, unknown>).output ?? (block as Record<string, unknown>).content;
+                if (typeof output === "string") {
+                  try { toolResult = JSON.parse(output); } catch { /* not JSON text */ }
+                } else if (output && typeof output === "object") {
+                  toolResult = output;
+                }
+                break;
+              }
+            }
+          }
+
+          if (toolResult && toolName !== "unknown") {
+            wt(gdb, () => {
+              const claimResults = extractClaimsFromToolResult(toolName, toolResult, String(msgRecord.messageId));
+              if (claimResults.length > 0) {
+                storeClaimExtractionResults(gdb, claimResults, {
+                  scopeId: 1,
+                  sourceType: "tool_result",
+                  sourceId: String(msgRecord.messageId),
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("[cc-mem] tool result claim extraction failed:", err instanceof Error ? err.message : String(err));
+        }
       }
     }
 
     // Real-time claim + decision extraction (don't wait for compaction)
     const claimExtractionEnabled = this.config.relationsClaimExtractionEnabled || this.config.relationsUserClaimExtractionEnabled;
-    if (this.graphDb && claimExtractionEnabled && stored.role === "user") {
+    if (this.graphDb && claimExtractionEnabled && (stored.role === "user" || stored.role === "assistant")) {
       try {
         const { extractClaimsFast, extractClaimsFromUserExplicit, extractDecisionsFromText } = await import("./relations/claim-extract.js");
         const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
@@ -1357,12 +1403,15 @@ export class LcmContextEngine implements ContextEngine {
 
         withWriteTransaction(graphDb, () => {
           // Extract claims (full or user-explicit only depending on config)
+          // For assistant messages: skip user-explicit patterns ("Remember:" etc.)
           const claimResults = this.config.relationsClaimExtractionEnabled
             ? extractClaimsFast(stored.content, {
                 sourceType: "message",
                 sourceId: String(msgRecord.messageId),
               })
-            : extractClaimsFromUserExplicit(stored.content, String(msgRecord.messageId));
+            : (stored.role === "user"
+                ? extractClaimsFromUserExplicit(stored.content, String(msgRecord.messageId))
+                : []);  // Don't run user-explicit patterns on assistant messages
           if (claimResults.length > 0) {
             storeClaimExtractionResults(graphDb, claimResults, {
               scopeId: 1,
@@ -1371,20 +1420,23 @@ export class LcmContextEngine implements ContextEngine {
             });
           }
 
-          // Extract decisions
-          const decisions = extractDecisionsFromText(stored.content, String(msgRecord.messageId));
-          for (const d of decisions) {
-            upsertDecision(graphDb, {
-              scopeId: 1,
-              topic: d.topic,
-              decisionText: d.decisionText,
-              sourceType: d.sourceType,
-              sourceId: d.sourceId,
-            });
+          // Extract decisions (user messages only — assistant would create duplicates)
+          if (stored.role === "user") {
+            const decisions = extractDecisionsFromText(stored.content, String(msgRecord.messageId));
+            for (const d of decisions) {
+              upsertDecision(graphDb, {
+                scopeId: 1,
+                topic: d.topic,
+                decisionText: d.decisionText,
+                sourceType: d.sourceType,
+                sourceId: d.sourceId,
+              });
+            }
           }
         });
-      } catch {
+      } catch (err) {
         // Non-fatal: extraction failure must not break message ingest
+        console.warn("[cc-mem] real-time claim extraction failed:", err instanceof Error ? err.message : String(err));
       }
     }
 

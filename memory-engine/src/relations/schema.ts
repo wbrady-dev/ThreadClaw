@@ -515,6 +515,19 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     markMigrationApplied(db, 8);
   }
 
+  if (!isMigrationApplied(db, 9)) {
+    db.exec(`
+      -- Deduplicate existing claim_evidence rows before adding UNIQUE constraint
+      DELETE FROM claim_evidence WHERE id NOT IN (
+        SELECT MIN(id) FROM claim_evidence
+        GROUP BY claim_id, source_type, source_id, evidence_role
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_claim_evidence_unique
+        ON claim_evidence(claim_id, source_type, source_id, evidence_role);
+    `);
+    markMigrationApplied(db, 9);
+  }
+
   // File permissions: chmod 600 on Unix/macOS, skip on Windows
   if (dbPath && process.platform !== "win32") {
     try {

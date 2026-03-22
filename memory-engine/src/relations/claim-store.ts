@@ -97,6 +97,10 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
     INSERT INTO claim_evidence
       (claim_id, source_type, source_id, source_detail, evidence_role, snippet_hash, confidence_delta)
     VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(claim_id, source_type, source_id, evidence_role) DO UPDATE SET
+      observed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now'),
+      confidence_delta = MAX(claim_evidence.confidence_delta, excluded.confidence_delta),
+      source_detail = COALESCE(excluded.source_detail, claim_evidence.source_detail)
   `).run(
     input.claimId, input.sourceType, input.sourceId,
     input.sourceDetail ?? null, input.evidenceRole,
