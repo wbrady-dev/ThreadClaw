@@ -107,7 +107,7 @@ export function findExistingDuplicates(
               dupes.add(i);
               break;
             }
-          }
+          } else break; // Results are distance-sorted — no point checking further
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

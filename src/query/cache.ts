@@ -53,7 +53,7 @@ export function setCached(key: string, result: unknown): void {
     if (firstKey) cache.delete(firstKey);
   }
 
-  cache.set(key, { result, timestamp: Date.now() });
+  cache.set(key, { result: structuredClone(result), timestamp: Date.now() });
 }
 
 /**
