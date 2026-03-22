@@ -1,4 +1,4 @@
-import { config as loadEnv } from "dotenv";
+import { config as loadEnv, parse } from "dotenv";
 import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
@@ -48,10 +48,9 @@ function reloadHotConfig(): void {
   try {
     if (!existsSync(envPath)) return;
     const raw = readFileSync(envPath, "utf-8");
-    const get = (key: string, fallback: string): string => {
-      const match = raw.match(new RegExp(`^${key}=(.*)$`, "m"));
-      return match ? match[1].trim() : fallback;
-    };
+    const parsed = parse(raw);
+    const get = (key: string, fallback: string): string =>
+      parsed[key]?.trim() ?? fallback;
     const getBool = (key: string, fallback: boolean): boolean => {
       const v = get(key, String(fallback));
       return v === "true" || v === "1";
