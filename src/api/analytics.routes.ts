@@ -183,7 +183,13 @@ export function registerAwarenessStatsGetter(getter: AwarenessStatsGetter): void
  * Available to you (Wesley) via curl or browser.
  */
 export function registerDiagnosticsRoute(server: FastifyInstance) {
-  server.get("/analytics/diagnostics", async () => {
+  server.get("/analytics/diagnostics", async (req, reply) => {
+    // Localhost-only — exposes internal paths and config
+    const ip = req.ip ?? "";
+    if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
     const { config } = await import("../config.js");
     const { existsSync, statSync } = await import("fs");
     const { resolve } = await import("path");
@@ -191,12 +197,12 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
 
     const result: Record<string, unknown> = {};
 
-    // Graph DB stats
+    // Graph DB stats (use getGraphDb singleton — same driver as rest of ClawCore)
     const graphDbPath = config.relations.graphDbPath;
     if (existsSync(graphDbPath)) {
       try {
-        const { DatabaseSync } = await import("node:sqlite");
-        const db = new DatabaseSync(graphDbPath);
+        const { getGraphDb } = await import("../storage/graph-sqlite.js");
+        const db = getGraphDb(graphDbPath);
         const safe = (sql: string): number => {
           try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
         };
@@ -214,7 +220,6 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
           relations: safe("SELECT COUNT(*) as cnt FROM entity_relations"),
           evidenceEvents: safe("SELECT COUNT(*) as cnt FROM evidence_log"),
         };
-        db.close();
       } catch (e: any) {
         result.graphDb = { error: e.message };
       }
@@ -222,12 +227,12 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
       result.graphDb = { error: "not found" };
     }
 
-    // Memory DB stats
+    // Memory DB stats (temporary connection — not the main DB singleton)
     const memDbPath = resolve(homedir(), ".clawcore", "data", "memory.db");
     if (existsSync(memDbPath)) {
       try {
-        const { DatabaseSync } = await import("node:sqlite");
-        const db = new DatabaseSync(memDbPath);
+        const Database = (await import("better-sqlite3")).default;
+        const db = new Database(memDbPath, { readonly: true });
         const safe = (sql: string): number => {
           try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
         };

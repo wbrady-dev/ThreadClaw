@@ -32,11 +32,10 @@ export function registerResetRoutes(server: FastifyInstance) {
         // Clear evidence graph tables if they exist
         const graphDbPath = config.relations?.graphDbPath;
         if (graphDbPath) {
-          const { getDb: getGraphDb } = await import("../storage/index.js");
+          const { getGraphDb } = await import("../storage/graph-sqlite.js");
+          const { clearAllGraphTables } = await import("../relations/ingest-hook.js");
           const graphDb = getGraphDb(graphDbPath);
-          try { graphDb.prepare("DELETE FROM entity_mentions").run(); } catch {}
-          try { graphDb.prepare("DELETE FROM entities").run(); } catch {}
-          try { graphDb.prepare("DELETE FROM evidence_log").run(); } catch {}
+          clearAllGraphTables(graphDb);
           try { graphDb.pragma("wal_checkpoint(TRUNCATE)"); } catch {}
           try { graphDb.exec("VACUUM"); } catch {}
           graphCleared = true;

@@ -5,8 +5,11 @@
  * document chunks and stores results in the evidence graph DB.
  *
  * Uses better-sqlite3 (the main ClawCore DB driver) for the graph DB.
- * The entity extraction logic is duplicated from memory-engine/src/relations/
- * to avoid cross-module dependencies.
+ *
+ * The entity extraction logic is intentionally duplicated from
+ * memory-engine/src/relations/ to avoid cross-module dependencies.
+ * Parity with memory-engine: entity_type storage, evidence logging,
+ * scope_id on mentions, word-boundary terms matching.
  */
 
 import type Database from "better-sqlite3";
@@ -164,12 +167,16 @@ function extractFast(text: string, terms: string[]): ExtractionResult[] {
     }
   }
 
-  // Strategy 2: Terms-list
+  // Strategy 2: Terms-list (word-boundary matching, same as memory-engine)
   const presentTerms: string[] = [];
   for (const term of terms) {
     const lt = term.toLowerCase().trim();
     if (lt.length === 0) continue;
-    if (lowerText.includes(lt)) {
+    // Quick substring pre-check before regex (fast path for non-matches)
+    if (!lowerText.includes(lt)) continue;
+    // Word-boundary check to avoid substring false positives
+    const escaped = lt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp("\\b" + escaped + "\\b", "i").test(text)) {
       presentTerms.push(term);
       const key = lt;
       if (!deduped.has(key) || 0.9 > (deduped.get(key)?.confidence ?? 0)) {
@@ -238,33 +245,60 @@ function storeEntities(
   sourceType: string,
   sourceId: string,
   sourceDetail?: string,
+  scopeId: number = 1,
 ): void {
   const upsertStmt = db.prepare(`
-    INSERT INTO entities (name, display_name, first_seen_at, last_seen_at, mention_count)
-    VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%f','now'), strftime('%Y-%m-%dT%H:%M:%f','now'), 1)
+    INSERT INTO entities (name, display_name, entity_type, first_seen_at, last_seen_at, mention_count)
+    VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%f','now'), strftime('%Y-%m-%dT%H:%M:%f','now'), 1)
     ON CONFLICT(name) DO UPDATE SET
       mention_count = mention_count + 1,
-      last_seen_at = strftime('%Y-%m-%dT%H:%M:%f','now')
+      last_seen_at = strftime('%Y-%m-%dT%H:%M:%f','now'),
+      entity_type = COALESCE(excluded.entity_type, entities.entity_type)
   `);
   const selectStmt = db.prepare("SELECT id FROM entities WHERE name = ?");
   const mentionStmt = db.prepare(`
     INSERT OR IGNORE INTO entity_mentions
-      (entity_id, source_type, source_id, source_detail, context_terms, actor)
-    VALUES (?, ?, ?, ?, ?, 'system')
+      (entity_id, scope_id, source_type, source_id, source_detail, context_terms, actor)
+    VALUES (?, ?, ?, ?, ?, ?, 'system')
+  `);
+  // Evidence logging (append-only audit trail)
+  const scopeSeqBump = db.prepare(
+    "INSERT INTO scope_sequences (scope_id, next_seq) VALUES (?, 2) ON CONFLICT(scope_id) DO UPDATE SET next_seq = next_seq + 1",
+  );
+  const scopeSeqGet = db.prepare(
+    "SELECT next_seq - 1 AS seq FROM scope_sequences WHERE scope_id = ?",
+  );
+  const evidenceInsert = db.prepare(`
+    INSERT OR IGNORE INTO evidence_log
+      (scope_id, object_type, object_id, event_type, actor, idempotency_key, payload_json, created_at, scope_seq)
+    VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%f','now'), ?)
   `);
 
   for (const entity of entities) {
     const name = entity.name.toLowerCase().trim();
     if (!name) continue;
-    upsertStmt.run(name, entity.name.trim());
+    // Derive entity_type from NER strategy (e.g. "ner:PERSON" → "PERSON")
+    const entityType = entity.strategy.startsWith("ner:") ? entity.strategy.slice(4) : null;
+    upsertStmt.run(name, entity.name.trim(), entityType);
     const row = selectStmt.get(name) as { id: number } | undefined;
     if (!row) continue;
     const ctJson = entity.contextTerms?.length ? JSON.stringify(entity.contextTerms) : null;
-    mentionStmt.run(row.id, sourceType, sourceId, sourceDetail ?? null, ctJson);
+    mentionStmt.run(row.id, scopeId, sourceType, sourceId, sourceDetail ?? null, ctJson);
+
+    // Log evidence event with idempotency key
+    scopeSeqBump.run(scopeId);
+    const seqRow = scopeSeqGet.get(scopeId) as { seq: number } | undefined;
+    const seq = seqRow?.seq ?? 0;
+    evidenceInsert.run(
+      scopeId, "entity", row.id, "mention_insert", "system",
+      `extract:${sourceType}:${sourceId}:${name}`,
+      JSON.stringify({ confidence: entity.confidence, strategy: entity.strategy, sourceType, sourceId }),
+      seq,
+    );
   }
 }
 
-function deleteSourceData(db: Database.Database, sourceType: string, sourceId: string): void {
+export function deleteSourceData(db: Database.Database, sourceType: string, sourceId: string): void {
   const counts = db.prepare(`
     SELECT entity_id, COUNT(*) as cnt FROM entity_mentions
     WHERE source_type = ? AND source_id = ? GROUP BY entity_id
@@ -277,6 +311,25 @@ function deleteSourceData(db: Database.Database, sourceType: string, sourceId: s
   db.prepare("DELETE FROM entity_mentions WHERE source_type = ? AND source_id = ?")
     .run(sourceType, sourceId);
   db.prepare("DELETE FROM entities WHERE mention_count <= 0").run();
+}
+
+/**
+ * Clear all data tables in the graph DB (for full reset).
+ * Preserves infrastructure tables (state_scopes, promotion_policies, _evidence_migrations).
+ * FK-safe deletion order: children before parents.
+ */
+export function clearAllGraphTables(db: Database.Database): void {
+  const tables = [
+    "work_leases", "anti_runbook_evidence", "runbook_evidence", "claim_evidence",
+    "entity_mentions", "state_deltas", "anti_runbooks", "runbooks", "attempts",
+    "invariants", "capabilities", "open_loops", "decisions", "claims",
+    "entity_relations", "entities", "evidence_log",
+  ];
+  for (const table of tables) {
+    try { db.prepare(`DELETE FROM ${table}`).run(); } catch {}
+  }
+  // Reset scope sequences to 1
+  try { db.prepare("UPDATE scope_sequences SET next_seq = 1").run(); } catch {}
 }
 
 // ---------------------------------------------------------------------------

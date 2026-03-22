@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { statSync } from "fs";
 import { config } from "../config.js";
 import { getDb, listCollections } from "../storage/index.js";
+import { getGraphDb } from "../storage/graph-sqlite.js";
 import { getTokenCounts } from "../utils/token-tracker.js";
 
 export function registerHealthRoutes(server: FastifyInstance) {
@@ -80,6 +81,23 @@ export function registerHealthRoutes(server: FastifyInstance) {
       try { dbSizeMB = Math.round(statSync(dbPath).size / 1024 / 1024 * 100) / 100; } catch {}
     }
 
+    // Graph DB stats (if relations enabled)
+    let graphStats: Record<string, unknown> | null = null;
+    if (config.relations.enabled) {
+      try {
+        const graphDb = getGraphDb(config.relations.graphDbPath);
+        const safe = (sql: string): number => {
+          try { return (graphDb.prepare(sql).get() as { cnt: number }).cnt; } catch { return 0; }
+        };
+        graphStats = {
+          entities: safe("SELECT COUNT(*) as cnt FROM entities"),
+          mentions: safe("SELECT COUNT(*) as cnt FROM entity_mentions"),
+          evidenceEvents: safe("SELECT COUNT(*) as cnt FROM evidence_log"),
+          graphDbSizeMB: Math.round(statSync(config.relations.graphDbPath).size / 1024 / 1024 * 100) / 100,
+        };
+      } catch {}
+    }
+
     return {
       collections: collections.length,
       documents: totals.documents,
@@ -87,6 +105,7 @@ export function registerHealthRoutes(server: FastifyInstance) {
       tokens: totals.tokens,
       dbSizeMB,
       localTokens: getTokenCounts(),
+      graphStats,
     };
   });
 }

@@ -23,6 +23,7 @@ import { StatusScreen } from "./screens/status.js";
 import { ServicesScreen } from "./screens/services.js";
 import { ConfigureScreen } from "./screens/configure.js";
 import { DocumentsScreen } from "./screens/documents.js";
+import { EvidenceOsScreen } from "./screens/evidence-os.js";
 
 export async function launchInkTui(): Promise<void> {
   while (true) {
@@ -58,6 +59,11 @@ export async function launchInkTui(): Promise<void> {
       continue;
     }
 
+    if (action === "evidence-os") {
+      await showInkScreen("evidence-os");
+      continue;
+    }
+
     if (action === "reset-kb") {
       await runResetKnowledgeBase();
       continue;
@@ -83,7 +89,7 @@ export async function launchInkTui(): Promise<void> {
   }
 }
 
-function showInkScreen(screen: "home" | "status" | "sources" | "services" | "configure" | "documents"): Promise<string> {
+function showInkScreen(screen: "home" | "status" | "sources" | "services" | "configure" | "documents" | "evidence-os"): Promise<string> {
   return new Promise((resolveAction) => {
     resetStdin();
     clearScreen();
@@ -129,6 +135,8 @@ function showInkScreen(screen: "home" | "status" | "sources" | "services" | "con
       );
     } else if (screen === "documents") {
       ScreenComponent = () => <DocumentsScreen onBack={() => onAction("__back__")} />;
+    } else if (screen === "evidence-os") {
+      ScreenComponent = () => <EvidenceOsScreen onBack={() => onAction("__back__")} />;
     } else if (screen === "configure") {
       ScreenComponent = () => (
         <ConfigureScreen
@@ -250,10 +258,10 @@ async function runResetKnowledgeBase(): Promise<void> {
 
         if (clearGraph && appConfig.relations?.graphDbPath) {
           try {
-            const graphDb = getDb(appConfig.relations.graphDbPath);
-            try { graphDb.prepare("DELETE FROM entity_mentions").run(); } catch {}
-            try { graphDb.prepare("DELETE FROM entities").run(); } catch {}
-            try { graphDb.prepare("DELETE FROM evidence_log").run(); } catch {}
+            const { getGraphDb } = await import("../../storage/graph-sqlite.js");
+            const { clearAllGraphTables } = await import("../../relations/ingest-hook.js");
+            const graphDb = getGraphDb(appConfig.relations.graphDbPath);
+            clearAllGraphTables(graphDb);
             data.graphCleared = true;
           } catch {}
         }
@@ -658,6 +666,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     { label: "Status & Health", value: "status" },
     { label: "Sources", value: "sources" },
     { label: "Documents", value: "documents", description: docCount > 0 ? `${docCount} documents` : undefined },
+    { label: "Evidence OS", value: "evidence-os", description: relationsEnabled && stats?.graphStats ? `${stats.graphStats.entities} entities` : undefined },
     { label: "Configure", value: "configure" },
     { label: "Services", value: "services" },
   ];
@@ -710,8 +719,9 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{"  " + t.dim("Status:    ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○"))}</Text>
       {relationsEnabled && (
         <>
-          <Text>{"  " + t.dim("Entities:  ") + t.ok("●") + "  " + t.dim("Awareness:       ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
-          <Text>{"  " + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Attempts:        ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Entities:  ") + t.value(String(stats?.graphStats?.entities ?? 0).padEnd(8)) + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Mentions:  ") + t.value(String(stats?.graphStats?.mentions ?? 0).padEnd(8)) + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Evidence:  ") + t.value(String(stats?.graphStats?.evidenceEvents ?? 0).padEnd(8)) + t.dim("Attempts:  ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
         </>
       )}
       <Text>{" "}</Text>

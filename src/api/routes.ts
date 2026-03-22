@@ -8,6 +8,7 @@ import { registerReindexRoutes } from "./reindex.routes.js";
 import { registerAnalyticsRoutes, registerDiagnosticsRoute } from "./analytics.routes.js";
 import { registerDocumentRoutes } from "./document.routes.js";
 import { registerResetRoutes } from "./reset.routes.js";
+import { registerGraphRoutes } from "./graph.routes.js";
 
 export function registerRoutes(server: FastifyInstance) {
   registerHealthRoutes(server);
@@ -20,4 +21,5 @@ export function registerRoutes(server: FastifyInstance) {
   registerDiagnosticsRoute(server);
   registerDocumentRoutes(server);
   registerResetRoutes(server);
+  registerGraphRoutes(server);
 }

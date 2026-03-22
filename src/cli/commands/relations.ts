@@ -39,7 +39,6 @@ relationsCommand
       console.log(`All collections (${documents.length} documents)`);
     }
 
-    let totalEntities = 0;
     let totalChunks = 0;
     let processedDocs = 0;
 
@@ -138,19 +137,17 @@ relationsCommand
       const { join: joinTmp } = await import("path");
       const rootDir = resolve(__dirname, "..", "..", "..");
       const meDir = resolve(rootDir, "memory-engine");
-      const graphPath = config.relations.graphDbPath.replace(/\\/g, "/").replace(/'/g, "\\'");
-      const archPath = archivePath.replace(/\\/g, "/").replace(/'/g, "\\'");
       const script = [
         "import { runArchive, getArchiveStats } from './src/relations/archive.js';",
         "import { DatabaseSync } from 'node:sqlite';",
-        `const db = new DatabaseSync('${graphPath}');`,
-        `const r = runArchive(db, '${archPath}', {`,
-        `  claimStaleDays: ${parseInt(opts.claimDays, 10)},`,
-        `  decisionStaleDays: ${parseInt(opts.decisionDays, 10)},`,
-        `  eventRetentionDays: ${parseInt(opts.eventDays, 10)},`,
-        `  loopStaleDays: ${parseInt(opts.claimDays, 10)},`,
+        "const db = new DatabaseSync(process.env.GRAPH_PATH);",
+        `const r = runArchive(db, process.env.ARCHIVE_PATH, {`,
+        `  claimStaleDays: ${Math.max(1, parseInt(opts.claimDays, 10))},`,
+        `  decisionStaleDays: ${Math.max(1, parseInt(opts.decisionDays, 10))},`,
+        `  eventRetentionDays: ${Math.max(1, parseInt(opts.eventDays, 10))},`,
+        `  loopStaleDays: ${Math.max(1, parseInt(opts.claimDays, 10))},`,
         "});",
-        `const s = getArchiveStats('${archPath}');`,
+        "const s = getArchiveStats(process.env.ARCHIVE_PATH);",
         "console.log(JSON.stringify({ result: r, stats: s }));",
         "db.close();",
       ].join("\n");
@@ -159,6 +156,7 @@ relationsCommand
       try {
         const out = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["tsx", tmpScript], {
           cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
+          env: { ...process.env, GRAPH_PATH: config.relations.graphDbPath, ARCHIVE_PATH: archivePath },
         }).toString().trim();
         const { result, stats } = JSON.parse(out);
         console.log("Archive complete:");
@@ -197,10 +195,9 @@ relationsCommand
     const { join: joinTmp } = await import("path");
     const rootDir = resolve(__dirname, "..", "..", "..");
     const meDir = resolve(rootDir, "memory-engine");
-    const archPath = archivePath.replace(/\\/g, "/").replace(/'/g, "\\'");
     const script = [
       "import { getArchiveDb } from './src/relations/archive.js';",
-      `const db = getArchiveDb('${archPath}');`,
+      "const db = getArchiveDb(process.env.ARCHIVE_PATH);",
       "const safe = (sql) => { try { return db.prepare(sql).get()?.cnt ?? 0; } catch { return 0; } };",
       "const runs = db.prepare('SELECT * FROM _archive_runs ORDER BY started_at DESC LIMIT 10').all();",
       "console.log(JSON.stringify({",
@@ -217,6 +214,7 @@ relationsCommand
     try {
       const out = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["tsx", tmpScript], {
         cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 15000,
+        env: { ...process.env, ARCHIVE_PATH: archivePath },
       }).toString().trim();
       const data = JSON.parse(out);
 

@@ -38,6 +38,16 @@ export function registerDocumentRoutes(server: FastifyInstance) {
     const result = deleteDocument(database, id);
     clearCache();
 
+    // Clean up graph data if relations enabled
+    if (config.relations?.enabled) {
+      try {
+        const { getGraphDb } = await import("../storage/graph-sqlite.js");
+        const { deleteSourceData } = await import("../relations/ingest-hook.js");
+        const graphDb = getGraphDb(config.relations.graphDbPath);
+        deleteSourceData(graphDb, "document", id);
+      } catch {}
+    }
+
     return { deleted: true, chunksRemoved: result.chunksDeleted, source_path: doc.source_path };
   });
 }
