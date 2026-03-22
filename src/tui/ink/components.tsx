@@ -19,14 +19,6 @@ export const t = {
   muted: chalk.gray,
 };
 
-const BANNER_LINES = [
-  " ██████ █     ██████ █   █ ██████ ██████ █████  ██████",
-  " █      █     █    █ █   █ █      █    █ █    █ █     ",
-  " █      █     ██████ █ █ █ █      █    █ █████  ████  ",
-  " █      █     █    █ ██ ██ █      █    █ █  █   █     ",
-  " ██████ █████ █    █ █   █ ██████ ██████ █   █  ██████",
-];
-
 export function Banner() {
   const caps = getTerminalCapabilities();
 
@@ -41,10 +33,6 @@ export function Banner() {
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {BANNER_LINES.map((line, i) => (
-        <Text key={i}>{r(line)}</Text>
-      ))}
-      <Text> </Text>
       <Text>{"              "}{r("🦞")} {w("CLAWCORE")} {r("🦞")}</Text>
       <Text>{"          "}{chalk.dim("CRAM So Good It Pinches")}</Text>
     </Box>
