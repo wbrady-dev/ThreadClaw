@@ -186,39 +186,28 @@ async function runUninstallAction(): Promise<boolean> {
 async function runResetKnowledgeBase(): Promise<void> {
   process.stdin.resume();
   if (process.stdin.isTTY) {
-    try { process.stdin.setRawMode(false); } catch {}
+    try { process.stdin.setRawMode(true); } catch {}
   }
-  process.stdin.removeAllListeners("data");
-  process.stdin.removeAllListeners("keypress");
-  process.stdout.write("\x1b[?25h"); // show cursor
   clearScreen();
 
   try {
-    const prompts = await import("prompts");
+    const { promptConfirm } = await import("./prompts.js");
     const ora = (await import("ora")).default;
 
-    console.log(t.err("\n  ⚠  Reset Knowledge Base\n"));
+    console.log(t.err("\n  Reset Knowledge Base\n"));
     console.log(t.err("  This will permanently delete ALL documents, chunks, collections,"));
     console.log(t.err("  and vector embeddings. This cannot be undone.\n"));
 
-    let cancelled = false;
-    const onCancel = () => { cancelled = true; };
+    const confirm = await promptConfirm({
+      title: "Reset Knowledge Base",
+      message: "Are you sure you want to reset the knowledge base?",
+    });
+    if (!confirm) { console.log(t.dim("\n  Cancelled.\n")); await sleep(1000); return; }
 
-    const { confirm } = await prompts.default({
-      type: "confirm",
-      name: "confirm",
-      message: t.err("Are you sure you want to reset the knowledge base?"),
-      initial: false,
-    }, { onCancel });
-    if (!confirm || cancelled) { console.log(t.dim("\n  Cancelled.\n")); return; }
-
-    const { clearGraph } = await prompts.default({
-      type: "confirm",
-      name: "clearGraph",
+    const clearGraph = await promptConfirm({
+      title: "Evidence OS",
       message: "Also clear Evidence OS graph data (entities, claims)?",
-      initial: true,
-    }, { onCancel });
-    if (cancelled) return;
+    });
 
     const sp = ora("Resetting knowledge base...").start();
     try {
