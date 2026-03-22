@@ -579,7 +579,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {/* ── Document Intelligence ── */}
       <Text>{" "}</Text>
       <Text>{t.title("--- Document Intelligence ---")}</Text>
-      <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Audio: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+      <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
 
       {/* ── Knowledge Base ── */}
       <Text>{" "}</Text>
