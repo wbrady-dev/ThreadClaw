@@ -6,7 +6,7 @@
  */
 
 import type { GraphDb } from "./types.js";
-import { logEvidence } from "./evidence-log.js";
+import { logEvidence, withWriteTransaction } from "./evidence-log.js";
 
 // ---------------------------------------------------------------------------
 // Policy checking
@@ -136,23 +136,79 @@ export function createBranch(
   return row;
 }
 
-/** Promote a branch to shared scope. */
+/** Promote a branch to shared scope — migrates all branch-scoped data. */
 export function promoteBranch(db: GraphDb, branchId: number, actor?: string): void {
   const branch = db.prepare("SELECT scope_id FROM branch_scopes WHERE id = ?").get(branchId) as { scope_id: number } | undefined;
+  if (!branch) throw new Error(`Branch ${branchId} not found`);
+  const scopeId = branch.scope_id;
 
-  db.prepare(`
-    UPDATE branch_scopes
-    SET status = 'promoted', promoted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
-    WHERE id = ?
-  `).run(branchId);
+  withWriteTransaction(db, () => {
+    // --- Claims: on conflict, higher confidence wins ---
+    const branchClaims = db.prepare(
+      "SELECT id, canonical_key, confidence FROM claims WHERE scope_id = ? AND branch_id = ?",
+    ).all(scopeId, branchId) as Array<{ id: number; canonical_key: string; confidence: number }>;
 
-  logEvidence(db, {
-    scopeId: branch?.scope_id,
-    branchId,
-    objectType: "branch",
-    objectId: branchId,
-    eventType: "promote",
-    actor,
+    for (const bc of branchClaims) {
+      const shared = db.prepare(
+        "SELECT id, confidence FROM claims WHERE scope_id = ? AND branch_id = 0 AND canonical_key = ?",
+      ).get(scopeId, bc.canonical_key) as { id: number; confidence: number } | undefined;
+
+      if (shared) {
+        if (bc.confidence > shared.confidence) {
+          // Branch wins: supersede shared, move branch to shared scope
+          db.prepare("UPDATE claims SET status = 'superseded', superseded_by = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?").run(bc.id, shared.id);
+          db.prepare("UPDATE claims SET branch_id = 0 WHERE id = ?").run(bc.id);
+        } else {
+          // Shared wins: mark branch claim as superseded
+          db.prepare("UPDATE claims SET status = 'superseded', superseded_by = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?").run(shared.id, bc.id);
+        }
+      } else {
+        // No conflict: move to shared scope
+        db.prepare("UPDATE claims SET branch_id = 0 WHERE id = ?").run(bc.id);
+      }
+    }
+
+    // --- Decisions: on conflict (same topic), supersede shared one ---
+    const branchDecisions = db.prepare(
+      "SELECT id, topic FROM decisions WHERE scope_id = ? AND branch_id = ? AND status = 'active'",
+    ).all(scopeId, branchId) as Array<{ id: number; topic: string }>;
+
+    for (const bd of branchDecisions) {
+      const shared = db.prepare(
+        "SELECT id FROM decisions WHERE scope_id = ? AND branch_id = 0 AND topic = ? AND status = 'active' ORDER BY decided_at DESC LIMIT 1",
+      ).get(scopeId, bd.topic) as { id: number } | undefined;
+
+      if (shared) {
+        db.prepare("UPDATE decisions SET status = 'superseded', superseded_by = ? WHERE id = ?").run(bd.id, shared.id);
+      }
+      db.prepare("UPDATE decisions SET branch_id = 0 WHERE id = ?").run(bd.id);
+    }
+
+    // --- Simple tables: move all to shared scope ---
+    // Only tables with branch_id columns: open_loops, attempts, state_deltas
+    for (const table of ["open_loops", "attempts", "state_deltas"]) {
+      db.prepare(`UPDATE ${table} SET branch_id = 0 WHERE scope_id = ? AND branch_id = ?`).run(scopeId, branchId);
+    }
+
+    // --- Flip branch status ---
+    db.prepare(`
+      UPDATE branch_scopes
+      SET status = 'promoted', promoted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
+      WHERE id = ?
+    `).run(branchId);
+
+    logEvidence(db, {
+      scopeId,
+      branchId,
+      objectType: "branch",
+      objectId: branchId,
+      eventType: "promote",
+      actor,
+      payload: {
+        claimsMigrated: branchClaims.length,
+        decisionsMigrated: branchDecisions.length,
+      },
+    });
   });
 }
 
