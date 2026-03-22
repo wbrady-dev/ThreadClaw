@@ -257,7 +257,7 @@ export class RetrievalEngine {
    * - Respects `tokenCap` and sets `truncated` when the cap is exceeded.
    */
   async expand(input: ExpandInput): Promise<ExpandResult> {
-    const depth = Math.min(10, input.depth ?? 1);
+    const depth = Math.min(10, Math.max(1, input.depth ?? 1));
     const includeMessages = input.includeMessages ?? false;
     const tokenCap = input.tokenCap ?? Infinity;
 

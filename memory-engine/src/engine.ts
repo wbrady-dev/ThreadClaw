@@ -730,14 +730,13 @@ export class LcmContextEngine implements ContextEngine {
 
     this.retrieval = new RetrievalEngine(this.conversationStore, this.summaryStore);
 
-    // Periodic cleanup of settled session queues
+    // Periodic cleanup of settled session queues (every 5 minutes)
     setInterval(() => {
       for (const [id, promise] of this.sessionOperationQueues) {
-        Promise.race([promise, Promise.resolve("settled")]).then((v) => {
-          if (v === "settled") return;
-          this.sessionOperationQueues.delete(id);
-        }).catch(() => {
-          this.sessionOperationQueues.delete(id);
+        // Check if promise is settled by racing with a short timeout
+        const marker = Symbol("pending");
+        Promise.race([promise.then(() => "done", () => "done"), new Promise<typeof marker>((r) => setTimeout(() => r(marker), 10))]).then((v) => {
+          if (v !== marker) this.sessionOperationQueues.delete(id);
         });
       }
     }, 5 * 60 * 1000).unref();
