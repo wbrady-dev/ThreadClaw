@@ -1,6 +1,10 @@
 import { getRootDir, startClawCoreApi, startModelServer, stopServices, forceKillByPort, getApiPort, getModelPort } from "./platform.js";
 import { clearServiceLogs, readLatestServiceLogLine, type ServiceLogName } from "./service-logs.js";
 
+const MODEL_WAIT_TIMEOUT = parseInt(process.env.CLAWCORE_MODEL_TIMEOUT ?? "180000", 10);
+const API_WAIT_TIMEOUT = parseInt(process.env.CLAWCORE_API_TIMEOUT ?? "30000", 10);
+const STOP_WAIT_TIMEOUT = parseInt(process.env.CLAWCORE_STOP_TIMEOUT ?? "20000", 10);
+
 export type ServiceAction = "start" | "stop" | "restart";
 
 export interface ServiceActionOptions {
@@ -29,8 +33,8 @@ export async function performServiceAction(
     // Model server may take time to release GPU memory
     options.onStatus?.("Waiting for services to stop...");
     await Promise.all([
-      waitForPortClosed(getApiPort(), 15000),
-      waitForPortClosed(getModelPort(), 20000),
+      waitForPortClosed(getApiPort(), STOP_WAIT_TIMEOUT),
+      waitForPortClosed(getModelPort(), STOP_WAIT_TIMEOUT),
     ]);
 
     // Verify ports are actually closed — if not, force-kill async
@@ -73,7 +77,7 @@ export async function performServiceAction(
     return { success: false, message: modelResult.error ?? "Failed to launch model server" };
   }
 
-  const modelWait = await waitForHealthWithLogs(getModelPort(), 180000, "models", root, "Waiting for model server...", options.onStatus);
+  const modelWait = await waitForHealthWithLogs(getModelPort(), MODEL_WAIT_TIMEOUT, "models", root, "Waiting for model server...", options.onStatus);
   if (!modelWait.success) {
     return modelWait;
   }
@@ -84,7 +88,7 @@ export async function performServiceAction(
     return { success: false, message: apiResult.error ?? "Failed to launch ClawCore API" };
   }
 
-  const apiWait = await waitForHealthWithLogs(getApiPort(), 30000, "clawcore", root, "Waiting for ClawCore API...", options.onStatus);
+  const apiWait = await waitForHealthWithLogs(getApiPort(), API_WAIT_TIMEOUT, "clawcore", root, "Waiting for ClawCore API...", options.onStatus);
   if (!apiWait.success) {
     return apiWait;
   }

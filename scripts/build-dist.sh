@@ -24,7 +24,7 @@ echo "[OK] dist/ built"
 
 # ── Step 2: Generate pinned Python requirements ──
 echo "[build] Generating pinned Python requirements..."
-pip freeze > "$ROOT/server/requirements-pinned.txt"
+"$ROOT/.venv/bin/pip" freeze > "$ROOT/server/requirements-pinned.txt"
 echo "[OK] requirements-pinned.txt generated"
 
 # ── Step 3: Verify node_modules ──

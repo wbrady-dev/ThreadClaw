@@ -24,6 +24,14 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 fi
 echo "[OK] Node.js $(node --version)"
 
+# ── Pre-flight: internet connectivity ──
+if ! ping -c 1 -W 3 pypi.org >/dev/null 2>&1; then
+  echo "[WARN] Cannot reach pypi.org — Python package downloads may fail."
+fi
+
+# ── Pre-flight: logs directory ──
+mkdir -p "$SCRIPT_DIR/logs"
+
 # ── Step 2: Check Python ──
 PYTHON_CMD=""
 if command -v python3 >/dev/null 2>&1; then
@@ -73,6 +81,14 @@ if ! "$VENV_PYTHON" -c "import torch" 2>/dev/null; then
     "$SCRIPT_DIR/.venv/bin/pip" install torch torchvision 2>&1 | tail -1
   fi
   echo "[OK] PyTorch installed"
+  # Verify MPS (Apple Silicon GPU) availability on macOS
+  if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+    if "$VENV_PYTHON" -c "import torch; assert torch.backends.mps.is_available()" 2>/dev/null; then
+      echo "[OK] MPS (Apple Silicon GPU) backend available"
+    else
+      echo "[WARN] MPS backend not available — will use CPU"
+    fi
+  fi
 else
   echo "[OK] PyTorch already installed"
 fi
@@ -131,6 +147,15 @@ if [ $EXIT_CODE -eq 0 ]; then
   else
     echo "[OK] clawcore command registered at ~/.local/bin/clawcore"
     echo "     Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\""
+  fi
+
+  # ── Smoke test ──
+  echo ""
+  echo "[install] Running smoke test..."
+  if node "$SCRIPT_DIR/bin/clawcore.mjs" doctor >/dev/null 2>&1; then
+    echo "[OK] Smoke test passed"
+  else
+    echo "[WARN] Smoke test had issues. Run 'clawcore doctor' for details."
   fi
 fi
 

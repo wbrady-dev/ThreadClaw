@@ -23,7 +23,7 @@ import {
   getRecommendation,
   type ModelInfo,
 } from "../models.js";
-import { selectMenu, selectModelMenu } from "../menu.js";
+import { selectMenu } from "../menu.js";
 
 export type ConfigureAction =
   | "embed"
@@ -998,7 +998,34 @@ function buildModelSelector(
     };
   });
 
-  return selectModelMenu(formatted);
+  const items: { label: string; value: string; color?: (s: string) => string; description?: string }[] = formatted.map((model) => ({
+    label: `${model.label.padEnd(24)} ${t.dim(model.vram.padEnd(9))} ${model.qualityColor(model.quality.padEnd(10))}${model.badge}`,
+    value: model.id,
+    description: model.description,
+  }));
+
+  items.push({
+    label: t.info("Cloud provider"),
+    value: "__cloud__",
+    description: "OpenAI, Cohere, Voyage AI, Google, and more",
+    color: t.info,
+  });
+  items.push({
+    label: t.info("+ Custom local model"),
+    value: "__custom__",
+    description: "Enter any HuggingFace model ID",
+    color: t.info,
+  });
+  items.push({
+    label: "Back",
+    value: "__back__",
+    color: t.dim,
+  });
+
+  console.log(t.dim(`  ${t.ok("*")} = good fit for your hardware  ${t.info("cloud")} = hosted (no GPU needed)\n`));
+  console.log(t.dim(`  ${"Model".padEnd(26)} ${"VRAM".padEnd(9)} ${"Type".padEnd(10)}`));
+
+  return selectMenu(items);
 }
 
 function tierColorFn(score: number): (s: string) => string {

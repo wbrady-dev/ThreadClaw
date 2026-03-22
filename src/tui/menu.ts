@@ -83,12 +83,22 @@ export function selectMenu(items: MenuItem[]): Promise<string | null> {
         resolve(null);
       } else if (input === "\x03") {
         cleanup();
+        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+        process.stdin.removeAllListeners("data");
+        process.stdin.removeAllListeners("keypress");
+        process.stdin.pause();
+        process.stdout.write("\x1b[?25h");
         process.exit(0);
       }
     };
 
     const onSigint = () => {
       cleanup();
+      if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+      process.stdin.removeAllListeners("data");
+      process.stdin.removeAllListeners("keypress");
+      process.stdin.pause();
+      process.stdout.write("\x1b[?25h");
       process.exit(0);
     };
 
@@ -119,46 +129,3 @@ async function promptPlainMenu(items: MenuItem[]): Promise<string | null> {
   return result.value ?? null;
 }
 
-/**
- * Scrollable model selector with VRAM and quality info.
- */
-export function selectModelMenu(
-  models: {
-    id: string;
-    label: string;
-    vram: string;
-    quality: string;
-    qualityColor: (s: string) => string;
-    badge: string;
-    description: string;
-  }[],
-): Promise<string | null> {
-  const items: MenuItem[] = models.map((model) => ({
-    label: `${model.label.padEnd(24)} ${t.dim(model.vram.padEnd(9))} ${model.qualityColor(model.quality.padEnd(10))}${model.badge}`,
-    value: model.id,
-    description: model.description,
-  }));
-
-  items.push({
-    label: t.info("Cloud provider"),
-    value: "__cloud__",
-    description: "OpenAI, Cohere, Voyage AI, Google, and more",
-    color: t.info,
-  });
-  items.push({
-    label: t.info("+ Custom local model"),
-    value: "__custom__",
-    description: "Enter any HuggingFace model ID",
-    color: t.info,
-  });
-  items.push({
-    label: "Back",
-    value: "__back__",
-    color: t.dim,
-  });
-
-  console.log(t.dim(`  ${t.ok("*")} = good fit for your hardware  ${t.info("cloud")} = hosted (no GPU needed)\n`));
-  console.log(t.dim(`  ${"Model".padEnd(26)} ${"VRAM".padEnd(9)} ${"Type".padEnd(10)}`));
-
-  return selectMenu(items);
-}

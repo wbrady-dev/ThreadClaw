@@ -139,10 +139,37 @@ export async function embedPassage(text: string): Promise<number[]> {
   return embedding;
 }
 
+// LRU cache for query embeddings — eliminates redundant model server calls
+const EMBED_CACHE_MAX = 200;
+const queryEmbedCache = new Map<number, number[]>();
+
+function embedCacheKey(text: string): number {
+  let hash = 0;
+  const str = `${config.embedding.prefixMode}:${text}`;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return hash;
+}
+
 /**
- * Embed a single text for query.
+ * Embed a single text for query. Results are LRU-cached (200 entries).
  */
 export async function embedQuery(text: string): Promise<number[]> {
+  const key = embedCacheKey(text);
+  const cached = queryEmbedCache.get(key);
+  if (cached) {
+    // Move to end (most recently used)
+    queryEmbedCache.delete(key);
+    queryEmbedCache.set(key, cached);
+    return cached;
+  }
   const [embedding] = await embed([text], "query");
+  // Evict oldest if at capacity
+  if (queryEmbedCache.size >= EMBED_CACHE_MAX) {
+    const oldest = queryEmbedCache.keys().next().value;
+    if (oldest !== undefined) queryEmbedCache.delete(oldest);
+  }
+  queryEmbedCache.set(key, embedding);
   return embedding;
 }

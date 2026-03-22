@@ -3,7 +3,7 @@ import { promisify } from "util";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { resolve } from "path";
-import { detectGpu, type GpuInfo } from "./models.js";
+import { detectGpuAsyncImpl, type GpuInfo } from "./models.js";
 import { getPlatform, getRootDir, getModelPort, getApiPort, type ServiceStatus } from "./platform.js";
 
 const execFileAsync = promisify(execFile);
@@ -34,8 +34,8 @@ export async function checkServicesAsync(root = getRootDir()): Promise<ServiceSt
       if (!result.clawcore.running) result.clawcore.running = ragState?.includes('"Running"') ?? false;
     } else if (platform === "linux") {
       const [modelsService, clawcoreService] = await Promise.all([
-        runCommand("systemctl", ["is-active", "clawcore-models"]),
-        runCommand("systemctl", ["is-active", "clawcore-rag"]),
+        runCommand("systemctl", ["--user", "is-active", "clawcore-models"]),
+        runCommand("systemctl", ["--user", "is-active", "clawcore-rag"]),
       ]);
       if (!result.models.running) result.models.running = modelsService === "active";
       if (!result.clawcore.running) result.clawcore.running = clawcoreService === "active";
@@ -70,7 +70,7 @@ export async function checkAutoStartupAsync(): Promise<boolean> {
   }
 
   if (platform === "linux") {
-    const output = await runCommand("systemctl", ["is-enabled", "clawcore-models"]);
+    const output = await runCommand("systemctl", ["--user", "is-enabled", "clawcore-models"]);
     return output === "enabled";
   }
 
@@ -78,9 +78,7 @@ export async function checkAutoStartupAsync(): Promise<boolean> {
 }
 
 export async function detectGpuAsync(): Promise<GpuInfo> {
-  return new Promise((resolveGpu) => {
-    setTimeout(() => resolveGpu(detectGpu()), 0);
-  });
+  return detectGpuAsyncImpl();
 }
 
 /** TCP connect check — fast and reliable, no HTTP overhead or rate limiting. */

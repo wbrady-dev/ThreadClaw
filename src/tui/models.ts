@@ -457,7 +457,7 @@ function detectWindowsGeneric(): GpuInfo | null {
   try {
     const output = execFileSync(
       "powershell", ["-NoProfile", "-c", "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"],
-      { stdio: "pipe", timeout: 5000 },
+      { stdio: "pipe", timeout: 3000 },
     ).toString().trim();
     const gpus = JSON.parse(output.startsWith("[") ? output : `[${output}]`);
 
@@ -491,6 +491,102 @@ function detectLinuxLspci(): GpuInfo | null {
     }
   } catch {}
   return null;
+}
+
+/** Truly async GPU detection — uses execFile (non-blocking) instead of execFileSync. */
+export async function detectGpuAsyncImpl(): Promise<GpuInfo> {
+  const none: GpuInfo = { name: "None detected", vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: false };
+  const { execFile: ef } = await import("child_process");
+  const { promisify } = await import("util");
+  const exec = promisify(ef);
+
+  // NVIDIA
+  try {
+    const { stdout } = await exec(
+      "nvidia-smi", ["--query-gpu=name,memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
+      { timeout: 3000 },
+    );
+    const [name, total, used, free] = stdout.trim().split(",").map((s) => s.trim());
+    if (name && total) {
+      return { name, vramTotalMb: parseInt(total), vramUsedMb: parseInt(used), vramFreeMb: parseInt(free), detected: true };
+    }
+  } catch {}
+
+  // AMD ROCm
+  try {
+    const { stdout } = await exec("rocm-smi", ["--showmeminfo", "vram", "--csv"], { timeout: 3000 });
+    const lines = stdout.trim().split("\n");
+    if (lines.length >= 2) {
+      let name = "AMD GPU";
+      try {
+        const n = await exec("rocm-smi", ["--showproductname", "--csv"], { timeout: 3000 });
+        name = n.stdout.trim().split("\n")[1]?.split(",")[1]?.trim() ?? name;
+      } catch {}
+      const parts = lines[1].split(",");
+      const totalMb = Math.round(parseInt(parts[1] ?? "0") / 1024 / 1024);
+      const usedMb = Math.round(parseInt(parts[2] ?? "0") / 1024 / 1024);
+      return { name, vramTotalMb: totalMb, vramUsedMb: usedMb, vramFreeMb: totalMb - usedMb, detected: true };
+    }
+  } catch {}
+
+  // macOS
+  if (process.platform === "darwin") {
+    try {
+      const { stdout } = await exec("system_profiler", ["SPDisplaysDataType"], { timeout: 5000 });
+      const nameMatch = stdout.match(/Chipset Model:\s*(.+)/i) ?? stdout.match(/Chip:\s*(.+)/i);
+      if (nameMatch) {
+        const gpuName = nameMatch[1].trim();
+        let totalMb = 0;
+        const memMatch = stdout.match(/VRAM.*?:\s*(\d+)\s*(MB|GB)/i);
+        if (memMatch) {
+          totalMb = parseInt(memMatch[1]) * (memMatch[2].toUpperCase() === "GB" ? 1024 : 1);
+        } else {
+          try {
+            const hw = await exec("sysctl", ["-n", "hw.memsize"], { timeout: 2000 });
+            totalMb = Math.round((parseInt(hw.stdout.trim()) / 1024 / 1024) * 0.75);
+          } catch {}
+        }
+        return { name: gpuName, vramTotalMb: totalMb, vramUsedMb: 0, vramFreeMb: totalMb, detected: true };
+      }
+    } catch {}
+  }
+
+  // Windows PowerShell (AMD/Intel fallback)
+  if (process.platform === "win32") {
+    try {
+      const { stdout } = await exec(
+        "powershell", ["-NoProfile", "-c", "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json"],
+        { timeout: 3000 },
+      );
+      const gpus = JSON.parse(stdout.trim().startsWith("[") ? stdout.trim() : `[${stdout.trim()}]`);
+      let best = { name: "", ram: 0 };
+      for (const gpu of gpus) {
+        const ram = parseInt(gpu.AdapterRAM ?? "0");
+        const name: string = gpu.Name ?? "";
+        if (ram > best.ram && !name.includes("Microsoft") && !name.includes("Basic")) {
+          best = { name, ram };
+        }
+      }
+      if (best.ram > 0) {
+        const totalMb = Math.round(best.ram / 1024 / 1024);
+        return { name: best.name, vramTotalMb: totalMb, vramUsedMb: 0, vramFreeMb: totalMb, detected: true };
+      }
+    } catch {}
+  }
+
+  // Linux lspci fallback
+  if (process.platform === "linux") {
+    try {
+      const { stdout } = await exec("lspci", [], { timeout: 3000 });
+      const line = stdout.split("\n").filter((l) => /vga|3d|display/i.test(l)).join("\n").trim();
+      if (line) {
+        const name = line.split(":").slice(-1)[0]?.trim() ?? "GPU";
+        return { name, vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: true };
+      }
+    } catch {}
+  }
+
+  return none;
 }
 
 export function getRecommendation(

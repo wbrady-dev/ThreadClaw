@@ -351,11 +351,11 @@ export function checkServices(): ServiceStatus {
     // Check systemd services (Linux)
     if (plat === "linux") {
       try {
-        const out = execFileSync("systemctl", ["is-active", "clawcore-models"], { stdio: "pipe" }).toString().trim();
+        const out = execFileSync("systemctl", ["--user", "is-active", "clawcore-models"], { stdio: "pipe" }).toString().trim();
         if (out === "active") result.models.running = true;
       } catch {}
       try {
-        const out = execFileSync("systemctl", ["is-active", "clawcore-rag"], { stdio: "pipe" }).toString().trim();
+        const out = execFileSync("systemctl", ["--user", "is-active", "clawcore-rag"], { stdio: "pipe" }).toString().trim();
         if (out === "active") result.clawcore.running = true;
       } catch {}
     }
@@ -432,9 +432,10 @@ function findApiEntryArgs(root: string): string[] {
 
 function findModelsScript(root: string): string {
   const candidates = [
-    resolve(root, "..", "rerank-server.py"),
-    resolve(root, "server", "rerank-server.py"),
-    resolve(root, "rerank-server.py"),
+    resolve(root, "server", "server.py"),
+    resolve(root, "..", "rerank-server.py"),       // legacy fallback
+    resolve(root, "server", "rerank-server.py"),   // legacy fallback
+    resolve(root, "rerank-server.py"),             // legacy fallback
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -555,8 +556,8 @@ export function stopServices(): { success: boolean; error?: string } {
       try { endTask(TASK_RAG); } catch {}
       try { endTask(TASK_MODELS); } catch {}
     } else if (plat === "linux") {
-      try { execFileSync("systemctl", ["stop", "clawcore-rag"], { stdio: "pipe" }); } catch {}
-      try { execFileSync("systemctl", ["stop", "clawcore-models"], { stdio: "pipe" }); } catch {}
+      try { execFileSync("systemctl", ["--user", "stop", "clawcore-rag"], { stdio: "pipe" }); } catch {}
+      try { execFileSync("systemctl", ["--user", "stop", "clawcore-models"], { stdio: "pipe" }); } catch {}
     } else if (plat === "mac") {
       try { execFileSync("launchctl", ["stop", "com.clawcore.rag"], { stdio: "pipe" }); } catch {}
       try { execFileSync("launchctl", ["stop", "com.clawcore.models"], { stdio: "pipe" }); } catch {}
@@ -618,23 +619,21 @@ export function removeWindowsServices(): { success: boolean } {
 // ── Linux: systemd service installer ──
 
 export function installLinuxServices(root: string): { success: boolean; error?: string } {
-  if (process.getuid?.() !== 0) {
-    return { success: false, error: "Root/sudo required to install systemd services" };
-  }
   const pythonCmd = getPythonCmd();
   const nodeCmd = getNodeCmd();
   const entryArgs = findApiEntryArgs(root);
-  const user = process.env.USER ?? process.env.LOGNAME ?? "root";
   const logsDir = resolve(root, "logs");
   mkdirSync(logsDir, { recursive: true });
 
+  const userUnitDir = resolve(homedir(), ".config", "systemd", "user");
+  mkdirSync(userUnitDir, { recursive: true });
+
   const modelsUnit = `[Unit]
 Description=ClawCore Models (Embed + Rerank)
-After=network.target
+After=default.target
 
 [Service]
 Type=simple
-User=${user}
 WorkingDirectory=${root}
 ExecStart="${pythonCmd}" "${findModelsScript(root)}"
 Restart=on-failure
@@ -643,17 +642,16 @@ StandardOutput=append:${resolve(logsDir, "models.log")}
 StandardError=append:${resolve(logsDir, "models.log")}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 `;
 
   const ragUnit = `[Unit]
 Description=ClawCore RAG (Search API)
-After=network.target clawcore-models.service
+After=default.target clawcore-models.service
 Requires=clawcore-models.service
 
 [Service]
 Type=simple
-User=${user}
 WorkingDirectory=${root}
 ExecStart="${nodeCmd}" ${entryArgs.map(a => `"${a}"`).join(" ")}
 Restart=on-failure
@@ -662,16 +660,18 @@ StandardOutput=append:${resolve(logsDir, "clawcore.log")}
 StandardError=append:${resolve(logsDir, "clawcore.log")}
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 `;
 
   try {
-    writeFileSync("/etc/systemd/system/clawcore-models.service", modelsUnit);
-    writeFileSync("/etc/systemd/system/clawcore-rag.service", ragUnit);
-    execFileSync("systemctl", ["daemon-reload"], { stdio: "pipe" });
-    execFileSync("systemctl", ["enable", "clawcore-models", "clawcore-rag"], { stdio: "pipe" });
-    execFileSync("systemctl", ["start", "clawcore-models"], { stdio: "pipe" });
-    execFileSync("systemctl", ["start", "clawcore-rag"], { stdio: "pipe" });
+    writeFileSync(resolve(userUnitDir, "clawcore-models.service"), modelsUnit);
+    writeFileSync(resolve(userUnitDir, "clawcore-rag.service"), ragUnit);
+    execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "enable", "clawcore-models", "clawcore-rag"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "start", "clawcore-models"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "start", "clawcore-rag"], { stdio: "pipe" });
+    // Enable lingering so user services survive logout
+    try { execFileSync("loginctl", ["enable-linger"], { stdio: "pipe" }); } catch {}
     return { success: true };
   } catch (e) {
     return { success: false, error: String(e) };
@@ -679,21 +679,17 @@ WantedBy=multi-user.target
 }
 
 export function removeLinuxServices(): { success: boolean } {
-  if (process.getuid?.() !== 0) return { success: false };
   try {
-    execFileSync("systemctl", ["stop", "clawcore-rag", "clawcore-models"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "stop", "clawcore-rag", "clawcore-models"], { stdio: "pipe" });
   } catch {}
   try {
-    execFileSync("systemctl", ["disable", "clawcore-rag", "clawcore-models"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "disable", "clawcore-rag", "clawcore-models"], { stdio: "pipe" });
   } catch {}
+  const userUnitDir = resolve(homedir(), ".config", "systemd", "user");
+  try { unlinkSync(resolve(userUnitDir, "clawcore-rag.service")); } catch {}
+  try { unlinkSync(resolve(userUnitDir, "clawcore-models.service")); } catch {}
   try {
-    unlinkSync("/etc/systemd/system/clawcore-rag.service");
-  } catch {}
-  try {
-    unlinkSync("/etc/systemd/system/clawcore-models.service");
-  } catch {}
-  try {
-    execFileSync("systemctl", ["daemon-reload"], { stdio: "pipe" });
+    execFileSync("systemctl", ["--user", "daemon-reload"], { stdio: "pipe" });
   } catch {}
   return { success: true };
 }

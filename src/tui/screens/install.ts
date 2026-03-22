@@ -25,7 +25,7 @@ import {
   type GpuInfo,
   type ModelInfo,
 } from "../models.js";
-import { selectMenu, selectModelMenu } from "../menu.js";
+import { selectMenu } from "../menu.js";
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 
 let cancelled = false;
@@ -930,7 +930,34 @@ async function selectModel(models: ModelInfo[], gpu: GpuInfo, otherModelVram: nu
       description: model.notes,
     };
   });
-  const modelId = await selectModelMenu(formatted);
+  const menuItems: { label: string; value: string; color?: (s: string) => string; description?: string }[] = formatted.map((m) => ({
+    label: `${m.label.padEnd(24)} ${t.dim(m.vram.padEnd(9))} ${m.qualityColor(m.quality.padEnd(10))}${m.badge}`,
+    value: m.id,
+    description: m.description,
+  }));
+
+  menuItems.push({
+    label: t.info("Cloud provider"),
+    value: "__cloud__",
+    description: "OpenAI, Cohere, Voyage AI, Google, and more",
+    color: t.info,
+  });
+  menuItems.push({
+    label: t.info("+ Custom local model"),
+    value: "__custom__",
+    description: "Enter any HuggingFace model ID",
+    color: t.info,
+  });
+  menuItems.push({
+    label: "Back",
+    value: "__back__",
+    color: t.dim,
+  });
+
+  console.log(t.dim(`  ${t.ok("*")} = good fit for your hardware  ${t.info("cloud")} = hosted (no GPU needed)\n`));
+  console.log(t.dim(`  ${"Model".padEnd(26)} ${"VRAM".padEnd(9)} ${"Type".padEnd(10)}`));
+
+  const modelId = await selectMenu(menuItems);
   if (!modelId || modelId === "__back__" || modelId === "__cloud__") return null;
   if (modelId === "__custom__") return handleCustomModel(pythonCmd);
   return models.find((model) => model.id === modelId) ?? null;

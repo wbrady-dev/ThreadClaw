@@ -338,6 +338,18 @@ let cachedModelHealth: any = null;
 let cachedGpu = { detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 };
 let cachedAutoStart = false;
 let cachedEnvContent = "";
+let cachedParsedEnv = {
+  deepEnabled: false,
+  relationsEnabled: false,
+  awarenessEnabled: false,
+  claimsEnabled: false,
+  attemptEnabled: false,
+  qeEnabled: "",
+  qeModel: "",
+  watchCount: 0,
+  watchPaths: "",
+  sourceIcons: [] as string[],
+};
 
 function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const root = getRootDir();
@@ -395,11 +407,32 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       fetch(`${getModelBaseUrl()}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
     ]);
 
-    // Refresh .env content
+    // Refresh .env content and parse all values once
     try {
       const envPath = resolve(root, ".env");
       if (existsSync(envPath)) cachedEnvContent = readFileSync(envPath, "utf-8");
     } catch {}
+    const ec = cachedEnvContent;
+    const watchPaths = ec.match(/WATCH_PATHS=(.+)/)?.[1]?.trim() ?? "";
+    const sourceIcons: string[] = [];
+    if (watchPaths) sourceIcons.push(`${t.ok("●")} Local Files`);
+    if (ec.includes("OBSIDIAN_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Obsidian`);
+    if (ec.includes("GDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Google Drive`);
+    if (ec.includes("ONEDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} OneDrive`);
+    if (ec.includes("NOTION_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Notion`);
+    if (ec.includes("APPLE_NOTES_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Apple Notes`);
+    cachedParsedEnv = {
+      deepEnabled: ec.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true",
+      relationsEnabled: ec.match(/CLAWCORE_MEMORY_RELATIONS_ENABLED=(\w+)/)?.[1] === "true",
+      awarenessEnabled: ec.match(/CLAWCORE_MEMORY_RELATIONS_AWARENESS_ENABLED=(\w+)/)?.[1] === "true",
+      claimsEnabled: ec.match(/CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true",
+      attemptEnabled: ec.match(/CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED=(\w+)/)?.[1] === "true",
+      qeEnabled: ec.match(/QUERY_EXPANSION_ENABLED=(\w+)/)?.[1] ?? "",
+      qeModel: ec.match(/QUERY_EXPANSION_MODEL=(.+)/)?.[1]?.trim() ?? "",
+      watchCount: watchPaths ? watchPaths.split(",").filter(Boolean).length : 0,
+      watchPaths,
+      sourceIcons,
+    };
 
     // Service status: always update (port unreachable = service is down)
     cachedModelsUp = mUp as boolean;
@@ -457,10 +490,10 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const embedName = config?.embed_model?.split("/").pop() ?? "not configured";
   const rerankName = config?.rerank_model?.split("/").pop() ?? "not configured";
 
-  // .env is read during refresh() and cached at module level
+  // Use pre-parsed env values from refresh() — no regex in render path
+  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons } = cachedParsedEnv;
   const envContent = cachedEnvContent;
 
-  const deepEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true";
   let deepExtractLabel = t.dim("off");
   if (deepEnabled) {
     const explicitModel = envContent.match(/CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL=(.+)/)?.[1]?.trim();
@@ -479,9 +512,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   }
 
   let expansionLabel = t.dim("off");
-  const qeEnabled = envContent.match(/QUERY_EXPANSION_ENABLED=(\w+)/)?.[1];
-  const qeModel = envContent.match(/QUERY_EXPANSION_MODEL=(.+)/)?.[1]?.trim();
-  if (qeEnabled === "true" && qeModel) expansionLabel = t.value(qeModel);
+  if (cachedParsedEnv.qeEnabled === "true" && cachedParsedEnv.qeModel) expansionLabel = t.value(cachedParsedEnv.qeModel);
 
   const doclingDevice = config?.docling_device ?? "off";
   const doclingOk = modelHealth?.models?.docling?.ready === true;
@@ -489,29 +520,17 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
   const nerReady = modelHealth?.ner?.ready === true;
 
-  const watchPaths = envContent.match(/WATCH_PATHS=(.+)/)?.[1]?.trim();
-  const watchCount = watchPaths ? watchPaths.split(",").filter(Boolean).length : 0;
-
-  const relationsEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_ENABLED=(\w+)/)?.[1] === "true";
-  const awarenessEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_AWARENESS_ENABLED=(\w+)/)?.[1] === "true";
-  const claimsEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED=(\w+)/)?.[1] === "true";
-  const attemptEnabled = envContent.match(/CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED=(\w+)/)?.[1] === "true";
-
-  // Source summary from .env
-  const sourceIcons: string[] = [];
-  if (watchCount > 0) sourceIcons.push(`${t.ok("●")} Local Files`);
-  if (envContent.includes("OBSIDIAN_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Obsidian`);
-  if (envContent.includes("GDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Google Drive`);
-  if (envContent.includes("ONEDRIVE_ENABLED=true")) sourceIcons.push(`${t.ok("●")} OneDrive`);
-  if (envContent.includes("NOTION_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Notion`);
-  if (envContent.includes("APPLE_NOTES_ENABLED=true")) sourceIcons.push(`${t.ok("●")} Apple Notes`);
-
   // GPU
   let gpuLine: string;
   if (gpu.detected && gpu.vramTotalMb > 0) {
-    const pct = Math.round((gpu.vramUsedMb / gpu.vramTotalMb) * 100);
-    const c = pct >= 80 ? t.err : pct >= 50 ? t.warn : t.ok;
-    gpuLine = `${gpu.name}  ${c(`${gpu.vramUsedMb}/${gpu.vramTotalMb} MB (${pct}%)`)}`;
+    const gpuNameLower = gpu.name.toLowerCase();
+    if (gpuNameLower.includes("apple") || /\bm[1-4]\b/.test(gpuNameLower)) {
+      gpuLine = `${gpu.name}  ${t.dim(`shared memory — ${Math.round(gpu.vramTotalMb / 1024)} GB`)}`;
+    } else {
+      const pct = Math.round((gpu.vramUsedMb / gpu.vramTotalMb) * 100);
+      const c = pct >= 80 ? t.err : pct >= 50 ? t.warn : t.ok;
+      gpuLine = `${gpu.name}  ${c(`${gpu.vramUsedMb}/${gpu.vramTotalMb} MB (${pct}%)`)}`;
+    }
   } else {
     gpuLine = t.dim("not detected");
   }
@@ -575,8 +594,12 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{" "}</Text>
       <Text>{t.title("--- Evidence OS ---")}</Text>
       <Text>{"  " + t.dim("Status:    ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○"))}</Text>
-      <Text>{"  " + t.dim("Entities:  ") + t.ok("●") + "  " + t.dim("Awareness:       ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
-      <Text>{"  " + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Attempts:        ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
+      {relationsEnabled && (
+        <>
+          <Text>{"  " + t.dim("Entities:  ") + t.ok("●") + "  " + t.dim("Awareness:       ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Attempts:        ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
+        </>
+      )}
       <Text>{" "}</Text>
 
       {/* ── Activity / Service Action ── */}

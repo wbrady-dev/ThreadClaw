@@ -29,6 +29,16 @@ if %NODE_MAJOR% LSS 22 (
 )
 for /f "tokens=*" %%v in ('node --version') do echo [OK] Node.js %%v
 
+:: ── Pre-flight: internet connectivity ──
+ping -n 1 -w 3000 pypi.org >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [WARN] Cannot reach pypi.org — Python package downloads may fail.
+    echo         Check your internet connection.
+)
+
+:: ── Pre-flight: logs directory ──
+if not exist "%SCRIPT_DIR%\logs" mkdir "%SCRIPT_DIR%\logs"
+
 :: ── Step 2: Check Python ──
 where python >nul 2>&1
 if %errorlevel% neq 0 (
@@ -177,12 +187,12 @@ if %EXIT_CODE% equ 0 (
 
     :: Find Python and models script
     set "PYTHON=%SCRIPT_DIR%\.venv\Scripts\python.exe"
-    if exist "%SCRIPT_DIR%\..\rerank-server.py" (
+    if exist "%SCRIPT_DIR%\server\server.py" (
+        set "MODELS_SCRIPT=%SCRIPT_DIR%\server\server.py"
+    ) else if exist "%SCRIPT_DIR%\..\rerank-server.py" (
         set "MODELS_SCRIPT=%SCRIPT_DIR%\..\rerank-server.py"
-    ) else if exist "%SCRIPT_DIR%\server\rerank-server.py" (
-        set "MODELS_SCRIPT=%SCRIPT_DIR%\server\rerank-server.py"
     ) else (
-        set "MODELS_SCRIPT=%SCRIPT_DIR%\rerank-server.py"
+        set "MODELS_SCRIPT=%SCRIPT_DIR%\server\rerank-server.py"
     )
 
     :: Create wrapper scripts for Task Scheduler
@@ -231,6 +241,17 @@ if %EXIT_CODE% neq 0 (
     echo.
     echo [ERROR] Installer exited with code %EXIT_CODE%.
     pause
+    exit /b %EXIT_CODE%
 )
 
-exit /b %EXIT_CODE%
+:: ── Smoke test ──
+echo.
+echo [install] Running smoke test...
+node "%SCRIPT_DIR%\bin\clawcore.mjs" doctor >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] Smoke test passed
+) else (
+    echo [WARN] Smoke test had issues. Run 'clawcore doctor' for details.
+)
+
+exit /b 0
