@@ -93,6 +93,11 @@ export function registerHealthRoutes(server: FastifyInstance) {
           entities: safe("SELECT COUNT(*) as cnt FROM entities"),
           mentions: safe("SELECT COUNT(*) as cnt FROM entity_mentions"),
           evidenceEvents: safe("SELECT COUNT(*) as cnt FROM evidence_log"),
+          claims: safe("SELECT COUNT(*) as cnt FROM claims WHERE status = 'active'"),
+          decisions: safe("SELECT COUNT(*) as cnt FROM decisions WHERE status = 'active'"),
+          loops: safe("SELECT COUNT(*) as cnt FROM open_loops WHERE status = 'open'"),
+          attempts: safe("SELECT COUNT(*) as cnt FROM attempts"),
+          relations: safe("SELECT COUNT(*) as cnt FROM entity_relations"),
           graphDbSizeMB: Math.round(statSync(config.relations.graphDbPath).size / 1024 / 1024 * 100) / 100,
         };
       } catch {}

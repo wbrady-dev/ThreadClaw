@@ -719,9 +719,11 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{"  " + t.dim("Status:    ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○"))}</Text>
       {relationsEnabled && (
         <>
-          <Text>{"  " + t.dim("Entities:  ") + t.value(String(stats?.graphStats?.entities ?? 0).padEnd(8)) + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
-          <Text>{"  " + t.dim("Mentions:  ") + t.value(String(stats?.graphStats?.mentions ?? 0).padEnd(8)) + t.dim("Claims:    ") + (claimsEnabled ? t.ok("●") : t.err("○"))}</Text>
-          <Text>{"  " + t.dim("Evidence:  ") + t.value(String(stats?.graphStats?.evidenceEvents ?? 0).padEnd(8)) + t.dim("Attempts:  ") + (attemptEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Entities:  ") + t.value(String(stats?.graphStats?.entities ?? 0).padEnd(8)) + t.dim("Awareness:   ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("Mentions:  ") + t.value(String(stats?.graphStats?.mentions ?? 0).padEnd(8)) + t.dim("Claims:      ") + t.value(String(stats?.graphStats?.claims ?? 0))}</Text>
+          <Text>{"  " + t.dim("Evidence:  ") + t.value(String(stats?.graphStats?.evidenceEvents ?? 0).padEnd(8)) + t.dim("Decisions:   ") + t.value(String(stats?.graphStats?.decisions ?? 0))}</Text>
+          <Text>{"  " + t.dim("Relations: ") + t.value(String(stats?.graphStats?.relations ?? 0).padEnd(8)) + t.dim("Loops:       ") + t.value(String(stats?.graphStats?.loops ?? 0))}</Text>
+          <Text>{"  " + t.dim("Attempts:  ") + t.value(String(stats?.graphStats?.attempts ?? 0).padEnd(8))}</Text>
         </>
       )}
       <Text>{" "}</Text>
