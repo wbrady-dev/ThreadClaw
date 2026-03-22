@@ -296,6 +296,12 @@ export function sanitizeToolUseResultPairing<T extends AgentMessageLike>(message
     i = j - 1;
   }
 
+  if (droppedDuplicateCount > 0 || droppedOrphanCount > 0) {
+    console.warn(
+      `[cc-mem] transcript repair: dropped ${droppedDuplicateCount} duplicate(s), ${droppedOrphanCount} orphan(s)`,
+    );
+  }
+
   const changedOrMoved = changed || moved;
   return changedOrMoved ? out : messages;
 }

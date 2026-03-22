@@ -455,7 +455,7 @@ export function repairPlan(report: IntegrityReport): string[] {
         );
         break;
 
-      case "context_items_contiguous":
+      case "context_items_ordered":
         suggestions.push(
           "Resequence context items to fix ordinal gaps",
         );
