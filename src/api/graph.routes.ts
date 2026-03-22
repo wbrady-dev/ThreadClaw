@@ -30,24 +30,28 @@ export function registerGraphRoutes(server: FastifyInstance) {
     const graphDbPath = config.relations?.graphDbPath;
     if (!graphDbPath) return reply.status(404).send({ error: "Relations not configured" });
 
-    const db = getGraphDb(graphDbPath);
-    ensureGraphSchema(db);
+    try {
+      const db = getGraphDb(graphDbPath);
+      ensureGraphSchema(db);
 
-    let entities;
-    if (search && search.trim()) {
-      const pattern = `%${search.toLowerCase().trim()}%`;
-      entities = db.prepare(
-        "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE name LIKE ? ORDER BY mention_count DESC LIMIT ? OFFSET ?",
-      ).all(pattern, limit, offset);
-    } else {
-      entities = db.prepare(
-        "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities ORDER BY mention_count DESC LIMIT ? OFFSET ?",
-      ).all(limit, offset);
+      let entities;
+      if (search && search.trim()) {
+        const pattern = `%${search.toLowerCase().trim()}%`;
+        entities = db.prepare(
+          "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE name LIKE ? ORDER BY mention_count DESC LIMIT ? OFFSET ?",
+        ).all(pattern, limit, offset);
+      } else {
+        entities = db.prepare(
+          "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities ORDER BY mention_count DESC LIMIT ? OFFSET ?",
+        ).all(limit, offset);
+      }
+
+      const total = (db.prepare("SELECT COUNT(*) as cnt FROM entities").get() as { cnt: number }).cnt;
+
+      return { entities, total, limit, offset };
+    } catch {
+      return reply.status(503).send({ error: "Graph DB unavailable" });
     }
-
-    const total = (db.prepare("SELECT COUNT(*) as cnt FROM entities").get() as { cnt: number }).cnt;
-
-    return { entities, total, limit, offset };
   });
 
   /**
@@ -57,21 +61,29 @@ export function registerGraphRoutes(server: FastifyInstance) {
     if (!isLocal(req.ip ?? "")) return reply.status(403).send({ error: "Forbidden" });
 
     const { id } = req.params as { id: string };
+    const idNum = parseInt(id, 10);
+    if (isNaN(idNum)) return reply.status(400).send({ error: "Invalid entity ID" });
+
     const graphDbPath = config.relations?.graphDbPath;
     if (!graphDbPath) return reply.status(404).send({ error: "Relations not configured" });
 
-    const db = getGraphDb(graphDbPath);
-    const entity = db.prepare(
-      "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE id = ?",
-    ).get(parseInt(id, 10));
+    try {
+      const db = getGraphDb(graphDbPath);
+      ensureGraphSchema(db);
+      const entity = db.prepare(
+        "SELECT id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at FROM entities WHERE id = ?",
+      ).get(idNum);
 
-    if (!entity) return reply.status(404).send({ error: "Entity not found" });
+      if (!entity) return reply.status(404).send({ error: "Entity not found" });
 
-    const mentions = db.prepare(
-      "SELECT id, source_type, source_id, source_detail, context_terms, actor, created_at FROM entity_mentions WHERE entity_id = ? ORDER BY created_at DESC LIMIT 50",
-    ).all(parseInt(id, 10));
+      const mentions = db.prepare(
+        "SELECT id, source_type, source_id, source_detail, context_terms, actor, created_at FROM entity_mentions WHERE entity_id = ? ORDER BY created_at DESC LIMIT 50",
+      ).all(idNum);
 
-    return { entity, mentions };
+      return { entity, mentions };
+    } catch {
+      return reply.status(503).send({ error: "Graph DB unavailable" });
+    }
   });
 
   /**

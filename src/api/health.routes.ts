@@ -83,7 +83,7 @@ export function registerHealthRoutes(server: FastifyInstance) {
 
     // Graph DB stats (if relations enabled)
     let graphStats: Record<string, unknown> | null = null;
-    if (config.relations.enabled) {
+    if (config.relations?.enabled) {
       try {
         const graphDb = getGraphDb(config.relations.graphDbPath);
         const safe = (sql: string): number => {
