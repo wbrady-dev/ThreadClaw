@@ -43,7 +43,7 @@ server.tool(
     query: z.string().describe("Natural language search query"),
     collection: z.string().optional().describe("Collection to search (default: 'default'). Use 'all' to search everything, or specify a custom collection name."),
     mode: z.enum(["brief", "titles", "full"]).optional().describe("Output mode: 'brief' (~200 tokens, default), 'titles' (~30 tokens), 'full' (~1500 tokens)"),
-    topK: z.number().optional().describe("Max results to return (default: 3)"),
+    topK: z.number().min(1).max(100).optional().describe("Max results to return (default: 3, max: 100)"),
   },
   async ({ query: queryText, collection, mode, topK }) => {
     try {

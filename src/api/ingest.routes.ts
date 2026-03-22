@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { resolve } from "path";
-import { existsSync } from "fs";
+import { realpathSync } from "fs";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { ingestFile } from "../ingest/pipeline.js";
@@ -12,10 +12,13 @@ import { logger } from "../utils/logger.js";
  * Rejects paths that try to escape expected locations.
  */
 function validateIngestPath(filePath: string): string | null {
-  const resolved = resolve(filePath);
-
-  // Must be an absolute path to a real file
-  if (!existsSync(resolved)) return "File not found";
+  // Resolve symlinks to prevent bypassing blocklist via symlink to sensitive file
+  let resolved: string;
+  try {
+    resolved = realpathSync(filePath);
+  } catch {
+    return "File not found";
+  }
 
   // Block sensitive paths using segment-aware matching (avoids false positives
   // like "/docs/environment.md" matching ".env" via substring)

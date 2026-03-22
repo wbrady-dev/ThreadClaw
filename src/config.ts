@@ -16,7 +16,16 @@ function env(key: string, fallback: string): string {
 
 function envInt(key: string, fallback: number): number {
   const v = process.env[key];
-  return v ? parseInt(v, 10) : fallback;
+  if (!v) return fallback;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function envFloat(key: string, fallback: number): number {
+  const v = process.env[key];
+  if (!v) return fallback;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function envBool(key: string, fallback: boolean): boolean {
@@ -29,12 +38,12 @@ function envBool(key: string, fallback: boolean): boolean {
 
 const hotConfig = {
   // Reranker tuning
-  rerankScoreThreshold: parseFloat(env("RERANK_SCORE_THRESHOLD", "0.0")),
+  rerankScoreThreshold: envFloat("RERANK_SCORE_THRESHOLD", 0.0),
   rerankDisabled: envBool("RERANK_DISABLED", false),
   rerankTopK: envInt("RERANK_TOP_K", 20),
   rerankSmartSkip: envBool("RERANK_SMART_SKIP", true),
   // Embedding tuning
-  similarityThreshold: parseFloat(env("EMBEDDING_SIMILARITY_THRESHOLD", "1.05")),
+  similarityThreshold: envFloat("EMBEDDING_SIMILARITY_THRESHOLD", 1.05),
   prefixMode: env("EMBEDDING_PREFIX_MODE", "auto") as "auto" | "always" | "never",
   batchSize: envInt("EMBEDDING_BATCH_SIZE", 32),
   // Feature flags
@@ -57,13 +66,22 @@ function reloadHotConfig(): void {
       return v === "true" || v === "1";
     };
 
-    hotConfig.rerankScoreThreshold = parseFloat(get("RERANK_SCORE_THRESHOLD", "0.0"));
+    const getFloat = (key: string, fallback: number): number => {
+      const n = parseFloat(get(key, String(fallback)));
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const getInt = (key: string, fallback: number): number => {
+      const n = parseInt(get(key, String(fallback)), 10);
+      return Number.isFinite(n) ? n : fallback;
+    };
+
+    hotConfig.rerankScoreThreshold = getFloat("RERANK_SCORE_THRESHOLD", 0.0);
     hotConfig.rerankDisabled = getBool("RERANK_DISABLED", false);
-    hotConfig.rerankTopK = parseInt(get("RERANK_TOP_K", "20"), 10);
+    hotConfig.rerankTopK = getInt("RERANK_TOP_K", 20);
     hotConfig.rerankSmartSkip = getBool("RERANK_SMART_SKIP", true);
-    hotConfig.similarityThreshold = parseFloat(get("EMBEDDING_SIMILARITY_THRESHOLD", "1.05"));
+    hotConfig.similarityThreshold = getFloat("EMBEDDING_SIMILARITY_THRESHOLD", 1.05);
     hotConfig.prefixMode = get("EMBEDDING_PREFIX_MODE", "auto") as "auto" | "always" | "never";
-    hotConfig.batchSize = parseInt(get("EMBEDDING_BATCH_SIZE", "32"), 10);
+    hotConfig.batchSize = getInt("EMBEDDING_BATCH_SIZE", 32);
     hotConfig.audioTranscriptionEnabled = getBool("AUDIO_TRANSCRIPTION_ENABLED", false);
     hotConfig.whisperModel = get("WHISPER_MODEL", "base");
     hotConfig.relationsEnabled = getBool("CLAWCORE_RELATIONS_ENABLED", false);
