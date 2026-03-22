@@ -176,7 +176,7 @@ describe("Failure: SL (State Layer)", () => {
     const { claimId } = upsertClaim(g(), {
       scopeId: 1, branchId: 0, subject: "overflow", predicate: "has",
       objectText: "high conf", confidence: 1.5,
-      canonicalKey: "fail:overflow:1", sourceType: "t", sourceId: "s",
+      canonicalKey: "fail:overflow:1",
     });
     expect(claimId).toBeGreaterThan(0);
   });
@@ -185,7 +185,7 @@ describe("Failure: SL (State Layer)", () => {
     const { claimId } = upsertClaim(g(), {
       scopeId: 1, branchId: 0, subject: "underflow", predicate: "has",
       objectText: "neg conf", confidence: -0.5,
-      canonicalKey: "fail:underflow:1", sourceType: "t", sourceId: "s",
+      canonicalKey: "fail:underflow:1",
     });
     expect(claimId).toBeGreaterThan(0);
   });
@@ -253,7 +253,7 @@ describe("Failure: DE (Delta Engine)", () => {
   });
 
   it("decay on empty tables does not crash", () => {
-    expect(() => applyDecay(g())).not.toThrow();
+    expect(() => applyDecay(g(), 1)).not.toThrow();
   });
 });
 
@@ -288,7 +288,6 @@ describe("Failure: AOM (Attempt Memory)", () => {
     expect(() => {
       recordAttempt(g(), {
         scopeId: 1, toolName: "null-test", status: "success",
-        sourceType: "t", sourceId: "s",
       });
     }).not.toThrow();
   });
@@ -361,7 +360,7 @@ describe("Failure: CCL (Context Compiler)", () => {
         upsertClaim(g(), {
           scopeId: 1, branchId: 0, subject: `budget-stress-${i}`,
           predicate: "has", objectText: `value-${i}`, confidence: 0.9,
-          canonicalKey: `fail:budget:${i}`, sourceType: "t", sourceId: `s${i}`,
+          canonicalKey: `fail:budget:${i}`,
         });
       }
     });
@@ -486,13 +485,13 @@ describe("Failure: Concurrent Stress", () => {
         upsertClaim(g(), {
           scopeId: 1, branchId: 0, subject: `concurrent-${i}`, predicate: "is",
           objectText: `thing-${i}`, confidence: 0.7,
-          canonicalKey: `fail:concurrent:${i}`, sourceType: "t", sourceId: `s${i}`,
+          canonicalKey: `fail:concurrent:${i}`,
         });
       }
       for (let i = 0; i < 200; i++) {
         recordAttempt(g(), {
           scopeId: 1, toolName: "concurrent-tool", status: i % 2 === 0 ? "success" : "failure",
-          durationMs: 50, sourceType: "t", sourceId: `ca${i}`,
+          durationMs: 50,
         });
       }
       for (let i = 0; i < 200; i++) {

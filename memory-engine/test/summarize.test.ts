@@ -347,7 +347,7 @@ describe("createLcmSummarizeFromLegacyParams", () => {
 
   it("passes authProfileId through to getApiKey", async () => {
     const deps = makeDeps({
-      getApiKey: vi.fn(() => "resolved-api-key"),
+      getApiKey: vi.fn(() => "resolved-api-key") as any,
     });
 
     const summarize = await createLcmSummarizeFromLegacyParams({

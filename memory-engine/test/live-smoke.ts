@@ -108,7 +108,7 @@ test("upsert claim + evidence", () => {
   const { claimId } = upsertClaim(db as any, {
     scopeId: 1, branchId: 0, subject: "smoke-test", predicate: "validates",
     objectText: "CRAM pipeline", confidence: 0.9,
-    canonicalKey: `smoke:claim:${RUN}`, sourceType: "smoke", sourceId: "s1",
+    canonicalKey: `smoke:claim:${RUN}`,
   });
   assert(claimId > 0);
   addClaimEvidence(db as any, { claimId, sourceType: "smoke", sourceId: "s1", evidenceRole: "support" });
@@ -125,7 +125,7 @@ test("auto-supersede on same topic", () => {
     upsertDecision(db as any, { scopeId: 1, topic: `smoke-db-${RUN}`, decisionText: "Switch to PostgreSQL", sourceType: "smoke", sourceId: "s2" });
   });
   const dec = getActiveDecisions(db as any, 1).find((d: any) => d.topic === `smoke-db-${RUN}`);
-  assert(dec && dec.decision_text === "Switch to PostgreSQL", "should supersede");
+  assert(dec != null && dec.decision_text === "Switch to PostgreSQL", "should supersede");
 });
 
 // ── SL: Open Loops ──
@@ -158,9 +158,9 @@ test("invariant store + severity order", () => {
 // ── AOM: Attempts ──
 console.log("\u2500\u2500 AOM: Attempt Memory \u2500\u2500");
 test("record attempts + success rate", () => {
-  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "success", durationMs: 100, sourceType: "smoke", sourceId: "a1" });
-  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "success", durationMs: 80, sourceType: "smoke", sourceId: "a2" });
-  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "failure", errorText: "timeout", durationMs: 5000, sourceType: "smoke", sourceId: "a3" });
+  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "success", durationMs: 100 });
+  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "success", durationMs: 80 });
+  recordAttempt(db as any, { scopeId: 1, toolName: `smoke-exec-${RUN}`, status: "failure", errorText: "timeout", durationMs: 5000 });
   const rate = getToolSuccessRate(db as any, 1, `smoke-exec-${RUN}`);
   assert(rate.total === 3, `expected 3, got ${rate.total}`);
   assert(Math.abs(rate.rate - 0.667) < 0.01, `expected ~66.7%, got ${rate.rate}`);
@@ -194,7 +194,7 @@ test("branch create \u2192 policy check \u2192 promote", () => {
   assert(getBranches(db as any, 1, "promoted").some((b: any) => b.id === branch.id));
 });
 
-test("decay runs clean", () => { applyDecay(db as any); });
+test("decay runs clean", () => { applyDecay(db as any, 1); });
 
 // ── H4: Timeline ──
 console.log("\u2500\u2500 EEL: Timeline \u2500\u2500");

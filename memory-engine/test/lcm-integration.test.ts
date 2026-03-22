@@ -1496,7 +1496,7 @@ describe("LCM integration: compaction", () => {
     });
 
     expect(result.actionTaken).toBe(true);
-    const firstSourceText = summarize.mock.calls[0]?.[0] as string;
+    const firstSourceText = (summarize.mock.calls as any[][])[0]?.[0] as string;
     expect(firstSourceText).toMatch(
       /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC - \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\]/,
     );

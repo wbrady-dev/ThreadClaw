@@ -5,13 +5,14 @@ import type { LcmDependencies } from "../types.js";
 export const EXPANSION_RECURSION_ERROR_CODE = "EXPANSION_RECURSION_BLOCKED";
 const EXPANSION_DELEGATION_DEPTH_CAP = 1;
 
-type TelemetryEvent = "start" | "block" | "timeout" | "success";
+type TelemetryEvent = "start" | "block" | "timeout" | "success" | "lightweight";
 
 const telemetryCounters: Record<TelemetryEvent, number> = {
   start: 0,
   block: 0,
   timeout: 0,
   success: 0,
+  lightweight: 0,
 };
 
 export type DelegatedExpansionContext = {
@@ -222,8 +223,8 @@ export function recordExpansionDelegationTelemetry(params: {
   event: TelemetryEvent;
   requestId: string;
   sessionKey?: string;
-  expansionDepth: number;
-  originSessionKey: string;
+  expansionDepth?: number;
+  originSessionKey?: string;
   reason?: string;
   runId?: string;
 }): void {
@@ -270,6 +271,7 @@ export function getExpansionDelegationTelemetrySnapshotForTests(): Record<Teleme
     block: telemetryCounters.block,
     timeout: telemetryCounters.timeout,
     success: telemetryCounters.success,
+    lightweight: telemetryCounters.lightweight,
   };
 }
 

@@ -34,7 +34,8 @@ function findRerankServer(): string | null {
 
 describe("contentHashBytes", () => {
   it("returns identical hash for identical byte arrays", async () => {
-    // Dynamic import to handle ESM
+    // Dynamic import to handle ESM (file outside memory-engine rootDir — resolved at runtime)
+    // @ts-ignore TS6059: hash.ts is in parent ClawCore src/, not memory-engine
     const { contentHashBytes } = await import("../../src/utils/hash.js");
     const data = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff, 0x00, 0xab]);
     const hash1 = await contentHashBytes(data);

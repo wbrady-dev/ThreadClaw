@@ -151,12 +151,12 @@ describe("H2 Context Compiler", () => {
         if (l.startsWith("[delta")) return "delta";
         return null;
       })
-      .filter((t): t is string => t !== null);
+      .filter((t): t is NonNullable<typeof t> => t !== null);
     // Verify ordering: invariant(0) ≤ decision(1) ≤ claim(2) ≤ loop(3) ≤ delta(4)
     const orderMap: Record<string, number> = { invariant: 0, decision: 1, claim: 2, loop: 3, delta: 4 };
     expect(types.length).toBeGreaterThanOrEqual(3);
     for (let i = 1; i < types.length; i++) {
-      expect(orderMap[types[i]]).toBeGreaterThanOrEqual(orderMap[types[i - 1]]);
+      expect(orderMap[types[i]!]).toBeGreaterThanOrEqual(orderMap[types[i - 1]!]);
     }
   });
 });

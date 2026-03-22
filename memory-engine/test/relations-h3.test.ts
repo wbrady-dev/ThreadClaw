@@ -257,7 +257,7 @@ describe("H3 Context Compiler with Anti-Runbooks", () => {
       if (l.startsWith("[anti-runbook")) return "anti_runbook";
       if (l.startsWith("[claim")) return "claim";
       return null;
-    }).filter((t): t is string => t !== null);
+    }).filter((t): t is NonNullable<typeof t> => t !== null);
 
     // Anti-runbook should appear before claim
     const arbIdx = types.indexOf("anti_runbook");

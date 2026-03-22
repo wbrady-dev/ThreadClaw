@@ -150,7 +150,7 @@ export interface UpsertDecisionResult {
 // ---------------------------------------------------------------------------
 
 export type LoopStatus = "open" | "closed" | "blocked" | "stale";
-export type LoopType = "task" | "question" | "follow_up" | "dependency";
+export type LoopType = "task" | "question" | "follow_up" | "dependency" | "test" | "smoke";
 
 export interface OpenLoopInput {
   scopeId: number;

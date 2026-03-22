@@ -181,7 +181,7 @@ describe("CRAM Stress: Claims & Evidence", () => {
         const { claimId } = upsertClaim(g(), {
           scopeId: 1, branchId: 0, subject: `comp-${i % 50}`, predicate: "uses",
           objectText: `tech-${i % 20}`, confidence: 0.5 + (i % 5) * 0.1,
-          canonicalKey: `stress:c:${i}`, sourceType: "s", sourceId: `s-${i}`,
+          canonicalKey: `stress:c:${i}`,
         });
         addClaimEvidence(g(), { claimId, sourceType: "s", sourceId: `s-${i}`, evidenceRole: "support" });
       }
@@ -195,11 +195,11 @@ describe("CRAM Stress: Claims & Evidence", () => {
   it("supersession works", () => {
     const { claimId: oldId } = upsertClaim(g(), {
       scopeId: 1, branchId: 0, subject: "auth", predicate: "uses",
-      objectText: "JWT v1", confidence: 0.7, canonicalKey: "stress:auth:v1", sourceType: "s", sourceId: "s1",
+      objectText: "JWT v1", confidence: 0.7, canonicalKey: "stress:auth:v1",
     });
     const { claimId: newId } = upsertClaim(g(), {
       scopeId: 1, branchId: 0, subject: "auth", predicate: "uses",
-      objectText: "JWT v2", confidence: 0.9, canonicalKey: "stress:auth:v2", sourceType: "s", sourceId: "s2",
+      objectText: "JWT v2", confidence: 0.9, canonicalKey: "stress:auth:v2",
     });
     withWriteTransaction(g(), () => { supersedeClaim(g(), oldId, newId); });
     const old = db.prepare("SELECT status, superseded_by FROM claims WHERE id = ?").get(oldId) as any;
@@ -233,7 +233,7 @@ describe("CRAM Stress: Open Loops", () => {
     let loops = getOpenLoops(g(), 1);
     const blocked = loops.find((l: any) => l.id === loopId);
     expect(blocked).toBeTruthy();
-    expect(blocked.status).toBe("blocked");
+    expect(blocked!.status).toBe("blocked");
 
     closeLoop(g(), loopId);
     loops = getOpenLoops(g(), 1);
@@ -299,7 +299,7 @@ describe("CRAM Stress: Attempts & Patterns", () => {
           scopeId: 1, toolName: `tool-${i % 5}`,
           status: i % 3 !== 0 ? "success" : "failure",
           durationMs: 50 + (i % 200), errorText: i % 3 === 0 ? `Err ${i}` : undefined,
-          inputSummary: `in-${i}`, sourceType: "s", sourceId: `a-${i}`,
+          inputSummary: `in-${i}`,
         });
       }
     });
@@ -424,7 +424,7 @@ describe("CRAM Stress: Confidence & Decay", () => {
   });
 
   it("decay runs without errors", () => {
-    expect(() => applyDecay(g())).not.toThrow();
+    expect(() => applyDecay(g(), 1)).not.toThrow();
   });
 });
 
@@ -461,7 +461,7 @@ describe("CRAM Stress: Context Compiler", () => {
     const result = compileContextCapsules(g(), { tier: "lite", scopeId: 1 });
     if (result) {
       const tokens = Math.ceil(result.text.length / 4);
-      console.log(`    Lite: ${tokens} est. tokens, ${result.length} chars`);
+      console.log(`    Lite: ${tokens} est. tokens, ${result.text.length} chars`);
       expect(tokens).toBeLessThanOrEqual(140);
     }
   });
@@ -470,7 +470,7 @@ describe("CRAM Stress: Context Compiler", () => {
     const result = compileContextCapsules(g(), { tier: "standard", scopeId: 1 });
     if (result) {
       const tokens = Math.ceil(result.text.length / 4);
-      console.log(`    Standard: ${tokens} est. tokens, ${result.length} chars`);
+      console.log(`    Standard: ${tokens} est. tokens, ${result.text.length} chars`);
       expect(tokens).toBeLessThanOrEqual(220);
     }
   });
@@ -479,7 +479,7 @@ describe("CRAM Stress: Context Compiler", () => {
     const result = compileContextCapsules(g(), { tier: "premium", scopeId: 1 });
     if (result) {
       const tokens = Math.ceil(result.text.length / 4);
-      console.log(`    Premium: ${tokens} est. tokens, ${result.length} chars`);
+      console.log(`    Premium: ${tokens} est. tokens, ${result.text.length} chars`);
       expect(tokens).toBeLessThanOrEqual(320);
     }
   });
