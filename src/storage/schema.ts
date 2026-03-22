@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function getMigrationStatements(): Record<number, string[]> {
   const dim = config.embedding.dimensions;
@@ -96,6 +96,14 @@ function getMigrationStatements(): Record<number, string[]> {
     3: [
       // Enforce unique collection names (existing duplicates must be resolved manually)
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_collection_name ON collections(name)`,
+    ],
+
+    4: [
+      // FTS5 content-sync UPDATE trigger (future-proofing — chunks are currently never updated in-place)
+      `CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+        INSERT INTO chunk_fts(chunk_fts, rowid, text) VALUES('delete', old.rowid, old.text);
+        INSERT INTO chunk_fts(rowid, text) VALUES (new.rowid, new.text);
+      END`,
     ],
   };
 }

@@ -20,7 +20,7 @@ const cache = new Map<string, CacheEntry>();
  */
 export function cacheKey(query: string, collection: string, options: Record<string, unknown> = {}): string {
   const sorted = Object.keys(options).sort().reduce<Record<string, unknown>>((acc, k) => { acc[k] = options[k]; return acc; }, {});
-  return `${query}|${collection}|${JSON.stringify(sorted)}`;
+  return `${query}\x00${collection}\x00${JSON.stringify(sorted)}`;
 }
 
 /**
@@ -40,7 +40,7 @@ export function getCached<T>(key: string): T | null {
   cache.delete(key);
   cache.set(key, entry);
 
-  return entry.result as T;
+  return structuredClone(entry.result) as T;
 }
 
 /**
@@ -69,7 +69,7 @@ export function clearCache(): void {
  */
 export function invalidateCollection(collectionName: string): void {
   const toDelete = [...cache.keys()].filter(
-    (key) => key.includes(`|${collectionName}|`) || key.includes(`|all|`),
+    (key) => key.includes(`\x00${collectionName}\x00`) || key.includes(`\x00all\x00`),
   );
   for (const key of toDelete) {
     cache.delete(key);

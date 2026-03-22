@@ -96,12 +96,17 @@ export function findExistingDuplicates(
   const scan = db.transaction(() => {
     for (let i = 0; i < embeddings.length; i++) {
       try {
-        const result = (stmt as any).get(new Float32Array(embeddings[i]), 1) as
-          { chunk_id: string; distance: number } | undefined;
+        // Retrieve k=5 nearest neighbors to handle cross-collection near-duplicates
+        // (the closest vector globally may be in a different collection)
+        const results = (stmt as any).all(new Float32Array(embeddings[i]), 5) as
+          Array<{ chunk_id: string; distance: number }>;
 
-        if (result && result.distance <= L2_THRESHOLD) {
-          if (filterStmt.get(result.chunk_id, collectionId)) {
-            dupes.add(i);
+        for (const result of results) {
+          if (result.distance <= L2_THRESHOLD) {
+            if (filterStmt.get(result.chunk_id, collectionId)) {
+              dupes.add(i);
+              break;
+            }
           }
         }
       } catch (err) {

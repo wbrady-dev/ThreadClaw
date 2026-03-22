@@ -470,6 +470,9 @@ function shouldSkipReranking(vectorResults: { distance: number }[]): boolean {
   // Minimum quality gate: top result must be genuinely close (low distance)
   if (top > 0.8) return false;
 
+  // Perfect match — no need to rerank
+  if (top === 0) return true;
+
   // Clear separation: second result is at least 2x further
   return second / top > 2;
 }
