@@ -349,6 +349,8 @@ let cachedParsedEnv = {
   watchCount: 0,
   watchPaths: "",
   sourceIcons: [] as string[],
+  audioEnabled: false,
+  whisperModel: "base",
 };
 
 function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
@@ -432,6 +434,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       watchCount: watchPaths ? watchPaths.split(",").filter(Boolean).length : 0,
       watchPaths,
       sourceIcons,
+      audioEnabled: ec.match(/AUDIO_TRANSCRIPTION_ENABLED=(\w+)/)?.[1] === "true",
+      whisperModel: ec.match(/WHISPER_MODEL=(\w+)/)?.[1] ?? "base",
     };
 
     // Service status: always update (port unreachable = service is down)
@@ -518,7 +522,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const doclingOk = modelHealth?.models?.docling?.ready === true;
   const doclingLabel = doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.warn(doclingDevice.toUpperCase() + " (not loaded)");
 
-  const nerReady = modelHealth?.ner?.ready === true;
+  const nerReady = modelHealth?.models?.ner?.ready === true;
+  const audioEnabled = cachedParsedEnv.audioEnabled;
 
   // GPU
   let gpuLine: string;
@@ -574,7 +579,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {/* ── Document Intelligence ── */}
       <Text>{" "}</Text>
       <Text>{t.title("--- Document Intelligence ---")}</Text>
-      <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○"))}</Text>
+      <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Audio: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
 
       {/* ── Knowledge Base ── */}
       <Text>{" "}</Text>

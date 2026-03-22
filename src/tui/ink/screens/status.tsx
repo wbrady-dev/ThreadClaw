@@ -165,7 +165,7 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
       <Text>{"  " + (rerankOk ? t.ok("●") : t.err("○")) + " " + t.label("Rerank") + "  " + t.value(rerankName)}</Text>
       <Text>{"  " + (doclingOk ? t.ok("●") : t.dim("○")) + " " + t.label("Docling") + " " + (doclingOk ? t.value(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.warn(doclingDevice.toUpperCase() + " (not loaded)"))}</Text>
       <Text>{"  " + (ocrDetected ? t.ok("●") : t.dim("○")) + " " + t.label("OCR") + "     " + (ocrDetected ? t.value("Tesseract") : t.dim("off"))}</Text>
-      <Text>{"  " + (modelHealth?.ner?.ready === true ? t.ok("●") : t.dim("○")) + " " + t.label("NER") + "     " + (modelHealth?.ner?.ready === true ? t.value("en_core_web_sm") : t.dim("off"))}</Text>
+      <Text>{"  " + (modelHealth?.models?.ner?.ready === true ? t.ok("●") : t.dim("○")) + " " + t.label("NER") + "     " + (modelHealth?.models?.ner?.ready === true ? t.value("en_core_web_sm") : t.dim("off"))}</Text>
       <Text>{"  " + t.dim("○") + " " + t.label("Query Expansion") + " " + expansionLabel}</Text>
 
       <Section title="GPU" />
