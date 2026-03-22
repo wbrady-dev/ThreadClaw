@@ -65,8 +65,16 @@ export async function resolveLcmConversationScope(input: {
 
   if (params.allConversations === true) {
     // crossAgent=true bypasses agent scoping for truly global search.
-    if (params.crossAgent === true || !input.agentId) {
+    // Only allowed when agentId is absent (backward compat) or explicitly enabled via env.
+    if (!input.agentId) {
       return { conversationId: undefined, allConversations: true };
+    }
+    if (params.crossAgent === true) {
+      const allowed = process.env.CLAWCORE_MEMORY_ALLOW_CROSS_AGENT_SEARCH === "true";
+      if (allowed) {
+        return { conversationId: undefined, allConversations: true };
+      }
+      // Fall through to agent-scoped search when cross-agent is not enabled
     }
 
     // Scope to the caller's agent conversations only.

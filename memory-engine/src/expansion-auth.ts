@@ -221,6 +221,18 @@ export class ExpansionAuthManager {
 const runtimeExpansionAuthManager = new ExpansionAuthManager();
 const delegatedSessionGrantIds = new Map<string, string>();
 
+// Periodic cleanup — remove expired grants and stale session mappings every 5 minutes
+const _grantCleanupInterval = setInterval(() => {
+  runtimeExpansionAuthManager.cleanup();
+  // Also clean delegatedSessionGrantIds referencing deleted grants
+  for (const [key, grantId] of delegatedSessionGrantIds) {
+    if (!runtimeExpansionAuthManager.getGrant(grantId)) {
+      delegatedSessionGrantIds.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+_grantCleanupInterval.unref(); // Don't prevent Node.js from exiting
+
 /**
  * Return the singleton auth manager used by runtime delegated expansion flows.
  */
