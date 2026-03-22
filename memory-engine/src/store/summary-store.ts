@@ -169,7 +169,10 @@ interface LargeFileRow {
 function toSummaryRecord(row: SummaryRow): SummaryRecord {
   let fileIds: string[] = [];
   try {
-    fileIds = JSON.parse(row.file_ids);
+    const parsed = JSON.parse(row.file_ids);
+    if (Array.isArray(parsed)) {
+      fileIds = parsed.filter((f): f is string => typeof f === "string");
+    }
   } catch {
     // ignore malformed JSON
   }
@@ -711,7 +714,8 @@ export class SummaryStore {
             );
           }
           return strict;
-        } catch {
+        } catch (err) {
+          console.warn("[cc-mem] FTS5 summary search failed, falling back to LIKE:", err instanceof Error ? err.message : String(err));
           return this.searchLike(
             input.query,
             limit,
@@ -849,6 +853,9 @@ export class SummaryStore {
       args.push(before.toISOString());
     }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    // Cap SQL rows to prevent loading entire table into memory for regex filtering
+    const sqlLimit = Math.min(limit * 10, 5000);
+    args.push(sqlLimit);
     const rows = this.db
       .prepare(
         `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
@@ -856,7 +863,8 @@ export class SummaryStore {
                 source_message_token_count, created_at
          FROM summaries
          ${whereClause}
-         ORDER BY created_at DESC`,
+         ORDER BY created_at DESC
+         LIMIT ?`,
       )
       .all(...args) as unknown as SummaryRow[];
 

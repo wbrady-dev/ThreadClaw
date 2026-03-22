@@ -671,10 +671,9 @@ export class ContextAssembler {
     const selected: ResolvedItem[] = [];
     let evictableTokens = 0;
 
-    // Walk evictable items from oldest to newest. We want to keep as many
-    // older items as the budget allows; once we exceed the budget we start
-    // dropping the *oldest* items. To achieve this we first compute the
-    // total, then trim from the front.
+    // Keep as many newest evictable items as budget allows.
+    // Walk from newest to oldest accumulating tokens, then reverse to
+    // restore chronological order.
     const evictableTotalTokens = evictable.reduce((sum, it) => sum + it.tokens, 0);
 
     if (evictableTotalTokens <= remainingBudget) {
@@ -682,9 +681,7 @@ export class ContextAssembler {
       selected.push(...evictable);
       evictableTokens = evictableTotalTokens;
     } else {
-      // Need to drop oldest items until we fit.
-      // Walk from the END of evictable (newest first) accumulating tokens,
-      // then reverse to restore chronological order.
+      // Budget exceeded — keep newest items within budget, drop oldest.
       const kept: ResolvedItem[] = [];
       let accum = 0;
       for (let i = evictable.length - 1; i >= 0; i--) {
@@ -705,7 +702,9 @@ export class ContextAssembler {
     // Append fresh tail after the evictable prefix
     selected.push(...freshTail);
 
-    const estimatedTokens = evictableTokens + tailTokens;
+    // Account for summary XML wrapper overhead (~50 tokens per summary)
+    const SUMMARY_WRAPPER_OVERHEAD = 50;
+    const estimatedTokens = evictableTokens + tailTokens + (summaryCount * SUMMARY_WRAPPER_OVERHEAD);
 
     // Normalize assistant string content to array blocks (some providers return
     // content as a plain string; Anthropic expects content block arrays).
@@ -787,6 +786,9 @@ export class ContextAssembler {
     // Tool results without a call id cannot be serialized for Anthropic-compatible APIs.
     // This happens for legacy/bootstrap rows that have role=tool but no message_parts.
     // Preserve the text by degrading to assistant content instead of emitting invalid toolResult.
+    if (isToolResult && !toolCallId) {
+      console.warn(`[cc-mem] assembler: tool result message ${item.messageId} missing toolCallId, degrading to assistant`);
+    }
     const role: "user" | "assistant" | "toolResult" =
       isToolResult && !toolCallId ? "assistant" : roleFromStore;
     const content = contentFromParts(parts, role, msg.content);

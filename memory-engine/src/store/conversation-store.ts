@@ -453,6 +453,24 @@ export class ConversationStore {
     return row ? toMessageRecord(row) : null;
   }
 
+  /** Batch-fetch messages by IDs. Chunks to respect SQLite variable limits. */
+  getMessagesByIds(ids: MessageId[]): MessageRecord[] {
+    if (ids.length === 0) return [];
+    const results: MessageRecord[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = this.db
+        .prepare(
+          `SELECT message_id, conversation_id, seq, role, content, token_count, created_at
+           FROM messages WHERE message_id IN (${placeholders})`,
+        )
+        .all(...chunk) as unknown as MessageRow[];
+      results.push(...rows.map(toMessageRecord));
+    }
+    return results;
+  }
+
   async createMessageParts(messageId: MessageId, parts: CreateMessagePartInput[]): Promise<void> {
     if (parts.length === 0) {
       return;
@@ -546,26 +564,33 @@ export class ConversationStore {
     }
 
     let deleted = 0;
-    for (const messageId of messageIds) {
-      // Skip if referenced by a summary (ON DELETE RESTRICT would fail anyway)
-      const refRow = this.db
-        .prepare(`SELECT 1 AS found FROM summary_messages WHERE message_id = ? LIMIT 1`)
-        .get(messageId) as unknown as { found: number } | undefined;
-      if (refRow) {
-        continue;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const messageId of messageIds) {
+        // Skip if referenced by a summary (ON DELETE RESTRICT would fail anyway)
+        const refRow = this.db
+          .prepare(`SELECT 1 AS found FROM summary_messages WHERE message_id = ? LIMIT 1`)
+          .get(messageId) as unknown as { found: number } | undefined;
+        if (refRow) {
+          continue;
+        }
+
+        // Remove from context_items first (RESTRICT constraint)
+        this.db
+          .prepare(`DELETE FROM context_items WHERE item_type = 'message' AND message_id = ?`)
+          .run(messageId);
+
+        this.deleteMessageFromFullText(messageId);
+
+        // Delete the message (message_parts cascade via ON DELETE CASCADE)
+        this.db.prepare(`DELETE FROM messages WHERE message_id = ?`).run(messageId);
+
+        deleted += 1;
       }
-
-      // Remove from context_items first (RESTRICT constraint)
-      this.db
-        .prepare(`DELETE FROM context_items WHERE item_type = 'message' AND message_id = ?`)
-        .run(messageId);
-
-      this.deleteMessageFromFullText(messageId);
-
-      // Delete the message (message_parts cascade via ON DELETE CASCADE)
-      this.db.prepare(`DELETE FROM messages WHERE message_id = ?`).run(messageId);
-
-      deleted += 1;
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
     }
 
     return deleted;
@@ -607,7 +632,8 @@ export class ConversationStore {
             );
           }
           return strict;
-        } catch {
+        } catch (err) {
+          console.warn("[cc-mem] FTS5 search failed, falling back to LIKE:", err instanceof Error ? err.message : String(err));
           return this.searchLike(
             input.query,
             limit,
@@ -768,12 +794,16 @@ export class ConversationStore {
       args.push(before.toISOString());
     }
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    // Cap SQL rows to prevent loading entire table into memory for regex filtering
+    const sqlLimit = Math.min(limit * 10, 5000);
+    args.push(sqlLimit);
     const rows = this.db
       .prepare(
         `SELECT message_id, conversation_id, seq, role, content, token_count, created_at
          FROM messages
          ${whereClause}
-         ORDER BY created_at DESC`,
+         ORDER BY created_at DESC
+         LIMIT ?`,
       )
       .all(...args) as unknown as MessageRow[];
 

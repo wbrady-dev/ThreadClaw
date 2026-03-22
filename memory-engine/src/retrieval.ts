@@ -268,7 +268,8 @@ export class RetrievalEngine {
       truncated: false,
     };
 
-    await this.expandRecursive(input.summaryId, depth, includeMessages, tokenCap, result);
+    const visited = new Set<string>();
+    await this.expandRecursive(input.summaryId, depth, includeMessages, tokenCap, result, visited);
 
     return result;
   }
@@ -279,7 +280,10 @@ export class RetrievalEngine {
     includeMessages: boolean,
     tokenCap: number,
     result: ExpandResult,
+    visited: Set<string>,
   ): Promise<void> {
+    if (visited.has(summaryId)) return; // Cycle detected — skip
+    visited.add(summaryId);
     if (depth <= 0) {
       return;
     }
@@ -320,7 +324,7 @@ export class RetrievalEngine {
 
         // Recurse into children if depth allows
         if (depth > 1) {
-          await this.expandRecursive(child.summaryId, depth - 1, includeMessages, tokenCap, result);
+          await this.expandRecursive(child.summaryId, depth - 1, includeMessages, tokenCap, result, visited);
         }
       }
     } else if (summary.kind === "leaf" && includeMessages) {
@@ -337,7 +341,7 @@ export class RetrievalEngine {
           continue;
         }
 
-        const tokenCount = msg.tokenCount || estimateTokens(msg.content);
+        const tokenCount = msg.tokenCount ?? estimateTokens(msg.content);
 
         if (result.estimatedTokens + tokenCount > tokenCap) {
           result.truncated = true;

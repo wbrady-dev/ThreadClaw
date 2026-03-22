@@ -41,6 +41,11 @@ export type DelegatedExpansionLoopResult = {
   error?: string;
 };
 
+/** Validate summary ID format (sum_ + 1-64 alphanumeric chars). */
+function isValidSummaryId(id: string): boolean {
+  return /^sum_[a-zA-Z0-9]{1,64}$/.test(id);
+}
+
 export function normalizeSummaryIds(input: string[] | undefined): string[] {
   if (!Array.isArray(input)) {
     return [];
@@ -52,7 +57,7 @@ export function normalizeSummaryIds(input: string[] | undefined): string[] {
       continue;
     }
     const trimmed = value.trim();
-    if (!trimmed || seen.has(trimmed)) {
+    if (!trimmed || seen.has(trimmed) || !isValidSummaryId(trimmed)) {
       continue;
     }
     seen.add(trimmed);
@@ -467,13 +472,17 @@ export async function runDelegatedExpansionLoop(params: {
     };
   }
 
+  const MAX_DELEGATION_PASSES = 5;
+  const MAX_TOTAL_ITEMS = 100;
+
   const passes: DelegatedExpansionPassResult[] = [];
   const visited = new Set<string>();
   const cited = new Set<string>();
   let queue = normalizeSummaryIds(params.summaryIds);
+  let remainingTokenCap = params.tokenCap ?? Infinity;
 
   let pass = 1;
-  while (queue.length > 0) {
+  while (queue.length > 0 && pass <= MAX_DELEGATION_PASSES && visited.size <= MAX_TOTAL_ITEMS) {
     for (const summaryId of queue) {
       visited.add(summaryId);
     }
@@ -483,7 +492,7 @@ export async function runDelegatedExpansionLoop(params: {
       conversationId: params.conversationId,
       summaryIds: queue,
       maxDepth: params.maxDepth,
-      tokenCap: params.tokenCap,
+      tokenCap: remainingTokenCap,
       includeMessages: params.includeMessages,
       query: params.query,
       pass,
@@ -492,6 +501,10 @@ export async function runDelegatedExpansionLoop(params: {
       originSessionKey: recursionCheck.originSessionKey,
     });
     passes.push(result);
+
+    // Decrement remaining token budget
+    remainingTokenCap -= result.totalTokens ?? 0;
+    if (remainingTokenCap <= 0) break;
 
     if (result.status !== "ok") {
       if (result.status === "timeout") {

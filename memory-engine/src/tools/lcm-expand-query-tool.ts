@@ -297,7 +297,7 @@ async function tryEvidenceFallback(
     // Search claims (top 5)
     const claims = graphDb.prepare(`
       SELECT id, subject, predicate, object_text, confidence, trust_score, last_seen_at
-      FROM claims WHERE status = 'active' AND (${likeConditions})
+      FROM claims WHERE status = 'active' AND scope_id = 1 AND branch_id = 0 AND (${likeConditions})
       ORDER BY confidence DESC LIMIT 5
     `).all(...likeArgs) as Array<{
       id: number; subject: string; predicate: string; object_text: string | null;
@@ -329,7 +329,7 @@ async function tryEvidenceFallback(
 
     const decisions = graphDb.prepare(`
       SELECT id, topic, decision_text, status, decided_at, superseded_by
-      FROM decisions WHERE status = 'active' AND (${decLikeConditions})
+      FROM decisions WHERE status = 'active' AND scope_id = 1 AND (${decLikeConditions})
       ORDER BY decided_at DESC LIMIT 3
     `).all(...decLikeArgs) as Array<{
       id: number; topic: string; decision_text: string; status: string;
@@ -373,8 +373,9 @@ async function tryEvidenceFallback(
         hasMore,
       });
     }
-  } catch {
-    // Non-fatal
+  } catch (err) {
+    // Non-fatal: evidence fallback failure should not break the query pipeline
+    console.warn("[cc-mem] evidence fallback search failed:", err instanceof Error ? err.message : String(err));
   }
   return null;
 }

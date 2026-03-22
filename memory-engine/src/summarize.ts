@@ -107,11 +107,17 @@ function normalizeTextFragments(chunks: string[]): string {
   return normalized.join("\n").trim();
 }
 
+/** Escape XML special characters to prevent prompt injection. */
+function escapeXml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** Collect all nested `type` labels for diagnostics on normalization failures. */
-function collectBlockTypes(value: unknown, out: Set<string>): void {
+function collectBlockTypes(value: unknown, out: Set<string>, depth = 0): void {
+  if (depth > 20) return;
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectBlockTypes(entry, out);
+      collectBlockTypes(entry, out, depth + 1);
     }
     return;
   }
@@ -123,15 +129,16 @@ function collectBlockTypes(value: unknown, out: Set<string>): void {
     out.add(value.type.trim());
   }
   for (const nested of Object.values(value)) {
-    collectBlockTypes(nested, out);
+    collectBlockTypes(nested, out, depth + 1);
   }
 }
 
 /** Collect text payloads from common provider response shapes. */
-function collectTextLikeFields(value: unknown, out: string[]): void {
+function collectTextLikeFields(value: unknown, out: string[], depth = 0): void {
+  if (depth > 20) return;
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectTextLikeFields(entry, out);
+      collectTextLikeFields(entry, out, depth + 1);
     }
     return;
   }
@@ -144,7 +151,7 @@ function collectTextLikeFields(value: unknown, out: string[]): void {
   }
   for (const key of ["content", "summary", "output", "message", "response"]) {
     if (key in value) {
-      collectTextLikeFields(value[key], out);
+      collectTextLikeFields(value[key], out, depth + 1);
     }
   }
 }
@@ -427,6 +434,7 @@ function buildLeafSummaryPrompt(params: {
   customInstructions?: string;
 }): string {
   const { text, mode, targetTokens, previousSummary, customInstructions } = params;
+  const safeInstructions = customInstructions?.trim().slice(0, 2000);
   const previousContext = previousSummary?.trim() || "(none)";
 
   const policy =
@@ -444,8 +452,8 @@ function buildLeafSummaryPrompt(params: {
           "- Remove obvious repetition and conversational filler.",
         ].join("\n");
 
-  const instructionBlock = customInstructions?.trim()
-    ? `Operator instructions:\n${customInstructions.trim()}`
+  const instructionBlock = safeInstructions
+    ? `Operator instructions:\n${safeInstructions}`
     : "Operator instructions: (none)";
 
   return [
@@ -463,8 +471,8 @@ function buildLeafSummaryPrompt(params: {
       '- End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".',
       `- Target length: about ${targetTokens} tokens or less.`,
     ].join("\n"),
-    `<previous_context>\n${previousContext}\n</previous_context>`,
-    `<conversation_segment>\n${text}\n</conversation_segment>`,
+    `<previous_context>\n${escapeXml(previousContext)}\n</previous_context>`,
+    `<conversation_segment>\n${escapeXml(text)}\n</conversation_segment>`,
   ].join("\n\n");
 }
 
@@ -475,8 +483,9 @@ function buildD1Prompt(params: {
   customInstructions?: string;
 }): string {
   const { text, targetTokens, previousSummary, customInstructions } = params;
-  const instructionBlock = customInstructions?.trim()
-    ? `Operator instructions:\n${customInstructions.trim()}`
+  const safeInstructions = customInstructions?.trim().slice(0, 2000);
+  const instructionBlock = safeInstructions
+    ? `Operator instructions:\n${safeInstructions}`
     : "Operator instructions: (none)";
   const previousContext = previousSummary?.trim();
   const previousContextBlock = previousContext
@@ -484,7 +493,7 @@ function buildD1Prompt(params: {
         "It already has this preceding summary as context. Do not repeat information",
         "that appears there unchanged. Focus on what is new, changed, or resolved:",
         "",
-        `<previous_context>\n${previousContext}\n</previous_context>`,
+        `<previous_context>\n${escapeXml(previousContext)}\n</previous_context>`,
       ].join("\n")
     : "Focus on what matters for continuation:";
 
@@ -514,7 +523,7 @@ function buildD1Prompt(params: {
       'End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".',
       `Target length: about ${targetTokens} tokens.`,
     ].join("\n"),
-    `<conversation_to_condense>\n${text}\n</conversation_to_condense>`,
+    `<conversation_to_condense>\n${escapeXml(text)}\n</conversation_to_condense>`,
   ].join("\n\n");
 }
 
@@ -524,8 +533,9 @@ function buildD2Prompt(params: {
   customInstructions?: string;
 }): string {
   const { text, targetTokens, customInstructions } = params;
-  const instructionBlock = customInstructions?.trim()
-    ? `Operator instructions:\n${customInstructions.trim()}`
+  const safeInstructions = customInstructions?.trim().slice(0, 2000);
+  const instructionBlock = safeInstructions
+    ? `Operator instructions:\n${safeInstructions}`
     : "Operator instructions: (none)";
 
   return [
@@ -550,7 +560,7 @@ function buildD2Prompt(params: {
       'End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".',
       `Target length: about ${targetTokens} tokens.`,
     ].join("\n"),
-    `<conversation_to_condense>\n${text}\n</conversation_to_condense>`,
+    `<conversation_to_condense>\n${escapeXml(text)}\n</conversation_to_condense>`,
   ].join("\n\n");
 }
 
@@ -560,8 +570,9 @@ function buildD3PlusPrompt(params: {
   customInstructions?: string;
 }): string {
   const { text, targetTokens, customInstructions } = params;
-  const instructionBlock = customInstructions?.trim()
-    ? `Operator instructions:\n${customInstructions.trim()}`
+  const safeInstructions = customInstructions?.trim().slice(0, 2000);
+  const instructionBlock = safeInstructions
+    ? `Operator instructions:\n${safeInstructions}`
     : "Operator instructions: (none)";
 
   return [
@@ -586,7 +597,7 @@ function buildD3PlusPrompt(params: {
       'End with exactly: "Expand for details about: <comma-separated list of what was dropped or compressed>".',
       `Target length: about ${targetTokens} tokens.`,
     ].join("\n"),
-    `<conversation_to_condense>\n${text}\n</conversation_to_condense>`,
+    `<conversation_to_condense>\n${escapeXml(text)}\n</conversation_to_condense>`,
   ].join("\n\n");
 }
 
