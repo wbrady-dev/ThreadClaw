@@ -86,7 +86,8 @@ export async function startServer() {
   const apiKey = process.env.CLAWCORE_API_KEY;
   if (apiKey) {
     server.addHook("onRequest", async (request, reply) => {
-      if (request.url === "/health" || request.url === "/shutdown") return;
+      const path = request.url.split("?")[0];
+      if (path === "/health" || path === "/shutdown") return;
       const auth = request.headers.authorization;
       if (!auth || auth !== `Bearer ${apiKey}`) {
         reply.code(401).send({ error: "Unauthorized — set Authorization: Bearer <key>" });

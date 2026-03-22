@@ -11,9 +11,7 @@ import { isLocalRequest } from "./guards.js";
 const TERMS_PATH = join(homedir(), ".clawcore", "relations-terms.json");
 const VALID_TERM_RE = /^[\p{L}\p{N}\s\-_.'"]+$/u;
 
-function escapeLike(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/_/g, "\\_").replace(/%/g, "\\%");
-}
+import { escapeLike } from "../utils/sql.js";
 
 export function registerGraphRoutes(server: FastifyInstance) {
   /**

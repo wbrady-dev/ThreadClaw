@@ -17,6 +17,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolve } from "path";
 import { z } from "zod";
+import { getAppVersion } from "./version.js";
 
 import { config } from "./config.js";
 import { getDb, closeDb, runMigrations, listCollections, getCollectionStats } from "./storage/index.js";
@@ -31,7 +32,7 @@ runMigrations(db);
 // ── Create MCP server ───────────────────────────────────────────────
 const server = new McpServer({
   name: "clawcore",
-  version: "1.0.0",
+  version: getAppVersion(),
 });
 
 // ── clawcore_query ─────────────────────────────────────────────────────

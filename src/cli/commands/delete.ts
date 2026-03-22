@@ -3,12 +3,7 @@ import { resolve } from "path";
 import { config } from "../../config.js";
 import { getDb, runMigrations, deleteVectors } from "../../storage/index.js";
 
-/** Escape LIKE special chars. Set keepPercent=true for patterns that use % as intentional wildcards. */
-function escapeLike(s: string, keepPercent = false): string {
-  let result = s.replace(/\\/g, "\\\\").replace(/_/g, "\\_");
-  if (!keepPercent) result = result.replace(/%/g, "\\%");
-  return result;
-}
+import { escapeLike } from "../../utils/sql.js";
 
 export const deleteCommand = new Command("delete")
   .description("Delete a document from the knowledge base")
