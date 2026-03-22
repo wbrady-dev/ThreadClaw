@@ -169,15 +169,18 @@ def load_models():
         _docling_create_converter = None
         logger.warning("Docling not installed. /parse endpoint will be unavailable.")
 
-    # Load spaCy NER model (optional)
+    # Load spaCy NER model (optional, configurable via SPACY_NER_MODEL env var)
+    # Default: en_core_web_sm (small, runs on any hardware)
+    # For better accuracy: set SPACY_NER_MODEL=en_core_web_lg or en_core_web_trf
     ner_model = None
     if _spacy_available:
+        ner_model_name = os.environ.get("SPACY_NER_MODEL", "en_core_web_sm")
         try:
-            ner_model = spacy.load("en_core_web_sm")
-            logger.info("NER model loaded: en_core_web_sm")
+            ner_model = spacy.load(ner_model_name)
+            logger.info(f"NER model loaded: {ner_model_name}")
         except OSError:
-            logger.warning("spaCy model en_core_web_sm not installed — NER endpoint disabled")
-            logger.warning("Install with: python -m spacy download en_core_web_sm")
+            logger.warning(f"spaCy model {ner_model_name} not installed — NER endpoint disabled")
+            logger.warning(f"Install with: python -m spacy download {ner_model_name}")
 
 
 @app.route("/v1/embeddings", methods=["POST"])

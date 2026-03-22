@@ -11,7 +11,7 @@ function normalizeFallbackTerm(raw: string): string {
   return raw.trim().replace(EDGE_PUNCTUATION_RE, "").toLowerCase();
 }
 
-function escapeLike(term: string): string {
+export function escapeLike(term: string): string {
   return term.replace(/([\\%_])/g, "\\$1");
 }
 

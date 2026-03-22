@@ -1373,6 +1373,35 @@ export class LcmContextEngine implements ContextEngine {
       } catch (err) {
         console.warn("[cc-mem] real-time entity extraction failed:", err instanceof Error ? err.message : String(err));
       }
+
+      // NER enhancement — non-blocking, uses spaCy model server if available
+      try {
+        const nerUrl = `${process.env.CLAWCORE_MODEL_SERVER_URL ?? process.env.MODEL_SERVER_URL ?? "http://127.0.0.1:8012"}/ner`;
+        const nerResp = await fetch(nerUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ texts: [stored.content] }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (nerResp.ok) {
+          const nerData = await nerResp.json() as { results: Array<{ entities: Array<{ text: string; label: string }> }> };
+          const nerEntities = nerData.results?.[0]?.entities ?? [];
+          if (nerEntities.length > 0) {
+            const { storeExtractionResult: storeNer } = await import("./relations/graph-store.js");
+            const nerResults = nerEntities.map((e: { text: string; label: string }) => ({
+              name: e.text,
+              confidence: 0.8,
+              strategy: `ner:${e.label}` as import("./relations/types.js").ExtractionStrategy,
+              entityType: e.label.toLowerCase(),
+            }));
+            storeNer(this.graphDb!, nerResults, {
+              sourceType: "message",
+              sourceId: String(msgRecord.messageId),
+              actor: "system",
+            });
+          }
+        }
+      } catch {} // Non-fatal — regex results already stored above
     }
 
     // Real-time attempt tracking from tool results

@@ -10,6 +10,7 @@ import type { GraphDb } from "./types.js";
 import type { LcmDependencies } from "../types.js";
 import type { AnyAgentTool } from "../tools/common.js";
 import { jsonResult } from "../tools/common.js";
+import { escapeLike } from "../store/full-text-fallback.js";
 import { getActiveClaims, getClaimsWithEvidence } from "./claim-store.js";
 import { getActiveDecisions, getDecisionHistory } from "./decision-store.js";
 import { getOpenLoops } from "./loop-store.js";
@@ -1187,8 +1188,8 @@ export function createCcMemoryTool(input: {
         // ── 1. Search claims (structured facts) ──
         const claimTerms = queryLower.split(/\s+/).filter((t) => t.length > 2);
         if (claimTerms.length > 0) {
-          const likeConditions = claimTerms.map(() => "(subject LIKE ? OR object_text LIKE ?)").join(" OR ");
-          const likeArgs = claimTerms.flatMap((t) => [`%${t}%`, `%${t}%`]);
+          const likeConditions = claimTerms.map(() => "(subject LIKE ? ESCAPE '\\' OR object_text LIKE ? ESCAPE '\\')").join(" OR ");
+          const likeArgs = claimTerms.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`]);
 
           const claims = db.prepare(`
             SELECT subject, predicate, object_text, confidence
@@ -1216,8 +1217,8 @@ export function createCcMemoryTool(input: {
 
         // ── 2. Search decisions ──
         if (claimTerms.length > 0) {
-          const decConditions = claimTerms.map(() => "(topic LIKE ? OR decision_text LIKE ?)").join(" OR ");
-          const decArgs = claimTerms.flatMap((t) => [`%${t}%`, `%${t}%`]);
+          const decConditions = claimTerms.map(() => "(topic LIKE ? ESCAPE '\\' OR decision_text LIKE ? ESCAPE '\\')").join(" OR ");
+          const decArgs = claimTerms.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`]);
 
           const decisions = db.prepare(`
             SELECT topic, decision_text, decided_at

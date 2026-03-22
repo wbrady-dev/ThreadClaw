@@ -24,7 +24,7 @@ export interface GraphDb {
 // Entity extraction
 // ---------------------------------------------------------------------------
 
-export type ExtractionStrategy = "capitalized" | "terms_list" | "quoted";
+export type ExtractionStrategy = "capitalized" | "terms_list" | "quoted" | (string & {});
 
 export interface ExtractionResult {
   /** Raw extracted name (will be lowercased + trimmed before storage). */
