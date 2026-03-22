@@ -93,6 +93,18 @@ function toStr(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Clamp an integer value to [min, max], returning fallback if undefined/NaN. */
+function clampInt(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+/** Clamp a float value to [min, max], returning fallback if undefined/NaN. */
+function clampFloat(value: number | undefined, min: number, max: number, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
 /**
  * Resolve configuration with three-tier precedence:
  *   1. Environment variables (CLAWCORE_MEMORY_* primary, LCM_* fallback)
@@ -118,41 +130,62 @@ export function resolveLcmConfig(
       ?? toStr(pc.dbPath)
       ?? toStr(pc.databasePath)
       ?? join(homedir(), ".clawcore", "data", "memory.db"),
-    contextThreshold:
+    contextThreshold: clampFloat(
       (e("CONTEXT_THRESHOLD") !== undefined ? parseFloat(e("CONTEXT_THRESHOLD")!) : undefined)
-        ?? toNumber(pc.contextThreshold) ?? 0.75,
-    freshTailCount:
+        ?? toNumber(pc.contextThreshold),
+      0, 1, 0.75,
+    ),
+    freshTailCount: clampInt(
       (e("FRESH_TAIL_COUNT") !== undefined ? parseInt(e("FRESH_TAIL_COUNT")!, 10) : undefined)
-        ?? toNumber(pc.freshTailCount) ?? 32,
-    leafMinFanout:
+        ?? toNumber(pc.freshTailCount),
+      1, 1000, 32,
+    ),
+    leafMinFanout: clampInt(
       (e("LEAF_MIN_FANOUT") !== undefined ? parseInt(e("LEAF_MIN_FANOUT")!, 10) : undefined)
-        ?? toNumber(pc.leafMinFanout) ?? 8,
-    condensedMinFanout:
+        ?? toNumber(pc.leafMinFanout),
+      1, 100, 8,
+    ),
+    condensedMinFanout: clampInt(
       (e("CONDENSED_MIN_FANOUT") !== undefined ? parseInt(e("CONDENSED_MIN_FANOUT")!, 10) : undefined)
-        ?? toNumber(pc.condensedMinFanout) ?? 4,
-    condensedMinFanoutHard:
+        ?? toNumber(pc.condensedMinFanout),
+      1, 100, 4,
+    ),
+    condensedMinFanoutHard: clampInt(
       (e("CONDENSED_MIN_FANOUT_HARD") !== undefined ? parseInt(e("CONDENSED_MIN_FANOUT_HARD")!, 10) : undefined)
-        ?? toNumber(pc.condensedMinFanoutHard) ?? 2,
-    incrementalMaxDepth:
+        ?? toNumber(pc.condensedMinFanoutHard),
+      1, 100, 2,
+    ),
+    incrementalMaxDepth: clampInt(
       (e("INCREMENTAL_MAX_DEPTH") !== undefined ? parseInt(e("INCREMENTAL_MAX_DEPTH")!, 10) : undefined)
-        ?? toNumber(pc.incrementalMaxDepth) ?? -1,
-    leafChunkTokens:
+        ?? toNumber(pc.incrementalMaxDepth),
+      -1, 100, -1, // -1 = unlimited depth
+    ),
+    leafChunkTokens: clampInt(
       (e("LEAF_CHUNK_TOKENS") !== undefined ? parseInt(e("LEAF_CHUNK_TOKENS")!, 10) : undefined)
-        ?? toNumber(pc.leafChunkTokens) ?? 20000,
-    leafTargetTokens:
+        ?? toNumber(pc.leafChunkTokens),
+      100, 200000, 20000,
+    ),
+    leafTargetTokens: clampInt(
       (e("LEAF_TARGET_TOKENS") !== undefined ? parseInt(e("LEAF_TARGET_TOKENS")!, 10) : undefined)
-        ?? toNumber(pc.leafTargetTokens) ?? 1200,
-    condensedTargetTokens:
+        ?? toNumber(pc.leafTargetTokens),
+      100, 50000, 1200,
+    ),
+    condensedTargetTokens: clampInt(
       (e("CONDENSED_TARGET_TOKENS") !== undefined ? parseInt(e("CONDENSED_TARGET_TOKENS")!, 10) : undefined)
-        ?? toNumber(pc.condensedTargetTokens) ?? 2000,
-    maxExpandTokens:
+        ?? toNumber(pc.condensedTargetTokens),
+      100, 50000, 2000,
+    ),
+    maxExpandTokens: clampInt(
       (e("MAX_EXPAND_TOKENS") !== undefined ? parseInt(e("MAX_EXPAND_TOKENS")!, 10) : undefined)
-        ?? toNumber(pc.maxExpandTokens) ?? 4000,
-    largeFileTokenThreshold:
+        ?? toNumber(pc.maxExpandTokens),
+      100, 200000, 4000,
+    ),
+    largeFileTokenThreshold: clampInt(
       (e("LARGE_FILE_TOKEN_THRESHOLD") !== undefined ? parseInt(e("LARGE_FILE_TOKEN_THRESHOLD")!, 10) : undefined)
         ?? toNumber(pc.largeFileThresholdTokens)
-        ?? toNumber(pc.largeFileTokenThreshold)
-        ?? 25000,
+        ?? toNumber(pc.largeFileTokenThreshold),
+      100, 1000000, 25000,
+    ),
     largeFileSummaryProvider:
       e("LARGE_FILE_SUMMARY_PROVIDER")?.trim() ?? toStr(pc.largeFileSummaryProvider) ?? "",
     largeFileSummaryModel:

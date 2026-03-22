@@ -37,8 +37,10 @@ export function getLcmConnection(dbPath: string): DatabaseSync {
     _connections.delete(dbPath);
   }
 
-  // Ensure parent directory exists
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // Ensure parent directory exists (skip for in-memory databases)
+  if (dbPath !== ":memory:") {
+    mkdirSync(dirname(dbPath), { recursive: true });
+  }
 
   const db = new DatabaseSync(dbPath);
 
@@ -46,6 +48,8 @@ export function getLcmConnection(dbPath: string): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL");
   // Enable foreign key enforcement
   db.exec("PRAGMA foreign_keys = ON");
+  // Retry on SQLITE_BUSY for up to 5 seconds (matches graph-connection.ts)
+  db.exec("PRAGMA busy_timeout = 5000");
 
   _connections.set(dbPath, { db, refs: 1 });
   return db;

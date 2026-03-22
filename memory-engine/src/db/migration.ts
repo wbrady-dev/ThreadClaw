@@ -166,6 +166,9 @@ function backfillSummaryDepths(db: DatabaseSync): void {
 
       // Guard against malformed cycles/cross-conversation references.
       if (!progressed) {
+        console.warn(
+          `[cc-mem] migration: cycle detected in summary parent edges, assigning depth=1 to ${unresolvedCondensedIds.size} summary/summaries`,
+        );
         for (const summaryId of unresolvedCondensedIds) {
           depthBySummaryId.set(summaryId, 1);
         }
