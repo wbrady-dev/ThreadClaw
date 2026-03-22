@@ -221,26 +221,50 @@ async function runResetKnowledgeBase(): Promise<void> {
 
     if (!confirm || confirm === "__back__") return;
 
-    // Step 3: Execute reset
+    // Step 3: Execute reset — works with or without services running
     const clearGraph = scope === "full";
     const sp = ora("Resetting knowledge base...").start();
     try {
-      const res = await fetch(`${getApiBaseUrl()}/reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clearGraph }),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (res.ok) {
-        const data = await res.json() as any;
-        sp.succeed(`Reset complete: ${data.documentsDeleted} documents, ${data.chunksDeleted} chunks, ${data.collectionsDeleted} collections removed`);
-        if (data.graphCleared) console.log(t.ok("  Evidence OS graph data cleared."));
-        else console.log(t.dim("  Evidence OS graph data preserved."));
-      } else {
-        sp.fail("Reset failed — check if services are running");
+      // Try API first (if services running), fall back to direct DB access
+      let data: any = null;
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/reset`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clearGraph }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) data = await res.json();
+      } catch {}
+
+      if (!data) {
+        // Direct DB access — services not needed
+        const { resolve } = await import("path");
+        const { getDb } = await import("../../storage/index.js");
+        const { resetKnowledgeBase } = await import("../../storage/collections.js");
+        const { config: appConfig } = await import("../../config.js");
+        const dbPath = resolve(appConfig.dataDir, "clawcore.db");
+        const db = getDb(dbPath);
+        const stats = resetKnowledgeBase(db);
+        data = { ...stats, graphCleared: false };
+
+        if (clearGraph && appConfig.relations?.graphDbPath) {
+          try {
+            const graphDb = getDb(appConfig.relations.graphDbPath);
+            try { graphDb.prepare("DELETE FROM entity_mentions").run(); } catch {}
+            try { graphDb.prepare("DELETE FROM entities").run(); } catch {}
+            try { graphDb.prepare("DELETE FROM evidence_log").run(); } catch {}
+            data.graphCleared = true;
+          } catch {}
+        }
       }
-    } catch {
-      sp.fail("Reset failed — start services first");
+
+      sp.succeed(`Reset complete: ${data.documentsDeleted} documents, ${data.chunksDeleted} chunks, ${data.collectionsDeleted} collections removed`);
+      if (data.graphCleared) console.log(t.ok("  Evidence OS graph data cleared."));
+      else if (clearGraph) console.log(t.dim("  Evidence OS graph data not found or already empty."));
+      else console.log(t.dim("  Evidence OS graph data preserved."));
+    } catch (err) {
+      sp.fail(`Reset failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     console.log("");
