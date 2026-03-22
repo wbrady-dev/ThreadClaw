@@ -214,6 +214,11 @@ async function ingestFileInner(
     allDupes.delete(0);
   }
 
+  // Pre-compute chunk content hashes (async — must happen before synchronous transaction)
+  const chunkHashes = await Promise.all(
+    dedupedIndices.map((i) => contentHash(chunks[i].text)),
+  );
+
   // Store everything in a single transaction
   const documentId = uuidv4();
   const chunkIds: string[] = dedupedIndices.map(() => uuidv4());
@@ -249,7 +254,7 @@ async function ingestFileInner(
         chunk.contextPrefix ?? null,
         chunk.position,
         chunk.tokenCount,
-        "",
+        chunkHashes[ci],
         parentId,
       );
     }
