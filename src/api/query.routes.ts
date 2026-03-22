@@ -31,7 +31,7 @@ export function registerQueryRoutes(server: FastifyInstance) {
       expand,
       brief,
       titles_only,
-    } = req.body as {
+    } = (req.body ?? {}) as {
       query: string;
       collection?: string;
       top_k?: number;
@@ -64,7 +64,7 @@ export function registerQueryRoutes(server: FastifyInstance) {
       query: queryText,
       collection,
       top_k,
-    } = req.body as {
+    } = (req.body ?? {}) as {
       query: string;
       collection?: string;
       top_k?: number;

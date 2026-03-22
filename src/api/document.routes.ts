@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { getDb } from "../storage/index.js";
 import { listDocuments, deleteDocument, getCollectionByName } from "../storage/collections.js";
 import { clearCache } from "../query/cache.js";
+import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
 
 function db() {
@@ -27,6 +28,7 @@ export function registerDocumentRoutes(server: FastifyInstance) {
   });
 
   server.delete("/documents/:id", async (req, reply) => {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
     const { id } = req.params as { id: string };
     const database = db();
 

@@ -4,7 +4,7 @@ import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { ingestFile } from "../ingest/pipeline.js";
-
+import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -41,7 +41,8 @@ function validateIngestPath(filePath: string): string | null {
 
 export function registerIngestRoutes(server: FastifyInstance) {
   server.post("/ingest", async (req, reply) => {
-    const { path: filePath, collection, tags } = req.body as {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const { path: filePath, collection, tags } = (req.body ?? {}) as {
       path: string;
       collection?: string;
       tags?: string[];
@@ -61,7 +62,8 @@ export function registerIngestRoutes(server: FastifyInstance) {
   });
 
   server.post("/ingest/text", async (req, reply) => {
-    const { text, title, collection } = req.body as {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const { text, title, collection } = (req.body ?? {}) as {
       text: string;
       title?: string;
       collection?: string;

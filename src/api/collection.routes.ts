@@ -11,6 +11,7 @@ import {
   getCollectionByName,
 } from "../storage/collections.js";
 import { invalidateCollection } from "../query/cache.js";
+import { isLocalRequest } from "./guards.js";
 
 function db() {
   return getDb(resolve(config.dataDir, "clawcore.db"));
@@ -23,7 +24,8 @@ export function registerCollectionRoutes(server: FastifyInstance) {
   });
 
   server.post("/collections", async (req, reply) => {
-    const { name, description } = req.body as {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const { name, description } = (req.body ?? {}) as {
       name: string;
       description?: string;
     };
