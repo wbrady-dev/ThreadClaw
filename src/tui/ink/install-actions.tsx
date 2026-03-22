@@ -1,5 +1,7 @@
 import { execFileSync } from "child_process";
-import { existsSync } from "fs";
+import { randomUUID } from "crypto";
+import { existsSync, writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
 import { resolve } from "path";
 import {
   type EvidenceConfig,
@@ -481,11 +483,14 @@ async function promptCustomModel(python: string, type: "embed" | "rerank"): Prom
 
   try {
     if (type === "embed") {
-      const output = execFileSync(
-        python,
-        ["-c", `from sentence_transformers import SentenceTransformer; model = SentenceTransformer('${escapePython(modelId)}', trust_remote_code=True); print(model.get_sentence_embedding_dimension())`],
-        { stdio: "pipe", timeout: 600000 },
-      ).toString().trim();
+      // Use sys.argv[1] for model ID — never interpolate user input into Python code
+      const script = "import sys; from sentence_transformers import SentenceTransformer; model = SentenceTransformer(sys.argv[1], trust_remote_code=True); print(model.get_sentence_embedding_dimension())";
+      const tmpScript = resolve(tmpdir(), `clawcore_check_${randomUUID()}.py`);
+      writeFileSync(tmpScript, script);
+      let output: string;
+      try {
+        output = execFileSync(python, [tmpScript, modelId], { stdio: "pipe", timeout: 600000 }).toString().trim();
+      } finally { try { unlinkSync(tmpScript); } catch {} }
       const dims = parseInt(output, 10) || 0;
       return {
         id: modelId,
@@ -502,11 +507,13 @@ async function promptCustomModel(python: string, type: "embed" | "rerank"): Prom
       };
     }
 
-    execFileSync(
-      python,
-      ["-c", `from sentence_transformers import CrossEncoder; CrossEncoder('${escapePython(modelId)}', trust_remote_code=True)`],
-      { stdio: "pipe", timeout: 600000 },
-    );
+    // Use sys.argv[1] for model ID — never interpolate user input into Python code
+    const rerankScript = "import sys; from sentence_transformers import CrossEncoder; CrossEncoder(sys.argv[1], trust_remote_code=True)";
+    const tmpRerankScript = resolve(tmpdir(), `clawcore_check_${randomUUID()}.py`);
+    writeFileSync(tmpRerankScript, rerankScript);
+    try {
+      execFileSync(python, [tmpRerankScript, modelId], { stdio: "pipe", timeout: 600000 });
+    } finally { try { unlinkSync(tmpRerankScript); } catch {} }
     return {
       id: modelId,
       name: modelId.split("/").pop() ?? modelId,
@@ -602,6 +609,3 @@ async function showNotice(title: string, message: string): Promise<void> {
   });
 }
 
-function escapePython(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}

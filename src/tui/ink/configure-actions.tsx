@@ -1,7 +1,8 @@
 import ora from "ora";
 import { execFileSync } from "child_process";
-import { existsSync, readdirSync, unlinkSync } from "fs";
-import { homedir } from "os";
+import { randomUUID } from "crypto";
+import { existsSync, readdirSync, unlinkSync, writeFileSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { resolve } from "path";
 import {
   CLOUD_EMBED_PROVIDERS,
@@ -288,20 +289,18 @@ async function configureCustomModel(type: "embed" | "rerank", python: string): P
   const spinner = ora(`Validating ${modelId}...`).start();
   try {
     let dimensions = 0;
-    if (type === "embed") {
-      const output = execFileSync(
-        python,
-        ["-c", `from sentence_transformers import SentenceTransformer; model = SentenceTransformer('${escapePython(modelId)}', trust_remote_code=${trustRemote ? "True" : "False"}); print(model.get_sentence_embedding_dimension())`],
-        { stdio: "pipe", timeout: 600000 },
-      ).toString().trim();
-      dimensions = parseInt(output, 10) || 0;
-    } else {
-      execFileSync(
-        python,
-        ["-c", `from sentence_transformers import CrossEncoder; CrossEncoder('${escapePython(modelId)}', trust_remote_code=${trustRemote ? "True" : "False"})`],
-        { stdio: "pipe", timeout: 600000 },
-      );
-    }
+    const trustArg = trustRemote ? "True" : "False";
+    const tmpScript = resolve(tmpdir(), `clawcore_check_${randomUUID()}.py`);
+    try {
+      if (type === "embed") {
+        writeFileSync(tmpScript, `import sys; from sentence_transformers import SentenceTransformer; model = SentenceTransformer(sys.argv[1], trust_remote_code=${trustArg}); print(model.get_sentence_embedding_dimension())`);
+        const output = execFileSync(python, [tmpScript, modelId], { stdio: "pipe", timeout: 600000 }).toString().trim();
+        dimensions = parseInt(output, 10) || 0;
+      } else {
+        writeFileSync(tmpScript, `import sys; from sentence_transformers import CrossEncoder; CrossEncoder(sys.argv[1], trust_remote_code=${trustArg})`);
+        execFileSync(python, [tmpScript, modelId], { stdio: "pipe", timeout: 600000 });
+      }
+    } finally { try { unlinkSync(tmpScript); } catch {} }
     spinner.succeed(`${modelId} validated`);
 
     if (type === "embed") {
@@ -801,26 +800,19 @@ function discoverWatchCandidates(): Array<{ path: string; collection: string }> 
 
 async function warmModel(choice: ModelInfo, python: string, type: "embed" | "rerank"): Promise<void> {
   const spinner = ora(`Downloading ${choice.name}...`).start();
+  const dlScript = resolve(tmpdir(), `clawcore_dl_${randomUUID()}.py`);
   try {
+    const trustPy = choice.trustRemoteCode ? ", trust_remote_code=True" : "";
     if (type === "embed") {
-      const trustArg = choice.trustRemoteCode ? ", trust_remote_code=True" : "";
-      execFileSync(
-        python,
-        ["-c", `from sentence_transformers import SentenceTransformer; SentenceTransformer('${escapePython(choice.id)}'${trustArg})`],
-        { stdio: "pipe", timeout: 600000 },
-      );
+      writeFileSync(dlScript, `import sys; from sentence_transformers import SentenceTransformer; SentenceTransformer(sys.argv[1]${trustPy})`);
     } else {
-      const trustArg = choice.trustRemoteCode ? ", trust_remote_code=True" : "";
-      execFileSync(
-        python,
-        ["-c", `from sentence_transformers import CrossEncoder; CrossEncoder('${escapePython(choice.id)}'${trustArg})`],
-        { stdio: "pipe", timeout: 600000 },
-      );
+      writeFileSync(dlScript, `import sys; from sentence_transformers import CrossEncoder; CrossEncoder(sys.argv[1]${trustPy})`);
     }
+    execFileSync(python, [dlScript, choice.id], { stdio: "pipe", timeout: 600000 });
     spinner.succeed(`${choice.name} ready`);
   } catch {
     spinner.warn("Download failed. The server will retry on startup.");
-  }
+  } finally { try { unlinkSync(dlScript); } catch {} }
 }
 
 function hasTesseract(): boolean {
@@ -862,6 +854,3 @@ function shortenPath(path: string): string {
   return "..." + parts.slice(-3).join("/");
 }
 
-function escapePython(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
