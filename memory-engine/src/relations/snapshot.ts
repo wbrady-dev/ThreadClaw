@@ -35,12 +35,12 @@ export function getStateAtTime(
 ): StateSnapshot {
   // Claims active at timestamp: created before T, and either:
   // - still active now (status='active'), OR
-  // - was modified AFTER T (updated_at > T), meaning it was still active at T
+  // - status changed AFTER T (updated_at > T), meaning it was still active at T
+  //   regardless of current status (superseded, retracted, stale)
   const claims = db.prepare(`
     SELECT * FROM claims
     WHERE scope_id = ? AND created_at <= ?
-      AND (status = 'active'
-           OR (status != 'superseded' AND updated_at > ?))
+      AND (status = 'active' OR updated_at > ?)
     ORDER BY confidence DESC
     LIMIT 50
   `).all(scopeId, timestamp, timestamp) as ClaimRow[];

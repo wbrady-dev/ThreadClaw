@@ -20,7 +20,7 @@ export function upsertRunbook(
     ON CONFLICT(scope_id, runbook_key) DO UPDATE SET
       success_count = runbooks.success_count + excluded.success_count,
       failure_count = runbooks.failure_count + excluded.failure_count,
-      confidence = (runbooks.confidence + excluded.confidence) / 2.0,
+      confidence = MAX(runbooks.confidence, excluded.confidence),
       description = COALESCE(excluded.description, runbooks.description),
       updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
   `).run(

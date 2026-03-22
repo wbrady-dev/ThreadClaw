@@ -113,12 +113,45 @@ export function decayRunbooks(db: GraphDb, scopeId: number, staleDays = 180): nu
 }
 
 /**
+ * Mark open loops as 'stale' when they exceed their max_age_hours policy.
+ * Default: 72 hours (3 days) per the promotion_policies seed.
+ */
+export function decayLoops(db: GraphDb, scopeId: number): number {
+  const policy = db.prepare(
+    "SELECT max_age_hours FROM promotion_policies WHERE object_type = 'loop'",
+  ).get() as { max_age_hours: number | null } | undefined;
+
+  const maxAgeHours = policy?.max_age_hours ?? 72;
+
+  const staled = db.prepare(`
+    UPDATE open_loops
+    SET status = 'stale', closed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
+    WHERE scope_id = ?
+      AND status IN ('open', 'blocked')
+      AND opened_at < datetime('now', '-' || ? || ' hours')
+  `).run(scopeId, maxAgeHours);
+
+  if (Number(staled.changes) > 0) {
+    logEvidence(db, {
+      scopeId,
+      objectType: "open_loop",
+      objectId: 0,
+      eventType: "decay",
+      payload: { markedStale: Number(staled.changes), maxAgeHours },
+    });
+  }
+
+  return Number(staled.changes);
+}
+
+/**
  * Apply all decay rules for a scope. Call lazily before queries.
  */
 export function applyDecay(db: GraphDb, scopeId: number, decayDays = 90, staleDays = 180): void {
   try {
     decayAntiRunbooks(db, scopeId, decayDays);
     decayRunbooks(db, scopeId, staleDays);
+    decayLoops(db, scopeId);
   } catch {
     // Non-fatal: decay failure should not block queries
   }

@@ -48,9 +48,9 @@ export function upsertClaim(db: GraphDb, input: UpsertClaimInput): UpsertClaimRe
        value_type, confidence, trust_score, source_authority, canonical_key, extraction_version)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(scope_id, branch_id, canonical_key) DO UPDATE SET
-      confidence = (claims.confidence + excluded.confidence) / 2.0,
-      trust_score = (claims.trust_score + excluded.trust_score) / 2.0,
-      source_authority = (claims.source_authority + excluded.source_authority) / 2.0,
+      confidence = MAX(claims.confidence, excluded.confidence),
+      trust_score = MAX(claims.trust_score, excluded.trust_score),
+      source_authority = MAX(claims.source_authority, excluded.source_authority),
       object_text = COALESCE(excluded.object_text, claims.object_text),
       object_json = COALESCE(excluded.object_json, claims.object_json),
       last_seen_at = strftime('%Y-%m-%dT%H:%M:%f', 'now'),
