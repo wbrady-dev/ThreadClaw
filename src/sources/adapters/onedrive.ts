@@ -298,8 +298,8 @@ export class OneDriveAdapter implements SourceAdapter {
   name = "Microsoft OneDrive";
   type: "polling" = "polling";
 
-  async isAvailable() { return true; }
-  availabilityReason() { return ""; }
+  async isAvailable() { return false; }
+  availabilityReason() { return "OneDrive sync is not yet implemented"; }
 
   defaultConfig(): SourceConfig {
     return {

@@ -66,7 +66,7 @@ const PARSER_MAP: Record<string, Parser> = {
   // Office Documents
   ".docx": parseDocx,
   ".pptx": parsePptx,
-  ".xlsx": parseCsv, // fallback if Docling unavailable; Docling handles xlsx natively
+  // .xlsx requires Docling (layout-aware parser) — no local fallback for binary Excel format
 
   // Code
   ".js": parseCode,

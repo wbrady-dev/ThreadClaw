@@ -96,6 +96,19 @@ async function ingestFileInner(
   // Ensure collection exists
   const collection = ensureCollection(db, collectionName);
 
+  // File size guard — prevent OOM on very large files
+  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+  const fileStats = await stat(absPath).catch(() => null);
+  const fileMtime = fileStats?.mtime.toISOString() ?? null;
+
+  if (fileStats && fileStats.size > MAX_FILE_SIZE) {
+    logger.warn({ filePath: absPath, sizeMB: Math.round(fileStats.size / 1024 / 1024) }, "File too large, skipping");
+    return {
+      documentsAdded: 0, documentsUpdated: 0, chunksCreated: 0,
+      duplicatesSkipped: 1, elapsedMs: Date.now() - start,
+    };
+  }
+
   // Read file once as buffer, then try text decode. Avoids double I/O for binary files.
   const fileBuf = await readFile(absPath);
   let raw: string;
@@ -110,13 +123,6 @@ async function ingestFileInner(
   const hash = raw
     ? await contentHash(raw)
     : await contentHashBytes(new Uint8Array(fileBuf));
-
-  // Get file mtime for incremental indexing
-  let fileMtime: string | null = null;
-  try {
-    const stats = await stat(absPath);
-    fileMtime = stats.mtime.toISOString();
-  } catch {}
 
   // Check for existing document at same path in same collection
   const existing = db
@@ -139,7 +145,12 @@ async function ingestFileInner(
       };
     }
 
-    // Content changed or forced — remove old version, re-ingest
+    // Content changed or forced — remove old version before re-ingest.
+    // Note: removal happens before parsing/embedding. If re-ingest fails below,
+    // the old document is lost. This is acceptable because:
+    // 1. The source file still exists on disk and will be re-ingested on next attempt
+    // 2. Moving removal into the store transaction would cause semantic dedup to
+    //    flag new chunks as duplicates of the old version (same vectors still in index)
     logger.info({ filePath: absPath, forced: !!options.force }, "Re-indexing document");
     removeDocument(db, existing.id);
   } else if (!existing) {

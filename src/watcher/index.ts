@@ -2,6 +2,9 @@ import { watch } from "chokidar";
 import { resolve, extname } from "path";
 import { config } from "../config.js";
 import { ingestFile } from "../ingest/pipeline.js";
+import { getDb, getCollectionByName } from "../storage/index.js";
+import { deleteDocument } from "../storage/collections.js";
+import { invalidateCollection } from "../query/cache.js";
 import { getSupportedExtensions } from "../ingest/parsers/index.js";
 import { isCircuitBreakerOpen } from "../embeddings/client.js";
 import { logger } from "../utils/logger.js";
@@ -88,6 +91,7 @@ export class ClawCoreWatcher {
 
       watcher.on("add", (filePath) => this.handleFile(filePath, wc));
       watcher.on("change", (filePath) => this.handleFile(filePath, wc));
+      watcher.on("unlink", (filePath) => this.handleUnlink(filePath, wc));
 
       watcher.on("error", (err) => {
         logError(`Watcher error: ${err}`);
@@ -127,6 +131,32 @@ export class ClawCoreWatcher {
     }, wc.debounceMs ?? DEFAULT_DEBOUNCE);
 
     this.debounceTimers.set(filePath, timer);
+  }
+
+  /** Handle file deletion — remove document from index. */
+  private handleUnlink(filePath: string, wc: WatchConfig): void {
+    const ext = extname(filePath).toLowerCase();
+    if (!supportedExts.has(ext)) return;
+    if (this.processing.has(filePath)) return; // Don't remove mid-ingest
+
+    try {
+      const db = getDb(resolve(config.dataDir, "clawcore.db"));
+      const collectionName = wc.collection ?? config.defaults.collection;
+      const collection = getCollectionByName(db, collectionName);
+      if (!collection) return;
+
+      const doc = db.prepare(
+        "SELECT id FROM documents WHERE source_path = ? AND collection_id = ?",
+      ).get(filePath, collection.id) as { id: string } | undefined;
+
+      if (doc) {
+        deleteDocument(db, doc.id);
+        invalidateCollection(collectionName);
+        logger.info({ filePath }, "Document removed (file deleted)");
+      }
+    } catch (err) {
+      logger.warn({ filePath, error: String(err) }, "Failed to remove deleted file from index");
+    }
   }
 
   private drainQueue(): void {

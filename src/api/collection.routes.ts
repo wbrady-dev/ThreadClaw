@@ -52,13 +52,16 @@ export function registerCollectionRoutes(server: FastifyInstance) {
     return reply.status(201).send(collection);
   });
 
-  server.delete("/collections/:id", async (req) => {
+  server.delete("/collections/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    // Invalidate query cache for this collection before deleting
     const collection = getCollection(db(), id);
-    if (collection) {
-      invalidateCollection(collection.name);
+    if (!collection) {
+      return reply.status(404).send({ error: "Collection not found" });
     }
+    if (collection.name === config.defaults.collection) {
+      return reply.status(400).send({ error: "Cannot delete the default collection" });
+    }
+    invalidateCollection(collection.name);
     deleteCollection(db(), id);
     return { deleted: true };
   });
