@@ -12,6 +12,7 @@ import {
 } from "../storage/collections.js";
 import { invalidateCollection } from "../query/cache.js";
 import { isLocalRequest } from "./guards.js";
+import { logger } from "../utils/logger.js";
 
 function db() {
   return getDb(resolve(config.dataDir, "clawcore.db"));
@@ -66,8 +67,29 @@ export function registerCollectionRoutes(server: FastifyInstance) {
     if (collection.name === config.defaults.collection) {
       return reply.status(400).send({ error: "Cannot delete the default collection" });
     }
+    // Get document IDs BEFORE deletion (CASCADE will remove them)
+    const database = db();
+    const docIds = database.prepare(
+      "SELECT id FROM documents WHERE collection_id = ?",
+    ).all(id) as Array<{ id: string }>;
+
     invalidateCollection(collection.name);
-    deleteCollection(db(), id);
+    deleteCollection(database, id);
+
+    // Clean up graph data for deleted documents
+    if (config.relations?.enabled && docIds.length > 0) {
+      try {
+        const { getGraphDb } = await import("../storage/graph-sqlite.js");
+        const { deleteSourceData } = await import("../relations/ingest-hook.js");
+        const graphDb = getGraphDb(config.relations.graphDbPath);
+        for (const doc of docIds) {
+          deleteSourceData(graphDb, "document", doc.id);
+        }
+      } catch (e) {
+        logger.warn({ collectionId: id, error: String(e) }, "Graph cleanup failed during collection deletion");
+      }
+    }
+
     return { deleted: true };
   });
 

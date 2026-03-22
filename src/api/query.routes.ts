@@ -47,16 +47,20 @@ export function registerQueryRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "query required" });
     }
 
-    return query(queryText, {
-      collection,
-      topK: clampTopK(top_k),
-      tokenBudget: clampBudget(token_budget),
-      useReranker: use_reranker,
-      useBm25: use_bm25,
-      expand,
-      brief,
-      titlesOnly: titles_only,
-    });
+    try {
+      return await query(queryText, {
+        collection,
+        topK: clampTopK(top_k),
+        tokenBudget: clampBudget(token_budget),
+        useReranker: use_reranker,
+        useBm25: use_bm25,
+        expand,
+        brief,
+        titlesOnly: titles_only,
+      });
+    } catch (err) {
+      return reply.status(500).send({ error: `Query failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   server.post("/search", async (req, reply) => {
@@ -74,10 +78,14 @@ export function registerQueryRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "query required" });
     }
 
-    return query(queryText, {
-      collection,
-      topK: clampTopK(top_k),
-      useReranker: false,
-    });
+    try {
+      return await query(queryText, {
+        collection,
+        topK: clampTopK(top_k),
+        useReranker: false,
+      });
+    } catch (err) {
+      return reply.status(500).send({ error: `Search failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 }

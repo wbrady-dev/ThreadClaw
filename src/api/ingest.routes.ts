@@ -57,8 +57,12 @@ export function registerIngestRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: err });
     }
 
-    const result = await ingestFile(filePath, { collection, tags });
-    return result;
+    try {
+      const result = await ingestFile(filePath, { collection, tags });
+      return result;
+    } catch (err) {
+      return reply.status(500).send({ error: `Ingest failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   server.post("/ingest/text", async (req, reply) => {
