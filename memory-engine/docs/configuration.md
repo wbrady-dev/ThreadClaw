@@ -5,13 +5,13 @@
 Install the plugin with OpenClaw's plugin installer:
 
 ```bash
-openclaw plugins install @martian-engineering/lossless-claw
+openclaw plugins install clawcore-memory
 ```
 
 If you're running from a local OpenClaw checkout:
 
 ```bash
-pnpm openclaw plugins install @martian-engineering/lossless-claw
+pnpm openclaw plugins install clawcore-memory
 ```
 
 For local development of this plugin, link your working copy:

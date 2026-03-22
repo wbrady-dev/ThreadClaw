@@ -2,7 +2,7 @@
 
 ## What Gets Stored
 
-### Evidence Graph (clawcore-graph.db)
+### Evidence Graph (graph.db)
 - Entity names and mention locations
 - Claims (subject/predicate/object triples)
 - Decisions and their supersession history
@@ -11,7 +11,7 @@
 - Learned patterns (runbooks, anti-runbooks)
 - Entity relationships
 
-### Memory Engine (clawcore-memory.db)
+### Memory Engine (memory.db)
 - Conversation messages and summaries
 - Context DAG (summary hierarchy)
 - File metadata (names, sizes, not content)

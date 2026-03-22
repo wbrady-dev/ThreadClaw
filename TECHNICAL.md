@@ -351,7 +351,7 @@ The TUI uninstall screen reverts all OpenClaw changes:
 ## Security
 
 - **API bound to localhost** (`127.0.0.1`) by default. Set `CLAWCORE_HOST=0.0.0.0` to expose.
-- **Rate limiting** — 60 requests/minute per IP (configurable). `/health` exempt.
+- **Rate limiting** — 300 requests/minute per IP (configurable via `RATE_LIMIT_MAX`). `/health` exempt.
 - **Path validation** — ingest endpoint blocks `.env`, credentials, `.git`, SSH keys.
 - **HuggingFace tokens** — passed via environment variable, never in shell commands.
 - **File permissions** — databases chmod 600, staging 700 on Unix.

@@ -27,7 +27,7 @@
 
 ## Agent Tools API
 
-All 19 `cc_*` tools are registered via the OpenClaw plugin API and available to agents during conversations. See [Tools Reference](tools.md) for parameters.
+All 22 `cc_*` tools are registered via the OpenClaw plugin API and available to agents during conversations. See [Tools Reference](tools.md) for parameters.
 
 ### Tool Response Format
 

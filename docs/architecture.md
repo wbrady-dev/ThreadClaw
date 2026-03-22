@@ -8,20 +8,18 @@ ClawCore runs as two integrated components:
 
 2. **Memory Engine Plugin** — OpenClaw plugin providing DAG-based conversation memory, context assembly, and the Evidence OS. Uses `node:sqlite` DatabaseSync.
 
-Both components can write to the shared evidence graph database (`clawcore-graph.db`) via WAL mode.
+Both components can write to the shared evidence graph database (`graph.db`) via WAL mode.
 
 ## Database Architecture
 
 ```
-~/.openclaw/
-  clawcore-memory.db    # Conversation memory (memory engine)
-  clawcore-graph.db     # Evidence graph (shared by both processes)
-
-./data/
+~/.clawcore/data/
+  memory.db             # Conversation memory (memory engine)
+  graph.db              # Evidence graph (shared by both processes)
   clawcore.db           # Document store (RAG, main ClawCore)
 ```
 
-### Evidence Graph (clawcore-graph.db)
+### Evidence Graph (graph.db)
 
 21 tables across 6 migrations:
 
@@ -93,7 +91,7 @@ memory-engine/src/relations/
   relation-store.ts   # Entity relationships
   deep-extract.ts     # LLM-powered extraction
   synthesis.ts        # Retrospective narrative
-  tools.ts            # All 20 cc_* tool factories
+  tools.ts            # All 22 cc_* tool factories
   index.ts            # Module exports
 ```
 

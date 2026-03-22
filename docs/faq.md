@@ -23,7 +23,7 @@ A: No. Claims are extracted during compaction (not real-time) and only from stru
 A: When a tool fails, you can record an anti-runbook pattern. Anti-runbooks are surfaced with the highest priority (score 0.95) by the context compiler, warning agents to avoid known failure patterns. Their confidence decays over time if no new failures are observed.
 
 **Q: What happens if I disable relations after using them?**
-A: Setting `RELATIONS_ENABLED=false` disables all evidence features. The data remains in `clawcore-graph.db` but isn't queried or surfaced. Re-enable to restore.
+A: Setting `RELATIONS_ENABLED=false` disables all evidence features. The data remains in `graph.db` but isn't queried or surfaced. Re-enable to restore.
 
 **Q: Can different agents share evidence?**
 A: Yes. All agents in the same scope share the evidence graph by default. Use branches for agent-specific speculation, and `crossAgent=true` parameter for cross-agent search.

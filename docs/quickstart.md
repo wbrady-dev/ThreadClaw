@@ -69,5 +69,5 @@ cc_capabilities   # View known tools/services
 ## Next Steps
 
 - [Configuration Guide](configuration.md) — Full environment variable reference
-- [Tools Reference](tools.md) — All 20 agent tools documented
+- [Tools Reference](tools.md) — All 22 agent tools documented
 - [Concepts](concepts.md) — Understanding CRAM, awareness, claims, branches
