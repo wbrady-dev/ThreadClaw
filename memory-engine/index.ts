@@ -232,6 +232,7 @@ type PiAiModule = {
       maxTokens: number;
       temperature?: number;
       reasoning?: string;
+      signal?: AbortSignal;
     },
   ) => Promise<Record<string, unknown> & { content?: Array<{ type: string; text?: string }> }>;
   getModel?: (provider: string, modelId: string) => unknown;
