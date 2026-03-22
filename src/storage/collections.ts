@@ -110,7 +110,7 @@ export interface DocumentInfo {
   id: string;
   source_path: string;
   collection_id: string;
-  collection_name: string;
+  collection: string;
   size_bytes: number;
   chunk_count: number;
   created_at: string;
@@ -121,7 +121,7 @@ export function listDocuments(
   collectionId?: string,
 ): DocumentInfo[] {
   const sql = `
-    SELECT d.id, d.source_path, d.collection_id, c.name as collection_name,
+    SELECT d.id, d.source_path, d.collection_id, c.name as collection,
            d.size_bytes, COUNT(ch.id) as chunk_count, d.created_at
     FROM documents d
     JOIN collections c ON c.id = d.collection_id

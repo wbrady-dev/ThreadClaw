@@ -10,14 +10,14 @@ function db() {
 }
 
 export function registerDocumentRoutes(server: FastifyInstance) {
-  server.get("/documents", async (req) => {
+  server.get("/documents", async (req, reply) => {
     const { collection } = req.query as { collection?: string };
     const database = db();
 
     let collectionId: string | undefined;
     if (collection) {
       const coll = getCollectionByName(database, collection);
-      if (!coll) return { documents: [], error: `Collection '${collection}' not found` };
+      if (!coll) return reply.status(404).send({ error: `Collection '${collection}' not found` });
       collectionId = coll.id;
     }
 

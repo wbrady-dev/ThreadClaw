@@ -40,7 +40,7 @@ export const deleteCommand = new Command("delete")
 
           let chunksDeleted = 0;
           for (const doc of docs) {
-            chunksDeleted += deleteDocument(db, doc.id);
+            chunksDeleted += await deleteDocument(db, doc.id);
           }
 
           console.log(
@@ -60,7 +60,7 @@ export const deleteCommand = new Command("delete")
             process.exit(1);
           }
 
-          const chunks = deleteDocument(db, doc.id);
+          const chunks = await deleteDocument(db, doc.id);
           console.log(`Deleted: ${doc.source_path} (${chunks} chunks)`);
           return;
         }
@@ -104,7 +104,7 @@ export const deleteCommand = new Command("delete")
             return;
           }
 
-          const chunks = deleteDocument(db, docs[0].id);
+          const chunks = await deleteDocument(db, docs[0].id);
           const name = docs[0].source_path.replace(/\\/g, "/").split("/").pop();
           console.log(`Deleted: ${name} (${chunks} chunks)`);
           return;
@@ -121,10 +121,10 @@ export const deleteCommand = new Command("delete")
     },
   );
 
-function deleteDocument(
+async function deleteDocument(
   db: ReturnType<typeof getDb>,
   documentId: string,
-): number {
+): Promise<number> {
   const chunkIds = db
     .prepare("SELECT id FROM chunks WHERE document_id = ?")
     .all(documentId) as { id: string }[];
@@ -141,11 +141,9 @@ function deleteDocument(
   // Clean up entity mentions in graph DB (if relations enabled)
   try {
     if (config.relations?.graphDbPath) {
-      // Dynamic import — graph-sqlite may not be available in all builds
-      import("../../storage/graph-sqlite.js").then(({ getGraphDb }) => {
-        const graphDb = getGraphDb(config.relations.graphDbPath);
-        graphDb.prepare("DELETE FROM entity_mentions WHERE source_type = 'document' AND source_id = ?").run(documentId);
-      }).catch(() => {});
+      const { getGraphDb } = await import("../../storage/graph-sqlite.js");
+      const graphDb = getGraphDb(config.relations.graphDbPath);
+      graphDb.prepare("DELETE FROM entity_mentions WHERE source_type = 'document' AND source_id = ?").run(documentId);
     }
   } catch {}
 
