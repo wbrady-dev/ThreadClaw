@@ -96,7 +96,7 @@ async function configureGDrive(): Promise<void> {
     items: [
       ...(!effectiveClientId || !effectiveClientSecret ? [{ label: "Set OAuth credentials", value: "credentials", description: "Enter Client ID and Secret from console.cloud.google.com" }] : []),
       ...(effectiveClientId && effectiveClientSecret && !connected ? [{ label: "Connect Google account", value: "auth" }] : []),
-      ...(effectiveClientId && effectiveClientSecret ? [{ label: "Update OAuth credentials", value: "credentials", description: "Change Client ID or Secret" }] : []),
+      ...(effectiveClientId && effectiveClientSecret && connected ? [{ label: "Update OAuth credentials", value: "credentials", description: "Change Client ID or Secret" }] : []),
       ...(connected ? [{
         label: currentEnabled ? "Disable ingestion" : "Enable ingestion",
         value: currentEnabled ? "disable" : "enable",
