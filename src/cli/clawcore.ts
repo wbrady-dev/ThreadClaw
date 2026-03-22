@@ -13,6 +13,7 @@ import { statusCommand } from "./commands/status.js";
 import { relationsCommand } from "./commands/relations.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { upgradeCommand } from "./commands/upgrade.js";
+import { updateCommand } from "./commands/update.js";
 import { integrateCommand } from "./commands/integrate.js";
 import { installCommand } from "./commands/install.js";
 import { uninstallCommand } from "./commands/uninstall.js";
@@ -44,6 +45,7 @@ if (process.argv.length <= 2) {
   program.addCommand(relationsCommand);
   program.addCommand(doctorCommand);
   program.addCommand(upgradeCommand);
+  program.addCommand(updateCommand);
   program.addCommand(integrateCommand);
   program.addCommand(installCommand);
   program.addCommand(uninstallCommand);

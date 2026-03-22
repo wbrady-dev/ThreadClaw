@@ -26,6 +26,7 @@ import {
   type ModelInfo,
 } from "../models.js";
 import { selectMenu } from "../menu.js";
+import { readEnvMap, type EnvMap } from "../env.js";
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 
 let cancelled = false;
@@ -550,40 +551,68 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
     docling_device: parser,
   };
   writeConfig(config, root);
-  const extraEnv = hadExistingEnv
-    ? existingEnv.split("\n").filter((line) => /^(GDRIVE_|NOTION_|APPLE_NOTES_|OBSIDIAN_|SOURCE_)/.test(line)).join("\n")
-    : "";
-  const watchPaths = hadExistingEnv ? existingEnv.match(/^WATCH_PATHS=(.+)$/m)?.[1] ?? "" : "";
-  writeFileSync(envPath, `# ClawCore CRAM Configuration
-CLAWCORE_PORT=18800
-CLAWCORE_DATA_DIR=./data
-EMBEDDING_URL=http://127.0.0.1:8012/v1
-EMBEDDING_MODEL=${embedChoice.id}
-EMBEDDING_DIMENSIONS=${embedChoice.dims}
-RERANKER_URL=http://127.0.0.1:8012
-QUERY_EXPANSION_ENABLED=false
-QUERY_EXPANSION_URL=http://127.0.0.1:1234/v1
-QUERY_EXPANSION_MODEL=
-WATCH_PATHS=${watchPaths}
-WATCH_DEBOUNCE_MS=3000
-DEFAULT_COLLECTION=default
-CHUNK_MIN_TOKENS=100
-CHUNK_MAX_TOKENS=1024
-CHUNK_TARGET_TOKENS=512
-QUERY_TOP_K=10
-QUERY_TOKEN_BUDGET=4000
-CLAWCORE_RELATIONS_ENABLED=${evidenceConfig.relationsEnabled}
-CLAWCORE_MEMORY_RELATIONS_ENABLED=${evidenceConfig.relationsEnabled}
-CLAWCORE_MEMORY_RELATIONS_AWARENESS_ENABLED=${evidenceConfig.awarenessEnabled}
-CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED=${evidenceConfig.claimExtraction}
-CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED=${evidenceConfig.attemptTracking}
-CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED=${evidenceConfig.deepExtraction}
-CLAWCORE_MEMORY_RELATIONS_CONTEXT_TIER=standard
-OCR_ENABLED=${enableOcr}
-AUDIO_TRANSCRIPTION_ENABLED=${enableAudio}
-WHISPER_MODEL=base
-${extraEnv ? `\n${extraEnv}\n` : ""}`);
-  sp.succeed("Configuration saved");
+  // Three-way .env merge: preserve user customizations, add new keys, keep unknown keys
+  const templateEnv: EnvMap = {
+    CLAWCORE_PORT: "18800",
+    CLAWCORE_DATA_DIR: "./data",
+    EMBEDDING_URL: "http://127.0.0.1:8012/v1",
+    EMBEDDING_MODEL: embedChoice.id,
+    EMBEDDING_DIMENSIONS: String(embedChoice.dims),
+    RERANKER_URL: "http://127.0.0.1:8012",
+    QUERY_EXPANSION_ENABLED: "false",
+    QUERY_EXPANSION_URL: "http://127.0.0.1:1234/v1",
+    QUERY_EXPANSION_MODEL: "",
+    WATCH_PATHS: "",
+    WATCH_DEBOUNCE_MS: "3000",
+    DEFAULT_COLLECTION: "default",
+    CHUNK_MIN_TOKENS: "100",
+    CHUNK_MAX_TOKENS: "1024",
+    CHUNK_TARGET_TOKENS: "512",
+    QUERY_TOP_K: "10",
+    QUERY_TOKEN_BUDGET: "4000",
+    CLAWCORE_RELATIONS_ENABLED: String(evidenceConfig.relationsEnabled),
+    CLAWCORE_MEMORY_RELATIONS_ENABLED: String(evidenceConfig.relationsEnabled),
+    CLAWCORE_MEMORY_RELATIONS_AWARENESS_ENABLED: String(evidenceConfig.awarenessEnabled),
+    CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED: String(evidenceConfig.claimExtraction),
+    CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED: String(evidenceConfig.attemptTracking),
+    CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED: String(evidenceConfig.deepExtraction),
+    CLAWCORE_MEMORY_RELATIONS_CONTEXT_TIER: "standard",
+    OCR_ENABLED: String(enableOcr),
+    AUDIO_TRANSCRIPTION_ENABLED: String(enableAudio),
+    WHISPER_MODEL: "base",
+  };
+
+  const oldEnv: EnvMap = hadExistingEnv ? readEnvMap(root) : {};
+  const mergedLines = ["# ClawCore CRAM Configuration"];
+  const templateKeys = new Set(Object.keys(templateEnv));
+
+  // Write template keys — use user's value if they customized it, otherwise template default
+  for (const [key, defaultVal] of Object.entries(templateEnv)) {
+    const userVal = oldEnv[key];
+    // For model-specific keys, always use the new installer value (user just chose these)
+    const alwaysOverwrite = key === "EMBEDDING_MODEL" || key === "EMBEDDING_DIMENSIONS";
+    if (alwaysOverwrite || userVal === undefined) {
+      mergedLines.push(`${key}=${defaultVal}`);
+    } else {
+      mergedLines.push(`${key}=${userVal}`);
+    }
+  }
+
+  // Preserve unknown keys from previous install (API keys, source configs, custom settings)
+  const preserved: string[] = [];
+  for (const [key, value] of Object.entries(oldEnv)) {
+    if (!templateKeys.has(key)) {
+      preserved.push(`${key}=${value}`);
+    }
+  }
+  if (preserved.length > 0) {
+    mergedLines.push("");
+    mergedLines.push("# Preserved from previous install");
+    mergedLines.push(...preserved);
+  }
+
+  writeFileSync(envPath, mergedLines.join("\n") + "\n");
+  sp.succeed(hadExistingEnv ? `Configuration merged (${preserved.length} custom keys preserved)` : "Configuration saved");
 
   if (embedChoice.gated || rerankChoice.gated) {
     if (huggingFaceToken) await loginHuggingFace(python, huggingFaceToken, embedChoice, rerankChoice);

@@ -9,6 +9,7 @@ import {
   getPlatform,
   getRootDir,
   findOpenClaw,
+  readConfig,
   stopServices,
   removeWindowsServices,
   removeLinuxServices,
@@ -23,8 +24,8 @@ export async function runUninstall(): Promise<void> {
   console.log(section("Uninstall ClawCore"));
   console.log(t.warn("  This will completely remove ClawCore and revert all changes"));
   console.log(t.warn("  made to OpenClaw. Source files preserved for reinstall.\n"));
-  console.log(t.warn("  Will remove: dependencies, config, evidence graph DB,"));
-  console.log(t.warn("  credentials, global command, OpenClaw integration.\n"));
+  console.log(t.warn("  Will remove: dependencies, Python venv, config, evidence graph DB,"));
+  console.log(t.warn("  credentials, global command, model cache, OpenClaw integration.\n"));
 
   let cancelled = false;
   const onCancel = () => { cancelled = true; };
@@ -188,10 +189,22 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
     console.log(t.dim(`  Data preserved at: ${resolve(root, "data")}`));
   }
 
-  // ── 4. Remove ClawCore runtime files ──
+  // ── 4. Read model config before deletion (for cache cleanup) ──
+  let modelIds: { embed?: string; rerank?: string } = {};
+  try {
+    const config = readConfig();
+    if (config) {
+      modelIds = { embed: config.embed_model, rerank: config.rerank_model };
+    }
+  } catch {}
+
+  // ── 5. Remove ClawCore runtime files ──
   sp = ora("Removing ClawCore files...").start();
   const toDelete = [
     resolve(root, "node_modules"),
+    resolve(root, ".venv"),
+    resolve(root, "dist"),
+    resolve(root, "memory-engine", "node_modules"),
     resolve(root, ".env"),
     resolve(root, "server", "config.json"),
     resolve(root, "logs"),
@@ -248,15 +261,47 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
     }
   }
 
-  // Unlink global npm command
-  try { execFileSync("npm", ["unlink", "-g", "clawcore"], { stdio: "pipe" }); } catch {}
+  // Remove global command
+  if (plat === "windows") {
+    const cmdDir = resolve(process.env.LOCALAPPDATA ?? resolve(homedir(), "AppData", "Local"), "ClawCore");
+    if (existsSync(cmdDir)) {
+      try { rmSync(cmdDir, { recursive: true, force: true }); } catch {}
+    }
+  } else {
+    const symlink = resolve(homedir(), ".local", "bin", "clawcore");
+    if (existsSync(symlink)) {
+      try { rmSync(symlink, { force: true }); } catch {}
+    }
+  }
 
   sp.succeed("ClawCore files removed");
 
-  // ── 5. Summary ──
+  // ── 6. Clean up model cache (ClawCore-specific models only) ──
+  if (deleteData && (modelIds.embed || modelIds.rerank)) {
+    const hfHub = resolve(homedir(), ".cache", "huggingface", "hub");
+    if (existsSync(hfHub)) {
+      const modelDirs: string[] = [];
+      for (const id of [modelIds.embed, modelIds.rerank]) {
+        if (!id) continue;
+        const cacheName = `models--${id.replace(/\//g, "--")}`;
+        const cachePath = resolve(hfHub, cacheName);
+        if (existsSync(cachePath)) modelDirs.push(cachePath);
+      }
+      if (modelDirs.length > 0) {
+        sp = ora("Removing downloaded model cache...").start();
+        for (const dir of modelDirs) {
+          try { rmSync(dir, { recursive: true, force: true }); } catch {}
+        }
+        sp.succeed(`Removed ${modelDirs.length} cached model(s)`);
+      }
+    }
+  }
+
+  // ── 7. Summary ──
   console.log(section("Uninstall Complete"));
 
   console.log(t.ok("  OpenClaw has been restored to its original state."));
+  console.log(t.ok("  All ClawCore dependencies and configuration removed."));
   console.log("");
 
   // Check if distribution package exists
@@ -267,12 +312,12 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
     console.log(t.dim("  Run install.bat / install.sh from there to reinstall.\n"));
   }
 
-  console.log(t.dim("  Optional cleanup (not removed automatically):"));
-  console.log(t.dim("  • Python packages:"));
-  console.log(t.code("    pip uninstall torch torchvision sentence-transformers flask docling -y"));
-  console.log(t.dim("  • HuggingFace model cache:"));
-  console.log(t.path(`    ${resolve(homedir(), ".cache", "huggingface", "hub")}`));
-  console.log("");
+  if (!deleteData) {
+    console.log(t.dim("  Data preserved. To fully clean up later:"));
+    console.log(t.dim("  • HuggingFace model cache:"));
+    console.log(t.path(`    ${resolve(homedir(), ".cache", "huggingface", "hub")}`));
+    console.log("");
+  }
 }
 
 async function waitForPortClosed(port: number, timeoutMs: number): Promise<void> {
