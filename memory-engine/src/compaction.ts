@@ -1150,9 +1150,10 @@ export class CompactionEngine {
         const { extractRelationsFast } = await import("./relations/claim-extract.js");
         const { upsertRelation } = await import("./relations/relation-store.js");
 
-        // Get known entity names
+        // Get known entity names — filter to short names only
+        // (long names are full sentences stored by NER, not useful for relation matching)
         const entityRows = graphDb.prepare(
-          "SELECT name FROM entities ORDER BY last_seen_at DESC LIMIT 200",
+          "SELECT name FROM entities WHERE length(name) <= 40 ORDER BY mention_count DESC, last_seen_at DESC LIMIT 200",
         ).all() as Array<{ name: string }>;
         const entityNames = entityRows.map((r: { name: string }) => r.name);
 

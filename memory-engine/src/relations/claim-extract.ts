@@ -398,29 +398,32 @@ export function extractLoopsFromText(
 // Strategy 7: Fast relation extraction between known entities
 // ---------------------------------------------------------------------------
 
+// Relation verb patterns — must be specific enough to avoid false positives.
+// Each regex matches text BETWEEN two entity names in a sentence.
 const RELATION_VERBS: Array<{ re: RegExp; predicate: string }> = [
-  { re: /\bis\s+(?:the\s+)?(?:a\s+)?backup\s+(?:server\s+)?for\b/i, predicate: "backup_for" },
-  { re: /\bbackup(?:s)?\s+(?:server\s+)?(?:for|of)\b/i, predicate: "backup_for" },
+  // Backup / recovery
+  { re: /\bis\s+(?:the\s+)?(?:a\s+)?backup\s+(?:server\s+)?(?:for|of)\b/i, predicate: "backup_for" },
+  { re: /\bbacks?\s+up\b/i, predicate: "backup_for" },
+  // Dependency / reliance
   { re: /\bdepends?\s+on\b/i, predicate: "depends_on" },
   { re: /\breli(?:es|ed)\s+on\b/i, predicate: "depends_on" },
-  { re: /\buses?\b/i, predicate: "uses" },
   { re: /\brequires?\b/i, predicate: "requires" },
-  { re: /\bleads?\b/i, predicate: "leads" },
-  { re: /\bowns?\b/i, predicate: "owns" },
-  { re: /\bmanages?\b/i, predicate: "manages" },
-  { re: /\bmaintains?\b/i, predicate: "maintains" },
+  // Ownership / management (require preposition to avoid false positives)
+  { re: /\bleads?\s+(?:the\s+)?/i, predicate: "leads" },
+  { re: /\bowns?\s+(?:the\s+)?/i, predicate: "owns" },
+  { re: /\bmanages?\s+(?:the\s+)?/i, predicate: "manages" },
+  { re: /\bmaintains?\s+(?:the\s+)?/i, predicate: "maintains" },
+  // Infrastructure
   { re: /\bruns?\s+on\b/i, predicate: "runs_on" },
   { re: /\bconnects?\s+to\b/i, predicate: "connects_to" },
-  { re: /\bhandles?\b/i, predicate: "handles" },
-  { re: /\bprocesses?\b/i, predicate: "processes" },
-  { re: /\bserves?\b/i, predicate: "serves" },
-  { re: /\bpowers?\b/i, predicate: "powers" },
-  { re: /\bis\s+(?:a\s+)?(?:part|component|module|service|member)\s+of\b/i, predicate: "part_of" },
-  { re: /\bbelongs?\s+to\b/i, predicate: "part_of" },
-  { re: /\bcontains?\b/i, predicate: "contains" },
-  { re: /\bincludes?\b/i, predicate: "contains" },
   { re: /\bdeployed\s+(?:on|to|in)\b/i, predicate: "deployed_on" },
   { re: /\bhosted\s+(?:on|by|in)\b/i, predicate: "hosted_on" },
+  // Composition
+  { re: /\bis\s+(?:a\s+)?(?:part|component|module|service|member)\s+of\b/i, predicate: "part_of" },
+  { re: /\bbelongs?\s+to\b/i, predicate: "part_of" },
+  // Serving / powering
+  { re: /\bserves?\s+(?:as\s+)?(?:the\s+)?/i, predicate: "serves" },
+  { re: /\bpowers?\s+(?:the\s+)?/i, predicate: "powers" },
 ];
 
 export interface RelationExtractionResult {

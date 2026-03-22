@@ -1483,9 +1483,10 @@ export class LcmContextEngine implements ContextEngine {
         const { withWriteTransaction: wt } = await import("./relations/evidence-log.js");
         const gdb = this.graphDb;
 
-        // Get known entity names from the DB
+        // Get known entity names from the DB — filter to short names only
+        // (long names are full sentences stored by NER, not useful for relation matching)
         const entityRows = gdb.prepare(
-          "SELECT name FROM entities ORDER BY last_seen_at DESC LIMIT 200",
+          "SELECT name FROM entities WHERE length(name) <= 40 ORDER BY mention_count DESC, last_seen_at DESC LIMIT 200",
         ).all() as Array<{ name: string }>;
         const entityNames = entityRows.map((r) => r.name);
 
