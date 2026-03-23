@@ -146,6 +146,22 @@ export function addRunbookEvidence(db: GraphDb, input: AddRunbookEvidenceInput):
     payload: { runbookId: input.runbookId, attemptId: input.attemptId },
   });
 
+  // RSMA: also write to provenance_links
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      `procedure:${input.runbookId}`,
+      "supports",
+      input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
+      1.0,
+      input.evidenceRole ?? "success",
+      parentRow?.scope_id ?? 1,
+      JSON.stringify({ source_type: input.sourceType, source_id: input.sourceId, attempt_id: input.attemptId }),
+    );
+  } catch { /* non-fatal */ }
+
   return evidenceId;
 }
 
@@ -164,10 +180,34 @@ export function getRunbookWithEvidence(db: GraphDb, runbookId: number): RunbookW
   const runbook = db.prepare("SELECT * FROM runbooks WHERE id = ?").get(runbookId) as RunbookRow | undefined;
   if (!runbook) return null;
 
-  const evidence = db.prepare(`
-    SELECT id, attempt_id, source_type, source_id, evidence_role, recorded_at
-    FROM runbook_evidence WHERE runbook_id = ? ORDER BY recorded_at DESC
-  `).all(runbookId) as RunbookWithEvidence["evidence"];
+  // Read from provenance_links, fallback to legacy runbook_evidence
+  let evidence: RunbookWithEvidence["evidence"];
+  try {
+    const rows = db.prepare(`
+      SELECT id, object_id, detail, metadata, created_at
+      FROM provenance_links WHERE subject_id = ? AND predicate = 'supports'
+      ORDER BY created_at DESC
+    `).all(`procedure:${runbookId}`) as Array<Record<string, unknown>>;
+
+    if (rows.length > 0) {
+      evidence = rows.map((r) => {
+        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
+        const attemptId = meta.attempt_id ?? (String(r.object_id).startsWith("attempt:") ? Number(String(r.object_id).replace("attempt:", "")) : null);
+        return {
+          id: Number(r.id),
+          attempt_id: attemptId,
+          source_type: meta.source_type ?? "",
+          source_id: meta.source_id ?? "",
+          evidence_role: String(r.detail ?? "success"),
+          recorded_at: String(r.created_at),
+        };
+      });
+    } else {
+      evidence = db.prepare(`SELECT id, attempt_id, source_type, source_id, evidence_role, recorded_at FROM runbook_evidence WHERE runbook_id = ? ORDER BY recorded_at DESC`).all(runbookId) as RunbookWithEvidence["evidence"];
+    }
+  } catch {
+    evidence = db.prepare(`SELECT id, attempt_id, source_type, source_id, evidence_role, recorded_at FROM runbook_evidence WHERE runbook_id = ? ORDER BY recorded_at DESC`).all(runbookId) as RunbookWithEvidence["evidence"];
+  }
 
   return { ...runbook, evidence };
 }

@@ -118,6 +118,22 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
     payload: { claimId: input.claimId, role: input.evidenceRole },
   });
 
+  // RSMA: also write to provenance_links (unified relationship table)
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      `claim:${input.claimId}`,
+      input.evidenceRole === "contradict" ? "contradicts" : "supports",
+      `${input.sourceType}:${input.sourceId}`,
+      input.confidenceDelta ?? 1.0,
+      input.sourceDetail ?? null,
+      claim?.scope_id ?? 1,
+      JSON.stringify({ evidence_role: input.evidenceRole, snippet_hash: input.snippetHash, confidence_delta: input.confidenceDelta }),
+    );
+  } catch { /* non-fatal */ }
+
   return evidenceId;
 }
 
@@ -223,10 +239,43 @@ export function getClaimsWithEvidence(
   }
 
   return claims.map((claim) => {
-    const evidence = db.prepare(`
-      SELECT id, source_type, source_id, evidence_role, observed_at, confidence_delta
-      FROM claim_evidence WHERE claim_id = ? ORDER BY observed_at DESC
-    `).all(claim.id) as ClaimWithEvidence["evidence"];
+    // Read from provenance_links (RSMA unified table), fall back to claim_evidence
+    let evidence: ClaimWithEvidence["evidence"];
+    try {
+      const rows = db.prepare(`
+        SELECT id, predicate, object_id, confidence, detail, metadata, created_at
+        FROM provenance_links
+        WHERE subject_id = ? AND predicate IN ('supports', 'contradicts')
+        ORDER BY created_at DESC
+      `).all(`claim:${claim.id}`) as Array<Record<string, unknown>>;
+
+      if (rows.length > 0) {
+        evidence = rows.map((r) => {
+          const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
+          const objParts = String(r.object_id).split(":");
+          return {
+            id: Number(r.id),
+            source_type: objParts[0] ?? "",
+            source_id: objParts.slice(1).join(":"),
+            evidence_role: r.predicate === "contradicts" ? "contradict" : (meta.evidence_role ?? "support"),
+            observed_at: String(r.created_at),
+            confidence_delta: meta.confidence_delta ?? Number(r.confidence),
+          };
+        });
+      } else {
+        // Fallback to legacy table
+        evidence = db.prepare(`
+          SELECT id, source_type, source_id, evidence_role, observed_at, confidence_delta
+          FROM claim_evidence WHERE claim_id = ? ORDER BY observed_at DESC
+        `).all(claim.id) as ClaimWithEvidence["evidence"];
+      }
+    } catch {
+      // Fallback on any error
+      evidence = db.prepare(`
+        SELECT id, source_type, source_id, evidence_role, observed_at, confidence_delta
+        FROM claim_evidence WHERE claim_id = ? ORDER BY observed_at DESC
+      `).all(claim.id) as ClaimWithEvidence["evidence"];
+    }
     return { ...claim, evidence };
   });
 }

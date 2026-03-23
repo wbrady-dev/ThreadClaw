@@ -25,12 +25,14 @@ export function insertProvenanceLink(
   objectId: string,
   confidence: number = 1.0,
   detail?: string,
+  scopeId: number = 1,
+  metadata?: string,
 ): void {
   try {
     db.prepare(`
-      INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(subjectId, predicate, objectId, Math.min(1.0, Math.max(0.0, confidence)), detail ?? null);
+      INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(subjectId, predicate, objectId, Math.min(1.0, Math.max(0.0, confidence)), detail ?? null, scopeId, metadata ?? null);
   } catch {
     // Non-fatal: link insertion failure must not break primary writes
   }

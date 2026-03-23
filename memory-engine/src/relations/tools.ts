@@ -487,7 +487,7 @@ export function createCcDiagnosticsTool(input: {
         const rbooks = safe("SELECT COUNT(*) as cnt FROM runbooks WHERE status = 'active'");
         const arbooks = safe("SELECT COUNT(*) as cnt FROM anti_runbooks WHERE status = 'active'");
         const evEvents = safe("SELECT COUNT(*) as cnt FROM evidence_log");
-        const rels = safe("SELECT COUNT(*) as cnt FROM entity_relations");
+        const rels = safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'relates_to'");
         const n = (v: number) => v >= 0 ? String(v) : "n/a";
 
         sections.push(`[Evidence Graph]

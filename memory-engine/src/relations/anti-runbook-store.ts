@@ -113,6 +113,22 @@ export function addAntiRunbookEvidence(
     payload: { antiRunbookId },
   });
 
+  // RSMA: also write to provenance_links
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      `procedure:${antiRunbookId}`,
+      "supports",
+      input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
+      1.0,
+      input.evidenceRole ?? "failure",
+      parentRow?.scope_id ?? 1,
+      JSON.stringify({ source_type: input.sourceType, source_id: input.sourceId, attempt_id: input.attemptId }),
+    );
+  } catch { /* non-fatal */ }
+
   return Number(result.lastInsertRowid);
 }
 
@@ -130,6 +146,30 @@ export function getAntiRunbookEvidence(
   db: GraphDb,
   antiRunbookId: number,
 ): AntiRunbookEvidenceRow[] {
+  // Read from provenance_links, fallback to legacy
+  try {
+    const rows = db.prepare(`
+      SELECT id, object_id, detail, metadata, created_at
+      FROM provenance_links WHERE subject_id = ? AND predicate = 'supports'
+      ORDER BY created_at DESC
+    `).all(`procedure:${antiRunbookId}`) as Array<Record<string, unknown>>;
+
+    if (rows.length > 0) {
+      return rows.map((r) => {
+        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
+        return {
+          id: Number(r.id),
+          anti_runbook_id: antiRunbookId,
+          attempt_id: meta.attempt_id ?? null,
+          source_type: meta.source_type ?? "",
+          source_id: meta.source_id ?? "",
+          evidence_role: String(r.detail ?? "failure"),
+          recorded_at: String(r.created_at),
+        };
+      });
+    }
+  } catch { /* fall through */ }
+
   return db.prepare(
     "SELECT * FROM anti_runbook_evidence WHERE anti_runbook_id = ? ORDER BY recorded_at DESC",
   ).all(antiRunbookId) as AntiRunbookEvidenceRow[];

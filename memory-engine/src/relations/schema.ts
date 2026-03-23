@@ -552,6 +552,21 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     markMigrationApplied(db, 10);
   }
 
+  // Migration v11: RSMA — extend provenance_links with scope_id + metadata
+  if (!isMigrationApplied(db, 11)) {
+    // Add columns (safe: ALTER TABLE ADD COLUMN works on existing data with defaults)
+    try { db.exec(`ALTER TABLE provenance_links ADD COLUMN scope_id INTEGER DEFAULT 1`); } catch { /* already exists */ }
+    try { db.exec(`ALTER TABLE provenance_links ADD COLUMN metadata TEXT`); } catch { /* already exists */ }
+
+    // Composite indexes for filtered queries (predicate + subject/object)
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_prov_scope ON provenance_links(scope_id);
+      CREATE INDEX IF NOT EXISTS idx_prov_pred_subj ON provenance_links(predicate, subject_id);
+      CREATE INDEX IF NOT EXISTS idx_prov_pred_obj ON provenance_links(predicate, object_id);
+    `);
+    markMigrationApplied(db, 11);
+  }
+
   // File permissions: chmod 600 on Unix/macOS, skip on Windows
   if (dbPath && process.platform !== "win32") {
     try {
