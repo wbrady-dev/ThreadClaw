@@ -64,6 +64,15 @@ export type LcmConfig = {
   relationsDeepExtractionModel: string;
   /** Provider for deep extraction (falls back to summaryProvider if empty). */
   relationsDeepExtractionProvider: string;
+  // ── RSMA Extraction Mode ─────────────────────────────────────────────
+  /**
+   * Extraction mode: "smart" | "fast"
+   * - "smart": LLM-based semantic extraction. Understands natural language
+   *   without magic prefixes. Uses the same model as deep extraction. One LLM call.
+   * - "fast": Regex-only extraction. No LLM calls. <5ms. Use when no model configured.
+   * Default: "smart" if deep extraction is enabled, "fast" otherwise.
+   */
+  relationsExtractionMode: "smart" | "fast";
 };
 
 /** Safely coerce an unknown value to a finite number, or return undefined. */
@@ -276,5 +285,10 @@ export function resolveLcmConfig(
       e("RELATIONS_DEEP_EXTRACTION_PROVIDER")?.trim()
       ?? toStr(pc.relationsDeepExtractionProvider)
       ?? "",
+    // ── RSMA Extraction Mode ────────────────────────────────────────────
+    relationsExtractionMode:
+      (e("RELATIONS_EXTRACTION_MODE")?.trim()
+      ?? toStr(pc.relationsExtractionMode)
+      ?? "smart") as "smart" | "fast",
   };
 }

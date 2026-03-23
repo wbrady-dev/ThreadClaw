@@ -104,6 +104,8 @@ export async function runConfigure(): Promise<void> {
           console.log(kvLine("    Model", deepModel || t.dim("(uses summary model)")));
           if (deepProvider) console.log(kvLine("    Provider", deepProvider));
         }
+        const extractionMode = envVal("CLAWCORE_MEMORY_RELATIONS_EXTRACTION_MODE", "smart");
+        console.log(kvLine("  Extraction Mode", extractionMode === "smart" ? t.ok("Smart (LLM)") : t.dim("Fast (regex only)")));
         console.log(kvLine("  Context Tier", envVal("CLAWCORE_MEMORY_RELATIONS_CONTEXT_TIER", "standard")));
       }
 
@@ -1469,13 +1471,19 @@ async function changeEvidenceSettings(root: string): Promise<void> {
     { label: "Claim Extraction", key: "CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED", enabled: getVal("CLAWCORE_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED") === "true", description: "Extract facts from tool results (no LLM)", indent: 1, dependsOn: MASTER_KEY },
     { label: "Attempt Tracking", key: "CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED", enabled: getVal("CLAWCORE_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED") === "true", description: "Record tool outcomes + learn patterns", indent: 1, dependsOn: MASTER_KEY },
     { label: "Deep Extraction", key: "CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED", enabled: getVal("CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED") === "true", description: "LLM-powered (ENTER to configure model)", indent: 1, dependsOn: MASTER_KEY, configAction: "deep_model" },
+    { label: "Extraction Mode", key: "CLAWCORE_MEMORY_RELATIONS_EXTRACTION_MODE", enabled: getVal("CLAWCORE_MEMORY_RELATIONS_EXTRACTION_MODE") !== "fast", description: getVal("CLAWCORE_MEMORY_RELATIONS_EXTRACTION_MODE") === "fast" ? "Fast: regex only, no LLM, <5ms" : "Smart: LLM understands natural language", indent: 1, dependsOn: "CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED" },
   ];
 
   const toggledFeatures = await evidenceCheckboxMenu(features, envData, getVal, setVal);
   if (!toggledFeatures) return;
 
   for (const f of toggledFeatures) {
-    setVal(f.key, String(f.enabled));
+    if (f.key === "CLAWCORE_MEMORY_RELATIONS_EXTRACTION_MODE") {
+      // Extraction mode: enabled=true → "smart", enabled=false → "fast"
+      setVal(f.key, f.enabled ? "smart" : "fast");
+    } else {
+      setVal(f.key, String(f.enabled));
+    }
   }
   // Also set the top-level alias used by non-memory-engine code
   setVal("CLAWCORE_RELATIONS_ENABLED", String(toggledFeatures[0].enabled));

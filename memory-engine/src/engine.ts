@@ -1574,19 +1574,14 @@ export class LcmContextEngine implements ContextEngine {
       }
     }
 
-    // LLM deep extraction — claims + relations in one pass (user messages only)
-    // Runs async after regex extraction for higher accuracy on nuanced content
-    if (this.graphDb && this.config.relationsDeepExtractionEnabled && stored.role === "user" && stored.content.length > 20) {
-      // Fire-and-forget: don't block message ingest on LLM call
-      this.runDeepExtraction(this.graphDb, stored.content, String(msgRecord.messageId)).catch((err) => {
-        console.warn("[cc-mem] deep extraction failed:", err instanceof Error ? err.message : String(err));
-      });
-    }
-
-    // ── RSMA dual-write: Writer → TruthEngine → Projector ──────────────
-    // Uses LLM-based semantic extraction when available (understands natural language
-    // without magic prefixes), falls back to regex when LLM is unavailable.
-    // Populates provenance_links table. Legacy tables remain the primary store.
+    // ── RSMA extraction: semantic (LLM) or fast (regex) ────────────────
+    // Config: relationsExtractionMode = "smart" (LLM) | "fast" (regex)
+    // Smart mode: single LLM call replaces BOTH legacy deep extraction AND regex.
+    //   Understands natural language without magic prefixes.
+    // Fast mode: regex-only, no LLM calls, <5ms. Use when no model configured.
+    //
+    // This block replaces the legacy runDeepExtraction() call — no duplicate LLM work.
+    let rsmaUsedLlm = false;
     if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5) {
       try {
         const { reconcile } = await import("./ontology/truth.js");
@@ -1595,23 +1590,31 @@ export class LcmContextEngine implements ContextEngine {
         } = await import("./ontology/projector.js");
 
         const role = stored.role === "user" ? "user" as const : "assistant" as const;
+        const extractionMode = this.config.relationsExtractionMode ?? "smart";
+        const useLlm = extractionMode !== "fast" && this.config.relationsDeepExtractionEnabled;
 
-        // Try LLM-based semantic extraction first, fall back to regex
         let writerResult;
-        try {
-          const { semanticExtract } = await import("./ontology/semantic-extractor.js");
-          const { provider, model } = this.deps.resolveModel(
-            this.config.relationsDeepExtractionModel || undefined,
-            this.config.relationsDeepExtractionProvider || undefined,
-          );
-          writerResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
-            complete: this.deps.complete,
-            model,
-            provider,
-            maxInputChars: 4000,
-          });
-        } catch {
-          // LLM unavailable — fall back to regex extraction
+        if (useLlm) {
+          try {
+            const { semanticExtract } = await import("./ontology/semantic-extractor.js");
+            const { provider, model } = this.deps.resolveModel(
+              this.config.relationsDeepExtractionModel || undefined,
+              this.config.relationsDeepExtractionProvider || undefined,
+            );
+            writerResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
+              complete: this.deps.complete,
+              model,
+              provider,
+              maxInputChars: 4000,
+            });
+            rsmaUsedLlm = true;
+          } catch {
+            // LLM unavailable — fall back to regex
+            const { understandMessage } = await import("./ontology/writer.js");
+            writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
+          }
+        } else {
+          // Fast mode: regex only
           const { understandMessage } = await import("./ontology/writer.js");
           writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
         }
