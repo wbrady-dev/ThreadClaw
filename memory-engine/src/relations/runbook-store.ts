@@ -191,13 +191,15 @@ export function getRunbookWithEvidence(db: GraphDb, runbookId: number): RunbookW
 
     if (rows.length > 0) {
       evidence = rows.map((r) => {
-        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
-        const attemptId = meta.attempt_id ?? (String(r.object_id).startsWith("attempt:") ? Number(String(r.object_id).replace("attempt:", "")) : null);
+        let meta: Record<string, unknown> = {};
+        try { if (r.metadata) meta = JSON.parse(String(r.metadata)); } catch { /* malformed */ }
+        const rawAttemptId = meta.attempt_id ?? (String(r.object_id).startsWith("attempt:") ? Number(String(r.object_id).split(":")[1]) : null);
+        const attemptId = typeof rawAttemptId === "number" && Number.isFinite(rawAttemptId) ? rawAttemptId : null;
         return {
           id: Number(r.id),
           attempt_id: attemptId,
-          source_type: meta.source_type ?? "",
-          source_id: meta.source_id ?? "",
+          source_type: String(meta.source_type ?? ""),
+          source_id: String(meta.source_id ?? ""),
           evidence_role: String(r.detail ?? "success"),
           recorded_at: String(r.created_at),
         };

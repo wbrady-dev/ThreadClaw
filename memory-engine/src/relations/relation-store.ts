@@ -82,12 +82,71 @@ export function upsertRelation(
 /**
  * Get relations for an entity (as subject, object, or both).
  */
+/** Parse "entity:42" → 42, returning 0 on failure. */
+function parseEntityId(compositeId: unknown): number {
+  const parts = String(compositeId ?? "").split(":");
+  const n = Number(parts[1]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Safely parse JSON metadata, returning {} on failure. */
+function safeParseMeta(val: unknown): Record<string, unknown> {
+  if (!val || typeof val !== "string") return {};
+  try { return JSON.parse(val) as Record<string, unknown>; }
+  catch { return {}; }
+}
+
+/** Batch-resolve entity display names (1 query instead of N). */
+function batchResolveEntityNames(db: GraphDb, ids: number[]): Map<number, string> {
+  const names = new Map<number, string>();
+  if (ids.length === 0) return names;
+  const unique = [...new Set(ids)];
+  // SQLite max variables is 999; batch if needed
+  for (let i = 0; i < unique.length; i += 500) {
+    const batch = unique.slice(i, i + 500);
+    const placeholders = batch.map(() => "?").join(",");
+    const rows = db.prepare(
+      `SELECT id, display_name FROM entities WHERE id IN (${placeholders})`,
+    ).all(...batch) as Array<{ id: number; display_name: string }>;
+    for (const r of rows) names.set(r.id, r.display_name);
+  }
+  return names;
+}
+
+/** Convert provenance_links rows to RelationRow format with entity names. */
+function mapProvLinksToRelations(
+  db: GraphDb,
+  rows: Array<Record<string, unknown>>,
+): Array<RelationRow & { subject_name: string; object_name: string }> {
+  // Batch-resolve all entity names in ONE query
+  const allIds = rows.flatMap((r) => [parseEntityId(r.subject_id), parseEntityId(r.object_id)]);
+  const names = batchResolveEntityNames(db, allIds);
+
+  return rows.map((r) => {
+    const subjId = parseEntityId(r.subject_id);
+    const objId = parseEntityId(r.object_id);
+    const meta = safeParseMeta(r.metadata);
+    return {
+      id: Number(r.id),
+      scope_id: Number(r.scope_id ?? 1),
+      subject_entity_id: subjId,
+      predicate: String(r.detail ?? "relates_to"),
+      object_entity_id: objId,
+      confidence: Number(r.confidence),
+      source_type: String(meta.source_type ?? ""),
+      source_id: String(meta.source_id ?? ""),
+      created_at: String(r.created_at),
+      subject_name: names.get(subjId) ?? String(r.subject_id),
+      object_name: names.get(objId) ?? String(r.object_id),
+    } as RelationRow & { subject_name: string; object_name: string };
+  });
+}
+
 export function getRelationsForEntity(
   db: GraphDb,
   entityId: number,
   direction: "subject" | "object" | "both" = "both",
 ): Array<RelationRow & { subject_name: string; object_name: string }> {
-  // Query provenance_links for relates_to links, then resolve entity names
   const entityKey = `entity:${entityId}`;
   let whereClause: string;
   let args: unknown[];
@@ -106,33 +165,9 @@ export function getRelationsForEntity(
   try {
     const rows = db.prepare(`
       SELECT p.id, p.subject_id, p.object_id, p.confidence, p.detail, p.scope_id, p.metadata, p.created_at
-      FROM provenance_links p
-      WHERE ${whereClause}
-      ORDER BY p.confidence DESC
+      FROM provenance_links p WHERE ${whereClause} ORDER BY p.confidence DESC
     `).all(...args) as Array<Record<string, unknown>>;
-
-    if (rows.length > 0) {
-      return rows.map((r) => {
-        const subjId = Number(String(r.subject_id).replace("entity:", ""));
-        const objId = Number(String(r.object_id).replace("entity:", ""));
-        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
-        const subjName = (db.prepare("SELECT display_name FROM entities WHERE id = ?").get(subjId) as { display_name: string } | undefined)?.display_name ?? String(r.subject_id);
-        const objName = (db.prepare("SELECT display_name FROM entities WHERE id = ?").get(objId) as { display_name: string } | undefined)?.display_name ?? String(r.object_id);
-        return {
-          id: Number(r.id),
-          scope_id: Number(r.scope_id ?? 1),
-          subject_entity_id: subjId,
-          predicate: String(r.detail ?? "relates_to"), // original predicate in detail
-          object_entity_id: objId,
-          confidence: Number(r.confidence),
-          source_type: meta.source_type ?? "",
-          source_id: meta.source_id ?? "",
-          created_at: String(r.created_at),
-          subject_name: subjName,
-          object_name: objName,
-        } as RelationRow & { subject_name: string; object_name: string };
-      });
-    }
+    if (rows.length > 0) return mapProvLinksToRelations(db, rows);
   } catch { /* fall through to legacy */ }
 
   // Fallback to legacy entity_relations table
@@ -159,7 +194,7 @@ export function getRelationGraph(
     const where = ["p.predicate = 'relates_to'", "p.scope_id = ?"];
     const args: unknown[] = [scopeId];
     if (opts?.predicate) {
-      where.push("p.detail = ?"); // original predicate stored in detail
+      where.push("p.detail = ?");
       args.push(opts.predicate);
     }
     args.push(limit);
@@ -171,22 +206,7 @@ export function getRelationGraph(
       ORDER BY p.confidence DESC LIMIT ?
     `).all(...args) as Array<Record<string, unknown>>;
 
-    if (rows.length > 0) {
-      return rows.map((r) => {
-        const subjId = Number(String(r.subject_id).replace("entity:", ""));
-        const objId = Number(String(r.object_id).replace("entity:", ""));
-        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
-        const subjName = (db.prepare("SELECT display_name FROM entities WHERE id = ?").get(subjId) as { display_name: string } | undefined)?.display_name ?? String(r.subject_id);
-        const objName = (db.prepare("SELECT display_name FROM entities WHERE id = ?").get(objId) as { display_name: string } | undefined)?.display_name ?? String(r.object_id);
-        return {
-          id: Number(r.id), scope_id: Number(r.scope_id ?? 1),
-          subject_entity_id: subjId, predicate: String(r.detail ?? "relates_to"),
-          object_entity_id: objId, confidence: Number(r.confidence),
-          source_type: meta.source_type ?? "", source_id: meta.source_id ?? "",
-          created_at: String(r.created_at), subject_name: subjName, object_name: objName,
-        } as RelationRow & { subject_name: string; object_name: string };
-      });
-    }
+    if (rows.length > 0) return mapProvLinksToRelations(db, rows);
   } catch { /* fall through to legacy */ }
 
   // Fallback to legacy

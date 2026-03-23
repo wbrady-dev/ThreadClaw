@@ -127,7 +127,7 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
       `claim:${input.claimId}`,
       input.evidenceRole === "contradict" ? "contradicts" : "supports",
       `${input.sourceType}:${input.sourceId}`,
-      input.confidenceDelta ?? 1.0,
+      Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1)), // clamp to [0,1] range
       input.sourceDetail ?? null,
       claim?.scope_id ?? 1,
       JSON.stringify({ evidence_role: input.evidenceRole, snippet_hash: input.snippetHash, confidence_delta: input.confidenceDelta }),
@@ -251,7 +251,8 @@ export function getClaimsWithEvidence(
 
       if (rows.length > 0) {
         evidence = rows.map((r) => {
-          const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
+          let meta: Record<string, unknown> = {};
+          try { if (r.metadata) meta = JSON.parse(String(r.metadata)); } catch { /* malformed JSON */ }
           const objParts = String(r.object_id).split(":");
           return {
             id: Number(r.id),

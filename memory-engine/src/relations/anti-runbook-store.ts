@@ -156,13 +156,15 @@ export function getAntiRunbookEvidence(
 
     if (rows.length > 0) {
       return rows.map((r) => {
-        const meta = r.metadata ? JSON.parse(String(r.metadata)) : {};
+        let meta: Record<string, unknown> = {};
+        try { if (r.metadata) meta = JSON.parse(String(r.metadata)); } catch { /* malformed */ }
+        const rawAttemptId = meta.attempt_id;
         return {
           id: Number(r.id),
           anti_runbook_id: antiRunbookId,
-          attempt_id: meta.attempt_id ?? null,
-          source_type: meta.source_type ?? "",
-          source_id: meta.source_id ?? "",
+          attempt_id: typeof rawAttemptId === "number" && Number.isFinite(rawAttemptId) ? rawAttemptId : null,
+          source_type: String(meta.source_type ?? ""),
+          source_id: String(meta.source_id ?? ""),
           evidence_role: String(r.detail ?? "failure"),
           recorded_at: String(r.created_at),
         };
