@@ -50,11 +50,20 @@ export function registerResetRoutes(server: FastifyInstance) {
     }
 
     let memoryCleared = false;
+    let memoryStats: { conversations: number; messages: number; summaries: number; contextItems: number } | undefined;
     if (clearMemory) {
       try {
         const { DatabaseSync } = await import("node:sqlite");
         const memPath = resolve(config.dataDir, "memory.db");
         const memDb = new DatabaseSync(memPath);
+        // Count before deleting
+        const safeCount = (tbl: string) => { try { return (memDb.prepare(`SELECT COUNT(*) as c FROM ${tbl}`).get() as any)?.c ?? 0; } catch { return 0; } };
+        memoryStats = {
+          conversations: safeCount("conversations"),
+          messages: safeCount("messages"),
+          summaries: safeCount("summaries"),
+          contextItems: safeCount("context_items"),
+        };
         // Delete in FK-safe order: children first, then parents
         const memTables = ["context_items", "summary_parents", "summary_messages", "message_parts", "large_files", "summaries", "messages", "conversations"];
         for (const tbl of memTables) { try { memDb.exec(`DELETE FROM ${tbl}`); } catch {} }
@@ -63,7 +72,7 @@ export function registerResetRoutes(server: FastifyInstance) {
         try { memDb.exec("VACUUM"); } catch {}
         memDb.close();
         memoryCleared = true;
-        logger.warn("Conversation memory wiped");
+        logger.warn(memoryStats, "Conversation memory wiped");
       } catch (e: any) {
         logger.warn({ error: e?.message ?? String(e) }, "Memory reset failed");
       }
@@ -76,6 +85,7 @@ export function registerResetRoutes(server: FastifyInstance) {
       ...stats,
       graphCleared,
       memoryCleared,
+      memoryStats,
     };
   });
 }

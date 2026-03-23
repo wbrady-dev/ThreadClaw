@@ -287,6 +287,14 @@ async function runResetKnowledgeBase(): Promise<void> {
             const { DatabaseSync } = await import("node:sqlite");
             const memPath = resolve(appConfig.dataDir, "memory.db");
             const memDb = new DatabaseSync(memPath);
+            // Count before deleting
+            const safeCount = (tbl: string) => { try { return (memDb.prepare(`SELECT COUNT(*) as c FROM ${tbl}`).get() as any)?.c ?? 0; } catch { return 0; } };
+            data.memoryStats = {
+              conversations: safeCount("conversations"),
+              messages: safeCount("messages"),
+              summaries: safeCount("summaries"),
+              contextItems: safeCount("context_items"),
+            };
             const memTables = ["context_items", "summary_parents", "summary_messages", "message_parts", "large_files", "summaries", "messages", "conversations"];
             for (const tbl of memTables) { try { memDb.exec(`DELETE FROM ${tbl}`); } catch {} }
             try { memDb.exec("DELETE FROM messages_fts"); } catch {}
@@ -298,11 +306,22 @@ async function runResetKnowledgeBase(): Promise<void> {
         }
       }
 
-      sp.succeed(`Reset complete: ${data.documentsDeleted} documents, ${data.chunksDeleted} chunks, ${data.collectionsDeleted} collections removed`);
-      if (data.memoryCleared) console.log(t.err("  ALL conversation memory wiped."));
-      if (data.graphCleared) console.log(t.ok("  Evidence OS graph data cleared."));
-      else if (clearGraph) console.log(t.dim("  Evidence OS graph data not found or already empty."));
-      else console.log(t.dim("  Evidence OS graph data preserved."));
+      sp.succeed("Reset complete.");
+      console.log("");
+      console.log(t.ok(`  RAG Knowledge Base: ${data.documentsDeleted ?? 0} documents, ${data.chunksDeleted ?? 0} chunks, ${data.collectionsDeleted ?? 0} collections deleted`));
+      if (data.graphCleared) console.log(t.ok("  Evidence OS Graph: claims, decisions, loops, entities, relations — all cleared"));
+      else if (clearGraph) console.log(t.dim("  Evidence OS Graph: not found or already empty"));
+      else console.log(t.dim("  Evidence OS Graph: preserved"));
+      if (data.memoryCleared && data.memoryStats) {
+        const ms = data.memoryStats;
+        console.log(t.err(`  Conversation Memory: ${ms.conversations} conversations, ${ms.messages} messages, ${ms.summaries} summaries, ${ms.contextItems} context items — all wiped`));
+      } else if (data.memoryCleared) {
+        console.log(t.err("  Conversation Memory: all wiped"));
+      } else if (clearMemory) {
+        console.log(t.dim("  Conversation Memory: not found or already empty"));
+      } else {
+        console.log(t.dim("  Conversation Memory: preserved"));
+      }
     } catch (err) {
       sp.fail(`Reset failed: ${err instanceof Error ? err.message : String(err)}`);
     }
