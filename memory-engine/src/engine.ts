@@ -1584,19 +1584,37 @@ export class LcmContextEngine implements ContextEngine {
     }
 
     // ── RSMA dual-write: Writer → TruthEngine → Projector ──────────────
-    // Phase 2: Runs the unified ontology pipeline alongside legacy extraction.
+    // Uses LLM-based semantic extraction when available (understands natural language
+    // without magic prefixes), falls back to regex when LLM is unavailable.
     // Populates provenance_links table. Legacy tables remain the primary store.
-    // When RSMA becomes primary (Phase 5), this replaces the legacy extraction above.
     if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5) {
       try {
-        const { understandMessage } = await import("./ontology/writer.js");
         const { reconcile } = await import("./ontology/truth.js");
         const {
           projectProvenance, recordSupersession, recordConflict, recordEvidence,
         } = await import("./ontology/projector.js");
 
         const role = stored.role === "user" ? "user" as const : "assistant" as const;
-        const writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
+
+        // Try LLM-based semantic extraction first, fall back to regex
+        let writerResult;
+        try {
+          const { semanticExtract } = await import("./ontology/semantic-extractor.js");
+          const { provider, model } = this.deps.resolveModel(
+            this.config.relationsDeepExtractionModel || undefined,
+            this.config.relationsDeepExtractionProvider || undefined,
+          );
+          writerResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
+            complete: this.deps.complete,
+            model,
+            provider,
+            maxInputChars: 4000,
+          });
+        } catch {
+          // LLM unavailable — fall back to regex extraction
+          const { understandMessage } = await import("./ontology/writer.js");
+          writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
+        }
 
         if (writerResult.objects.length > 0) {
           const graphDb = this.graphDb;

@@ -71,6 +71,10 @@ export {
 // Migration
 export { migrateToProvenanceLinks, isMigrationNeeded } from "./migration.js";
 
+// Semantic extraction (LLM-powered)
+export type { CompleteFn, SemanticExtractorConfig } from "./semantic-extractor.js";
+export { semanticExtract } from "./semantic-extractor.js";
+
 // Signal detection
 export type { SignalDetectionResult, TemporalSignal } from "./correction.js";
 export {
