@@ -1586,11 +1586,14 @@ export class LcmContextEngine implements ContextEngine {
         const useLlm = extractionMode !== "fast" && this.config.relationsDeepExtractionEnabled;
 
         let writerResult;
-        if (useLlm) {
+        // Only use LLM if an extraction model is explicitly configured.
+        // Empty model config = regex only (don't fall back to agent's expensive model).
+        const hasExtractionModel = !!this.config.relationsDeepExtractionModel;
+        if (useLlm && hasExtractionModel) {
           try {
             const { semanticExtract } = await import("./ontology/semantic-extractor.js");
             const { provider, model } = this.deps.resolveModel(
-              this.config.relationsDeepExtractionModel || undefined,
+              this.config.relationsDeepExtractionModel,
               this.config.relationsDeepExtractionProvider || undefined,
             );
             writerResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
