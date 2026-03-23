@@ -130,10 +130,21 @@ export async function semanticExtract(
 
   try {
     const maxChars = config.maxInputChars ?? 4000;
+
+    // For assistant messages, add a stricter instruction to only extract verified facts
+    const systemPrompt = role === "assistant"
+      ? EXTRACTION_SYSTEM_PROMPT + `\n\nIMPORTANT: This text is from an AI assistant, NOT a user. Apply strict filtering:
+- ONLY extract verified facts that came from tool results or confirmed data lookups
+- Do NOT extract the assistant's opinions, guesses, promises, or narrative
+- Do NOT extract phrases like "I think", "my guess is", "I'll remind you", "let me check"
+- Do NOT extract the assistant describing what it will do or what it found unless it's a concrete verified fact
+- If in doubt, do NOT extract. Return an empty events array.`
+      : EXTRACTION_SYSTEM_PROMPT;
+
     const result = await config.complete({
       model: config.model,
       provider: config.provider,
-      system: EXTRACTION_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: text.slice(0, maxChars) }],
       temperature: 0.1,
       maxTokens: 1500,
