@@ -119,9 +119,18 @@ export function extractClaimsFromUserExplicit(
     let objectText: string;
 
     if (kvMatch) {
-      subject = kvMatch[1].trim();
-      predicate = "is";
-      objectText = kvMatch[2].trim();
+      const rawSubject = kvMatch[1].trim();
+      // For first-person statements ("I have brown hair"), use the object as subject
+      // to avoid all first-person claims colliding on canonical key "i::is"
+      if (/^(?:i|my|me|we|our)$/i.test(rawSubject)) {
+        subject = kvMatch[2].trim(); // "brown hair" becomes the subject
+        predicate = "user_" + rawSubject.toLowerCase().replace(/\s+/g, "_"); // "user_i", "user_my"
+        objectText = sentence; // full sentence as the value
+      } else {
+        subject = rawSubject;
+        predicate = "is";
+        objectText = kvMatch[2].trim();
+      }
     } else if (colonMatch) {
       subject = colonMatch[1].trim();
       predicate = "is";
@@ -321,12 +330,12 @@ export function extractDecisionsFromText(
     const useMatch = sentence.match(/(?:use|switch\s+to|adopt|go\s+with|migrate\s+to)\s+(.+)/i);
 
     if (forMatch) {
-      // Both the thing chosen AND the context are useful for topic
-      const chosen = forMatch[1].trim().toLowerCase();
-      const context = forMatch[2].trim().toLowerCase();
-      // Use the shorter, more specific term as topic
-      topic = chosen.length <= context.length ? chosen : context;
-      topic = topic.substring(0, 60);
+      // Context (what we're deciding ABOUT) is the topic, not what we chose.
+      // "use SQLite for the test harness" → topic = "test harness", not "sqlite"
+      // This ensures "use Postgres for the test harness" supersedes the SQLite decision.
+      const context = forMatch[2].trim().toLowerCase()
+        .replace(/^(?:the|a|an|our|my)\s+/, ""); // strip leading articles
+      topic = context.substring(0, 60);
     } else if (useMatch) {
       topic = useMatch[1].trim().toLowerCase().substring(0, 60);
     } else {
@@ -351,7 +360,7 @@ export function extractDecisionsFromText(
 // Strategy 6: Loop/task extraction from conversation text
 // ---------------------------------------------------------------------------
 
-const LOOP_RE = /(?:^|\n)\s*(?:task|todo|reminder|action\s*item|open\s*(?:task|item|question)|follow[\s-]?up|next\s+step|pending|blocker|action|question|need\s+to)\s*:\s*(.+)/gim;
+const LOOP_RE = /(?:^|\n)\s*(?:task|todo|remind(?:er|\s+me)|action\s*item|open\s*(?:task|item|question)|follow[\s-]?up|next\s+step|pending|blocker|action|question|need\s+to)\s*:\s*(.+)/gim;
 
 export interface LoopExtractionResult {
   text: string;
@@ -382,7 +391,7 @@ export function extractLoopsFromText(
     let loopType: "task" | "question" | "follow_up" | "dependency" = "task";
     if (fullMatch.includes("question")) loopType = "question";
     else if (fullMatch.includes("follow")) loopType = "follow_up";
-    else if (fullMatch.includes("reminder")) loopType = "follow_up";
+    else if (fullMatch.includes("remind")) loopType = "follow_up"; // matches "reminder" and "remind me"
     else if (fullMatch.includes("next step")) loopType = "follow_up";
     else if (fullMatch.includes("blocker")) loopType = "dependency";
 

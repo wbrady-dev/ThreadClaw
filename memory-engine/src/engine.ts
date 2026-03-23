@@ -1575,80 +1575,72 @@ export class LcmContextEngine implements ContextEngine {
     }
 
     // ── RSMA extraction: semantic (LLM) or fast (regex) ────────────────
-    // Config: relationsExtractionMode = "smart" (LLM) | "fast" (regex)
-    // Smart mode: single LLM call replaces BOTH legacy deep extraction AND regex.
-    //   Understands natural language without magic prefixes.
-    // Fast mode: regex-only, no LLM calls, <5ms. Use when no model configured.
-    //
-    // This block replaces the legacy runDeepExtraction() call — no duplicate LLM work.
-    let rsmaUsedLlm = false;
+    // Fast mode: regex-only, <5ms, runs synchronously (non-blocking).
+    // Smart mode: LLM call, 2-5s, runs fire-and-forget (non-blocking).
+    //   Both populate provenance_links. Legacy tables remain primary store.
     if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5) {
-      try {
+      const graphDb = this.graphDb;
+      const role = stored.role === "user" ? "user" as const : "assistant" as const;
+      const extractionMode = this.config.relationsExtractionMode ?? "smart";
+      const useLlm = extractionMode !== "fast" && this.config.relationsDeepExtractionEnabled;
+
+      /** Process RSMA pipeline results (shared by both sync and async paths). */
+      const processRsmaResults = async (writerResult: Awaited<ReturnType<typeof import("./ontology/writer.js").understandMessage>>) => {
+        if (writerResult.objects.length === 0) return;
         const { reconcile } = await import("./ontology/truth.js");
-        const {
-          projectProvenance, recordSupersession, recordConflict, recordEvidence,
-        } = await import("./ontology/projector.js");
+        const { projectProvenance, recordSupersession, recordConflict, recordEvidence } = await import("./ontology/projector.js");
 
-        const role = stored.role === "user" ? "user" as const : "assistant" as const;
-        const extractionMode = this.config.relationsExtractionMode ?? "smart";
-        const useLlm = extractionMode !== "fast" && this.config.relationsDeepExtractionEnabled;
+        const reconciled = reconcile(graphDb, writerResult.objects, {
+          isCorrection: writerResult.signals.isCorrection,
+          correctionSignal: writerResult.signals.correctionSignal ?? undefined,
+        });
 
-        let writerResult;
-        if (useLlm) {
+        for (const action of reconciled.actions) {
+          if (action.type === "insert") {
+            projectProvenance(graphDb, action.object);
+          } else if (action.type === "supersede") {
+            projectProvenance(graphDb, action.newObject);
+            recordSupersession(graphDb, action.newObject.id, action.oldObjectId, action.reason);
+          } else if (action.type === "conflict") {
+            projectProvenance(graphDb, action.conflictObject);
+            recordConflict(graphDb, action.conflictObject.id, action.objectIdA, action.objectIdB, action.reason);
+          } else if (action.type === "evidence") {
+            projectProvenance(graphDb, action.newObject);
+            recordEvidence(graphDb, action.newObject.id, action.existingObjectId, action.predicate, 1.0, action.reason);
+          }
+        }
+      };
+
+      // Fast path: regex extraction, synchronous (<5ms)
+      try {
+        const { understandMessage } = await import("./ontology/writer.js");
+        const regexResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
+        await processRsmaResults(regexResult);
+      } catch (err) {
+        console.warn("[rsma] fast extraction failed:", err instanceof Error ? err.message : String(err));
+      }
+
+      // Smart path: LLM semantic extraction, fire-and-forget (non-blocking)
+      if (useLlm) {
+        (async () => {
           try {
             const { semanticExtract } = await import("./ontology/semantic-extractor.js");
             const { provider, model } = this.deps.resolveModel(
               this.config.relationsDeepExtractionModel || undefined,
               this.config.relationsDeepExtractionProvider || undefined,
             );
-            writerResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
+            const llmResult = await semanticExtract(stored.content, String(msgRecord.messageId), role, {
               complete: this.deps.complete,
               model,
               provider,
               maxInputChars: 4000,
             });
-            rsmaUsedLlm = true;
-          } catch {
-            // LLM unavailable — fall back to regex
-            const { understandMessage } = await import("./ontology/writer.js");
-            writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
+            await processRsmaResults(llmResult);
+          } catch (err) {
+            // Non-fatal: LLM extraction is best-effort
+            console.debug("[rsma] semantic extraction failed:", err instanceof Error ? err.message : String(err));
           }
-        } else {
-          // Fast mode: regex only
-          const { understandMessage } = await import("./ontology/writer.js");
-          writerResult = await understandMessage(stored.content, String(msgRecord.messageId), role);
-        }
-
-        if (writerResult.objects.length > 0) {
-          const graphDb = this.graphDb;
-          const reconciled = reconcile(graphDb, writerResult.objects, {
-            isCorrection: writerResult.signals.isCorrection,
-            correctionSignal: writerResult.signals.correctionSignal ?? undefined,
-          });
-
-          for (const action of reconciled.actions) {
-            if (action.type === "insert") {
-              projectProvenance(graphDb, action.object);
-            }
-            if (action.type === "supersede") {
-              projectProvenance(graphDb, action.newObject);
-              recordSupersession(graphDb, action.newObject.id, action.oldObjectId, action.reason);
-            }
-            if (action.type === "conflict") {
-              projectProvenance(graphDb, action.conflictObject);
-              recordConflict(graphDb, action.conflictObject.id, action.objectIdA, action.objectIdB, action.reason);
-            }
-            if (action.type === "evidence") {
-              // Evidence object must also be projected (not just the link)
-              projectProvenance(graphDb, action.newObject);
-              // Direction: newObject (evidence) --[predicate]--> existingObject (claim)
-              recordEvidence(graphDb, action.newObject.id, action.existingObjectId, action.predicate, 1.0, action.reason);
-            }
-          }
-        }
-      } catch (err) {
-        // Non-fatal: RSMA pipeline failure must not break legacy message ingest
-        console.warn("[rsma] dual-write pipeline failed:", err instanceof Error ? err.message : String(err));
+        })();
       }
     }
 
