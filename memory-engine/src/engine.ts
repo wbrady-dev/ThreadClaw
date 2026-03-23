@@ -1517,7 +1517,8 @@ export class LcmContextEngine implements ContextEngine {
     // LLM (async): deep claims + relations — user messages only, non-blocking
 
     const claimExtractionEnabled = this.config.relationsClaimExtractionEnabled || this.config.relationsUserClaimExtractionEnabled;
-    if (this.graphDb && claimExtractionEnabled && (stored.role === "user" || stored.role === "assistant")) {
+    // Only extract claims/decisions/loops from user messages (not assistant narrative)
+    if (this.graphDb && claimExtractionEnabled && stored.role === "user") {
       try {
         const { extractClaimsFast, extractClaimsFromUserExplicit, extractDecisionsFromText, extractLoopsFromText } = await import("./relations/claim-extract.js");
         const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
