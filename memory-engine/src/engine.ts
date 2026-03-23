@@ -1733,8 +1733,22 @@ export class LcmContextEngine implements ContextEngine {
                     // when the new id isn't numeric — the provenance_links table
                     // has the full supersession record regardless.
                     const { supersedeClaim } = await import("./relations/claim-store.js");
-                    const newRawMatch = action.newObject.id.match(/:(\d+)$/);
-                    const newRawId = newRawMatch ? parseInt(newRawMatch[1], 10) : 0;
+                    // The new object's id may be a UUID (e.g. "claim:a1b2c3d4-...")
+                    // so regex for trailing digits won't work. Query the actual
+                    // integer ID from the claims table using canonical_key instead.
+                    const newCanonicalKey = action.newObject.canonical_key;
+                    let newRawId = 0;
+                    if (newCanonicalKey) {
+                      const row = graphDb.prepare(
+                        "SELECT id FROM claims WHERE canonical_key = ? AND scope_id = 1 ORDER BY id DESC LIMIT 1",
+                      ).get(newCanonicalKey) as { id: number } | undefined;
+                      if (row) newRawId = row.id;
+                    }
+                    if (newRawId === 0) {
+                      // Fallback: try numeric suffix for legacy integer IDs
+                      const newRawMatch = action.newObject.id.match(/:(\d+)$/);
+                      if (newRawMatch) newRawId = parseInt(newRawMatch[1], 10);
+                    }
                     supersedeClaim(graphDb, oldRawId, newRawId);
                   } else if (oldKind === "decision" && !isNaN(oldRawId)) {
                     graphDb.prepare(

@@ -4,6 +4,7 @@ import { stat, readdir } from "fs/promises";
 import { extname } from "path";
 import { ingestFile, type IngestResult } from "../../ingest/pipeline.js";
 import { getSupportedExtensions } from "../../ingest/parsers/index.js";
+import { validateIngestPath } from "../../api/ingest.routes.js";
 
 export const ingestCommand = new Command("ingest")
   .description("Ingest a file or folder into the knowledge base")
@@ -20,6 +21,14 @@ export const ingestCommand = new Command("ingest")
       try {
         const tags = opts.tags?.split(",").map((t) => t.trim()) ?? [];
         const absPath = resolve(filePath);
+
+        // Validate path safety (same check the API route uses)
+        const pathErr = validateIngestPath(absPath);
+        if (pathErr) {
+          console.error(`Error: ${pathErr}`);
+          process.exit(1);
+        }
+
         const stats = await stat(absPath);
 
         if (stats.isDirectory()) {
@@ -74,6 +83,13 @@ async function ingestFolder(
     const file = files[i];
     const name = file.replace(dirPath, "").replace(/^[/\\]/, "");
     process.stdout.write(`  [${i + 1}/${files.length}] ${name} ... `);
+
+    const filePathErr = validateIngestPath(file);
+    if (filePathErr) {
+      console.log(`BLOCKED: ${filePathErr}`);
+      errors++;
+      continue;
+    }
 
     try {
       const result = await ingestFile(file, { collection, tags, force });

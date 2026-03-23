@@ -618,14 +618,15 @@ export function installLinuxServices(root: string): { success: boolean; error?: 
   const userUnitDir = resolve(homedir(), ".config", "systemd", "user");
   mkdirSync(userUnitDir, { recursive: true });
 
+  const modelsScript = findModelsScript(root);
   const modelsUnit = `[Unit]
 Description=ClawCore Models (Embed + Rerank)
 After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory=${root}
-ExecStart="${pythonCmd}" "${findModelsScript(root)}"
+WorkingDirectory=${dirname(modelsScript)}
+ExecStart="${pythonCmd}" "${modelsScript}"
 Restart=on-failure
 RestartSec=5
 StandardOutput=append:${resolve(logsDir, "models.log")}
@@ -695,6 +696,7 @@ export function installMacServices(root: string): { success: boolean; error?: st
   mkdirSync(logsDir, { recursive: true });
   mkdirSync(plistDir, { recursive: true });
 
+  const macModelsScript = findModelsScript(root);
   const modelsPlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -703,9 +705,9 @@ export function installMacServices(root: string): { success: boolean; error?: st
   <key>ProgramArguments</key>
   <array>
     <string>${escapeXml(pythonCmd)}</string>
-    <string>${escapeXml(findModelsScript(root))}</string>
+    <string>${escapeXml(macModelsScript)}</string>
   </array>
-  <key>WorkingDirectory</key><string>${escapeXml(root)}</string>
+  <key>WorkingDirectory</key><string>${escapeXml(dirname(macModelsScript))}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>${escapeXml(resolve(logsDir, "models.log"))}</string>

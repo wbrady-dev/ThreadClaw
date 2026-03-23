@@ -20,6 +20,9 @@ import { createServer } from "http";
 import { URL } from "url";
 import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
+import { config } from "../../config.js";
+import { getDb } from "../../storage/index.js";
+import { deleteDocument } from "../../storage/collections.js";
 import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";
 
 // ── Constants ──
@@ -171,6 +174,7 @@ export class GDriveAdapter implements SourceAdapter {
     if (!this.cfg || !this.drive) return { added: [], modified: [], removed: [] };
 
     const changes: ChangeSet = { added: [], modified: [], removed: [] };
+    const allCurrentIds = new Set<string>();
 
     for (let ci = 0; ci < this.cfg.collections.length; ci++) {
       const collCfg = this.cfg.collections[ci];
@@ -188,8 +192,6 @@ export class GDriveAdapter implements SourceAdapter {
         continue;
       }
 
-      const currentIds = new Set<string>();
-
       for (const file of files) {
         if (!file.id || !file.name) continue;
 
@@ -205,7 +207,7 @@ export class GDriveAdapter implements SourceAdapter {
         const fileSize = parseInt(file.size ?? "0", 10);
         if (fileSize > (this.cfg.maxFileSize ?? 52_428_800)) continue;
 
-        currentIds.add(file.id);
+        allCurrentIds.add(file.id);
         const existing = this.manifest.get(file.id);
         const modifiedTime = file.modifiedTime ?? "";
 
@@ -227,12 +229,12 @@ export class GDriveAdapter implements SourceAdapter {
           });
         }
       }
+    }
 
-      // Detect removals: manifest entries no longer present in the remote folder
-      for (const [fileId] of this.manifest) {
-        if (!currentIds.has(fileId)) {
-          changes.removed.push(fileId);
-        }
+    // Detect removals AFTER iterating all folders to avoid cross-collection false positives
+    for (const [fileId] of this.manifest) {
+      if (!allCurrentIds.has(fileId)) {
+        changes.removed.push(fileId);
       }
     }
 
@@ -289,12 +291,25 @@ export class GDriveAdapter implements SourceAdapter {
       "Drive sync: changes detected",
     );
 
-    // Process removals — delete staging files and remove from manifest
+    // Process removals — delete staging files, DB docs, and remove from manifest
     for (const fileId of changes.removed) {
       const entry = this.manifest.get(fileId);
       if (entry) {
         const stagingPath = join(STAGING_DIR, `${fileId}${extname(entry.name) || ".bin"}`);
         try { if (existsSync(stagingPath)) unlinkSync(stagingPath); } catch {}
+
+        // Clean up DB documents/chunks/vectors to prevent orphans
+        try {
+          const db = getDb(resolve(config.dataDir, "clawcore.db"));
+          const doc = db.prepare("SELECT id FROM documents WHERE source_path = ?").get(stagingPath) as { id: string } | undefined;
+          if (doc) {
+            deleteDocument(db, doc.id);
+            logger.info({ source: "gdrive", fileId, docId: doc.id }, "Deleted orphaned document from DB");
+          }
+        } catch (dbErr) {
+          logger.error({ source: "gdrive", fileId, error: String(dbErr) }, "Failed to clean up DB on removal");
+        }
+
         this.manifest.delete(fileId);
       }
       logger.info({ source: "gdrive", fileId }, "Drive file removed");

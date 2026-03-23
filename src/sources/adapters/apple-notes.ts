@@ -16,6 +16,9 @@ import { resolve, join } from "path";
 import { homedir } from "os";
 import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
+import { config } from "../../config.js";
+import { getDb } from "../../storage/index.js";
+import { deleteDocument } from "../../storage/collections.js";
 import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";
 
 const STAGING_DIR = resolve(homedir(), ".clawcore", "staging", "apple-notes");
@@ -127,6 +130,7 @@ export class AppleNotesAdapter implements SourceAdapter {
     if (!this.cfg) return { added: [], modified: [], removed: [] };
 
     const changes: ChangeSet = { added: [], modified: [], removed: [] };
+    const allCurrentIds = new Set<string>();
 
     for (const collCfg of this.cfg.collections) {
       const folderName = collCfg.path;
@@ -140,10 +144,8 @@ export class AppleNotesAdapter implements SourceAdapter {
         continue;
       }
 
-      const currentIds = new Set<string>();
-
       for (const note of notes) {
-        currentIds.add(note.id);
+        allCurrentIds.add(note.id);
         const existing = this.manifest.get(note.id);
         if (!existing) {
           changes.added.push({
@@ -163,12 +165,12 @@ export class AppleNotesAdapter implements SourceAdapter {
           });
         }
       }
+    }
 
-      // Detect removals: manifest entries no longer present in the folder
-      for (const [noteId] of this.manifest) {
-        if (!currentIds.has(noteId)) {
-          changes.removed.push(noteId);
-        }
+    // Detect removals AFTER iterating all folders to avoid cross-collection false positives
+    for (const [noteId] of this.manifest) {
+      if (!allCurrentIds.has(noteId)) {
+        changes.removed.push(noteId);
       }
     }
 
@@ -224,10 +226,23 @@ export class AppleNotesAdapter implements SourceAdapter {
       "Apple Notes sync: changes detected",
     );
 
-    // Process removals — delete staging files and remove from manifest
+    // Process removals — delete staging files, DB docs, and remove from manifest
     for (const noteId of changes.removed) {
       const stagingPath = join(STAGING_DIR, `${sanitizeFilename(noteId)}.html`);
       try { if (existsSync(stagingPath)) unlinkSync(stagingPath); } catch {}
+
+      // Clean up DB documents/chunks/vectors to prevent orphans
+      try {
+        const db = getDb(resolve(config.dataDir, "clawcore.db"));
+        const doc = db.prepare("SELECT id FROM documents WHERE source_path = ?").get(stagingPath) as { id: string } | undefined;
+        if (doc) {
+          deleteDocument(db, doc.id);
+          logger.info({ source: "apple-notes", noteId, docId: doc.id }, "Deleted orphaned document from DB");
+        }
+      } catch (dbErr) {
+        logger.error({ source: "apple-notes", noteId, error: String(dbErr) }, "Failed to clean up DB on removal");
+      }
+
       this.manifest.delete(noteId);
       logger.info({ source: "apple-notes", noteId }, "Apple Note removed");
     }
