@@ -11,7 +11,7 @@ import { extractClaimsFast, extractDecisionsFromText, extractLoopsFromText } fro
 import { storeClaimExtractionResults } from "./relations/claim-store.js";
 import { upsertDecision } from "./relations/decision-store.js";
 import { openLoop } from "./relations/loop-store.js";
-import { withWriteTransaction } from "./relations/evidence-log.js";
+import { withWriteTransaction, isIdempotencyConflict } from "./relations/evidence-log.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -1070,8 +1070,12 @@ export class CompactionEngine {
                 actor: "system",
               });
             }
-          } catch {
-            // Expected: idempotency collision when re-extracting already-processed messages
+          } catch (err) {
+            // Idempotency collisions are expected when re-extracting already-processed messages.
+            // Log unexpected errors so they're visible in debug mode.
+            if (!isIdempotencyConflict(err)) {
+              console.debug("[cc-mem] compaction entity extraction (per-message):", err instanceof Error ? err.message : String(err));
+            }
           }
         }
       } catch (err) {
