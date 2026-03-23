@@ -70,10 +70,10 @@ cc_diagnostics { "verbose": true }
 | `cc_attempts { "tool_name": "..." }` | Tool outcome history with success rates |
 | `cc_procedures { "type": "failure" }` | Learned success and failure patterns (type: "success", "failure", or "all") |
 | `cc_branch { "action": "create" }` | Branch management: create, list, discard, or promote speculative branches |
-| `cc_grep { "query": "..." }` | Exact text search in conversation history |
-| `cc_describe { "summaryId": "..." }` | Inspect a specific summary (cheap, no sub-agent) |
-| `cc_recall { "query": "...", "prompt": "..." }` | Deep semantic recall with DAG expansion (slow, ~2 min) |
-| `cc_expand { "summaryId": "..." }` | Expand a compacted summary to recover detail |
+| `cc_grep { "pattern": "..." }` | Exact text/regex search in conversation history |
+| `cc_describe { "id": "sum_xxx" }` | Inspect a specific summary or file (cheap, no sub-agent) |
+| `cc_recall { "query": "...", "prompt": "..." }` | Deep semantic recall with DAG expansion (slow, ~2 min, spawns sub-agent). Cannot be called from within delegated sessions. |
+| `cc_expand { "summaryIds": ["sum_xxx"] }` | Expand one or more compacted summaries to recover detail |
 
 ## Decision Tree
 
@@ -91,6 +91,7 @@ User asks something?
   |     +-- Need open tasks/blockers? --> cc_loops
   |     +-- Need to inspect a summary? --> cc_describe
   |     +-- Need to recover compacted detail? --> cc_expand
+  |     +-- Need deep multi-step recall with synthesis? --> cc_recall (slow, ~2 min)
   |
   +-- Need tool history/patterns? --> cc_attempts / cc_procedures
   |
@@ -112,7 +113,7 @@ User asks something?
 | cc_grep | ~50-200 tokens | Exact text search |
 | cc_describe | ~50 tokens | Cheap summary inspection |
 | cc_expand | ~200 tokens | Summary expansion |
-| cc_recall | ~200-500 tokens | Deep recall — slow (~2 min), use sparingly |
+| cc_recall | ~500-2000+ tokens | Deep recall — spawns sub-agent (~2 min), use sparingly |
 
 ## How Awareness Works
 
