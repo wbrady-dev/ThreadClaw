@@ -1772,11 +1772,12 @@ export class LcmContextEngine implements ContextEngine {
 
                 // Create entity relations from relationship events
                 // "Cassidy is my wife" → relation: Cassidy --married_to--> user
-                if (obj.kind === "claim" && s.subject && s.value && s.predicate
+                const objValue = s.objectText ?? s.value;
+                if (obj.kind === "claim" && s.subject && objValue && s.predicate
                     && !["is", "states", "has", "user_i", "user_my"].includes(String(s.predicate))) {
                   try {
                     const subjEntity = upsertEntity(graphDb, { name: String(s.subject) });
-                    const objEntity = upsertEntity(graphDb, { name: String(s.value) });
+                    const objEntity = upsertEntity(graphDb, { name: String(objValue) });
                     if (subjEntity.entityId && objEntity.entityId) {
                       upsertRelation(graphDb, {
                         scopeId: 1,
@@ -1787,8 +1788,11 @@ export class LcmContextEngine implements ContextEngine {
                         sourceType: "message",
                         sourceId: obj.provenance.source_id,
                       });
+                      console.debug(`[rsma] relation: ${s.subject} --${s.predicate}--> ${objValue}`);
                     }
-                  } catch { /* non-fatal */ }
+                  } catch (relErr) {
+                    console.debug("[rsma] relation write failed:", relErr instanceof Error ? relErr.message : String(relErr));
+                  }
                 }
 
                 if (obj.kind === "entity") {
