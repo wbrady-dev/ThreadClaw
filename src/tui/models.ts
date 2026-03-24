@@ -412,9 +412,7 @@ const execAsync = promisify(ef);
  * subsequent sync detectGpu() calls return instantly.
  */
 export async function detectGpuAsyncImpl(): Promise<GpuInfo> {
-  // Return cache if already detected
-  if (_cachedGpuResult) return _cachedGpuResult;
-
+  // Always re-query to get live VRAM usage (nvidia-smi is fast, ~50ms)
   const result = await _detectGpuAsyncCore();
   _cachedGpuResult = result;
   return result;
