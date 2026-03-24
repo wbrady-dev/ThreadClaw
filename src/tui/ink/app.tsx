@@ -713,11 +713,16 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const dbSize = ((stats?.dbSizeMB ?? 0) as number).toFixed(1);
 
   const anyRunning = modelsUp || threadclawUp;
+  const sepLine = t.dim("  " + "\u2500".repeat(Math.min((process.stdout.columns || 80) - 4, 50)));
+
+  // ── Menu items grouped with separators ──
   const items: MenuItem[] = [
-    { label: "Status & Health", value: "status" },
+    { label: "\u2500\u2500 Actions \u2500\u2500", value: "__sep_actions" },
+    { label: "Search", value: "search" },
     { label: "Sources", value: "sources" },
     { label: "Documents", value: "documents", description: docCount > 0 ? `${docCount} documents` : undefined },
-    { label: "Search", value: "search" },
+    { label: "\u2500\u2500 System \u2500\u2500", value: "__sep_system" },
+    { label: "Status & Health", value: "status" },
     { label: "Evidence OS", value: "evidence-os", description: relationsEnabled && stats?.graphStats ? `${stats.graphStats.entities} entities` : undefined },
     { label: "Configure", value: "configure" },
     { label: "Services", value: "services" },
@@ -728,36 +733,47 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     items.push({ label: "Restart Services", value: "restart" });
     items.push({ label: "Stop Services", value: "stop" });
   }
+  items.push({ label: "\u2500\u2500 Danger Zone \u2500\u2500", value: "__sep_danger" });
   items.push({ label: "Reset Knowledge Base", value: "reset-kb", color: t.err });
   items.push({ label: "Uninstall", value: "uninstall", color: t.err });
   items.push({ label: "Exit", value: "exit", color: t.dim });
 
+  // Banner subtitle: show data summary instead of joke tagline
+  const bannerSub = `Local RAG \u00b7 ${docCount} docs \u00b7 ${chunkCount} chunks`;
+
   return (
     <Box flexDirection="column">
-      <Banner />
-      <Text>{"  " + (modelsUp ? t.ok("●") : t.err("○")) + " Models " + t.dim("|") + " " + (threadclawUp ? t.ok("●") : t.err("○")) + " ThreadClaw" + (autoStart ? t.dim("  (auto-start on)") : "")}</Text>
+      <Banner subtitle={bannerSub} />
+      <Text>{"  " + (modelsUp ? t.ok("\u25cf") : t.err("\u25cb")) + " Models " + t.dim("|") + " " + (threadclawUp ? t.ok("\u25cf") : t.err("\u25cb")) + " ThreadClaw" + (autoStart ? t.dim("  (auto-start on)") : "")}</Text>
 
       {/* ── Models ── */}
       <Text>{t.title("  Models")}</Text>
+      <Text>{t.dim("  Local AI models powering search and extraction")}</Text>
       <Text>{"  " + t.dim("Embed: ") + t.value(embedName)}</Text>
       <Text>{"  " + t.dim("Rerank: ") + t.value(rerankName)}</Text>
       <Text>{"  " + t.dim("Deep Extract: ") + deepExtractLabel}</Text>
       <Text>{"  " + t.dim("Query Expansion: ") + expansionLabel}</Text>
       <Text>{"  " + t.dim("GPU: ") + gpuLine}</Text>
 
+      <Text>{sepLine}</Text>
+
       {/* ── Document Intelligence ── */}
       <Text>{t.title("  Document Intelligence")}</Text>
+      <Text>{t.dim("  Parsing and processing capabilities")}</Text>
       {(process.stdout.columns || 120) < 100 ? (
         <>
-          <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○"))}</Text>
-          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+          <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
+          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
         </>
       ) : (
-        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
       )}
+
+      <Text>{sepLine}</Text>
 
       {/* ── Knowledge Base ── */}
       <Text>{t.title("  Knowledge Base")}</Text>
+      <Text>{t.dim("  Your indexed documents and sources")}</Text>
       <Text>{"  " + t.dim("Sources: ") + (sourceIcons.length > 0 ? sourceIcons.join(t.dim("  |  ")) : t.dim("none configured"))}</Text>
       <Text>{"  " + t.dim("Watch Paths: ") + (watchCount > 0 ? t.ok(`${watchCount} paths`) : t.dim("none"))}</Text>
       {stats ? (
@@ -769,38 +785,40 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
         <Text>{"  " + t.dim(threadclawUp ? "Loading..." : "Start services to see stats")}</Text>
       )}
 
+      <Text>{sepLine}</Text>
+
       {/* ── Evidence OS ── */}
       <Text>{t.title("  Evidence OS")}</Text>
-      <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
+      <Text>{t.dim("  Knowledge graph and entity tracking")}</Text>
+      <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
       {relationsEnabled && (() => {
         const gs = stats?.graphStats;
         const allZero = !gs || ((gs.entities ?? 0) === 0 && (gs.relations ?? 0) === 0 && (gs.mentions ?? 0) === 0 && (gs.claims ?? 0) === 0 && (gs.evidenceEvents ?? 0) === 0 && (gs.decisions ?? 0) === 0 && (gs.attempts ?? 0) === 0 && (gs.loops ?? 0) === 0);
         if (allZero) {
-          return <Text>{"  " + t.dim("No evidence data yet — ingest documents to populate")}</Text>;
+          return <Text>{"  " + t.dim("No evidence data yet \u2014 ingest documents to populate")}</Text>;
         }
         return (
           <>
-            <Text>{"  " + t.dim("Entities:  ") + t.value(String(gs.entities ?? 0).padEnd(12)) + t.dim("Relations: ") + t.value(String(gs.relations ?? 0))}</Text>
-            <Text>{"  " + t.dim("Mentions:  ") + t.value(String(gs.mentions ?? 0).padEnd(12)) + t.dim("Claims:    ") + t.value(String(gs.claims ?? 0))}</Text>
-            <Text>{"  " + t.dim("Evidence:  ") + t.value(String(gs.evidenceEvents ?? 0).padEnd(12)) + t.dim("Decisions: ") + t.value(String(gs.decisions ?? 0))}</Text>
-            <Text>{"  " + t.dim("Attempts:  ") + t.value(String(gs.attempts ?? 0).padEnd(12)) + t.dim("Loops:     ") + t.value(String(gs.loops ?? 0))}</Text>
+            <Text>{"  " + t.dim("Graph: ") + t.value(String(gs.entities ?? 0)) + t.dim(" entities \u00b7 ") + t.value(String(gs.relations ?? 0)) + t.dim(" relations \u00b7 ") + t.value(String(gs.claims ?? 0)) + t.dim(" claims")}</Text>
+            <Text>{"  " + t.dim("Activity: ") + t.value(String(gs.evidenceEvents ?? 0)) + t.dim(" evidence \u00b7 ") + t.value(String(gs.decisions ?? 0)) + t.dim(" decisions \u00b7 ") + t.value(String(gs.loops ?? 0)) + t.dim(" loops \u00b7 ") + t.value(String(gs.attempts ?? 0)) + t.dim(" attempts")}</Text>
           </>
         );
       })()}
 
       {/* ── Onboarding CTA ── */}
       {!anyRunning && sourceIcons.length === 0 && docCount === 0 && (
-        <Text>{t.warn("  → Get started: select 'Sources' to add a folder, then 'Start Services'")}</Text>
+        <Text>{t.warn("  \u2192 Get started: select 'Sources' to add a folder, then 'Start Services'")}</Text>
       )}
 
       {/* ── Activity / Service Action ── */}
       {(recentTasks.length > 0 || svcAction) && (
         <Box flexDirection="column">
+          <Text>{sepLine}</Text>
           <Text>{t.title("  Activity")}</Text>
           {svcAction && (
             <Text>{"  " + (svcAction.done
-              ? (svcAction.success ? t.ok("✓ ") : t.err("✗ ")) + (svcAction.success ? t.ok(svcAction.message) : t.err(svcAction.message))
-              : t.warn("⟳ ") + t.warn(svcAction.label) + t.dim(" — " + svcAction.detail)
+              ? (svcAction.success ? t.ok("\u2713 ") : t.err("\u2717 ")) + (svcAction.success ? t.ok(svcAction.message) : t.err(svcAction.message))
+              : t.warn("\u27f3 ") + t.warn(svcAction.label) + t.dim(" \u2014 " + svcAction.detail)
             )}</Text>
           )}
           {recentTasks.slice(0, 3).map((task) => (

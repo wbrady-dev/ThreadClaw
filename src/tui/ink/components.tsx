@@ -12,15 +12,16 @@ const w = chalk.bold.white;
 // The canonical theme definition lives in ../theme.ts — do NOT duplicate here.
 export { t };
 
-export function Banner() {
+export function Banner({ subtitle }: { subtitle?: string } = {}) {
   const caps = getTerminalCapabilities();
   const version = chalk.dim(` v${getAppVersion()}`);
+  const tagline = subtitle ?? "Premium RAG for OpenClaw";
 
   if (!caps.unicode) {
     return (
       <Box flexDirection="column" marginBottom={1}>
         <Text>{r("  THREADCLAW")}{version}</Text>
-        <Text>{w("  Premium RAG for OpenClaw")}</Text>
+        <Text>{"  "}{t.dim(tagline)}</Text>
       </Box>
     );
   }
@@ -28,7 +29,7 @@ export function Banner() {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Text>{"              "}{r("🦞")} {w("THREADCLAW")}{version} {r("🦞")}</Text>
-      <Text>{"          "}{t.dim("RSMA So Good It Pinches")}</Text>
+      <Text>{"          "}{t.dim(tagline)}</Text>
     </Box>
   );
 }
@@ -69,13 +70,35 @@ export interface MenuItem {
   color?: (s: string) => string;
 }
 
+function isSeparator(item: MenuItem): boolean {
+  return item.value.startsWith("__sep");
+}
+
+function nextSelectable(items: MenuItem[], from: number, direction: 1 | -1): number {
+  const len = items.length;
+  let idx = (from + direction + len) % len;
+  let attempts = 0;
+  while (isSeparator(items[idx]) && attempts < len) {
+    idx = (idx + direction + len) % len;
+    attempts++;
+  }
+  return idx;
+}
+
+function firstSelectable(items: MenuItem[]): number {
+  for (let i = 0; i < items.length; i++) {
+    if (!isSeparator(items[i])) return i;
+  }
+  return 0;
+}
+
 export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; onSelect: (value: string) => void; isRoot?: boolean }) {
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => firstSelectable(items));
 
   useInput((input, key) => {
-    if (key.upArrow || input === "k") setSelected((prev) => (prev - 1 + items.length) % items.length);
-    else if (key.downArrow || input === "j") setSelected((prev) => (prev + 1) % items.length);
-    else if (key.return) onSelect(items[selected].value);
+    if (key.upArrow || input === "k") setSelected((prev) => nextSelectable(items, prev, -1));
+    else if (key.downArrow || input === "j") setSelected((prev) => nextSelectable(items, prev, 1));
+    else if (key.return) { if (!isSeparator(items[selected])) onSelect(items[selected].value); }
     else if (input === "q") {
       if (isRoot) {
         onSelect("__confirm_exit__");
@@ -90,6 +113,10 @@ export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; o
   return (
     <Box flexDirection="column">
       {items.map((item, index) => {
+        const sep = isSeparator(item);
+        if (sep) {
+          return <Text key={item.value}>{"  " + (item.color ?? t.dim)(item.label)}</Text>;
+        }
         const isSelected = index === selected;
         const prefix = isSelected ? t.selected(">") : " ";
         const color = item.color ?? (isSelected ? t.selected : t.value);
