@@ -107,7 +107,6 @@ export function ConfigureScreen({
         }
       />
 
-      {tick < 0 && <Text />}
       <Text>{"  " + t.dim("Selecting a section keeps the Ink shell and then opens the specific config flow.")}</Text>
       <Separator width={64} />
       <Menu

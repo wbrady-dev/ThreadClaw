@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import chalk from "chalk";
 import { getTerminalCapabilities } from "../capabilities.js";
 import { t } from "../theme.js";
 import { getAppVersion } from "../../version.js";
 
 const r = t.brandAccent;
-const w = chalk.bold.white;
+const w = t.brand;
 
 // Re-export t so existing imports from this module keep working.
 // The canonical theme definition lives in ../theme.ts — do NOT duplicate here.
@@ -14,7 +13,7 @@ export { t };
 
 export function Banner({ subtitle }: { subtitle?: string } = {}) {
   const caps = getTerminalCapabilities();
-  const version = chalk.dim(` v${getAppVersion()}`);
+  const version = t.dim(` v${getAppVersion()}`);
   const tagline = subtitle ?? "Premium RAG for OpenClaw";
 
   if (!caps.unicode) {
