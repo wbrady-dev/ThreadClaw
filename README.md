@@ -250,7 +250,7 @@ Authentication: set `CLAWCORE_API_KEY` to require `Authorization: Bearer <key>` 
   HTTP POST      -> |  cache -> expand ->           |
   MCP tool       -> |  embed -> search ->           |
                     |  dedup -> gate -> rerank ->   |
-                    |  pack -> highlight ->          |
+                    |  pack -> highlight ->         |
                     |  brief/titles/full            |
                     +---------------+---------------+
                                     |
