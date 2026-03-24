@@ -62,7 +62,7 @@ if "%NODE_MAJOR%"=="" (
     pause
     exit /b 1
 )
-if %NODE_MAJOR% LSS 22 (
+if "%NODE_MAJOR%" LSS "22" (
     echo [ERROR] Node.js %NODE_MAJOR% detected. ThreadClaw requires Node.js 22+.
     pause
     exit /b 1
@@ -105,7 +105,7 @@ if "%PYTHON_MINOR%"=="" (
     pause
     exit /b 1
 )
-if %PYTHON_MINOR% LSS 10 (
+if "%PYTHON_MINOR%" LSS "10" (
     echo [ERROR] Python 3.%PYTHON_MINOR% detected. ThreadClaw requires Python 3.10+.
     pause
     exit /b 1
