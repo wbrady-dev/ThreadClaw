@@ -20,12 +20,16 @@
  *   "cc_expand OR crash" →  '"cc_expand" "OR" "crash"'
  *   'hello "world"'       →  '"hello" "world"'
  */
-export function sanitizeFts5Query(raw: string): string {
-  const tokens = raw.split(/\s+/).filter(Boolean);
+export function sanitizeFts5Query(raw: string): string | null {
+  const tokens = raw
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => t.replace(/"/g, ""))
+    .filter((t) => t.length > 0);
   if (tokens.length === 0) {
-    return '""';
+    return null;
   }
-  return tokens.map((t) => `"${t.replace(/"/g, "")}"`).join(" ");
+  return tokens.map((t) => `"${t}"`).join(" ");
 }
 
 /**
@@ -33,12 +37,16 @@ export function sanitizeFts5Query(raw: string): string {
  * Used as a fallback when strict AND returns zero results.
  * Any single matching token will surface a result.
  */
-export function sanitizeFts5QueryOr(raw: string): string {
-  const tokens = raw.split(/\s+/).filter(Boolean);
+export function sanitizeFts5QueryOr(raw: string): string | null {
+  const tokens = raw
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => t.replace(/"/g, ""))
+    .filter((t) => t.length > 0);
   if (tokens.length === 0) {
-    return '""';
+    return null;
   }
-  return tokens.map((t) => `"${t.replace(/"/g, "")}"`).join(" OR ");
+  return tokens.map((t) => `"${t}"`).join(" OR ");
 }
 
 /** The number of tokens above which strict AND is likely too restrictive. */

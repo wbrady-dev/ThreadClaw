@@ -20,6 +20,7 @@ import { applyDecay } from "./decay.js";
 import { runArchive } from "./archive.js";
 import { resolve } from "path";
 import { homedir } from "os";
+import { estimateTokens as canonicalEstimateTokens } from "../utils/tokens.js";
 
 // ---------------------------------------------------------------------------
 // Budget tiers
@@ -80,19 +81,7 @@ interface CapsuleCandidate {
   scorePerToken: number;
 }
 
-function estimateTokens(text: string): number {
-  // Type-aware estimation: code/JSON ~3 chars/token, prose ~4 chars/token
-  // Sample 3 positions (start, middle, end) for more representative detection
-  const positions = [0, Math.floor(text.length / 2), Math.max(0, text.length - 200)];
-  let totalSignals = 0;
-  for (const pos of positions) {
-    const sample = text.slice(pos, pos + 200);
-    totalSignals += (sample.match(/[{}\[\]();=<>]/g) || []).length;
-  }
-  const avgSignals = totalSignals / positions.length;
-  const ratio = avgSignals > 10 ? 3 : avgSignals > 5 ? 3.5 : 4;
-  return Math.ceil(text.length / ratio);
-}
+const estimateTokens = canonicalEstimateTokens;
 
 // ---------------------------------------------------------------------------
 // Capsule builders

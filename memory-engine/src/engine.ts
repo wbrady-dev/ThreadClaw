@@ -57,6 +57,11 @@ let _rsmaSuccessCount = 0;
 let _rsmaFailCount = 0;
 const _RSMA_LOG_INTERVAL = 100;
 
+// ── NER Circuit Breaker ─────────────────────────────────────────────────────
+let _nerCircuitOpen = false;
+let _nerLastFailure = 0;
+const NER_CIRCUIT_RESET_MS = 30_000; // 30 seconds
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function toJson(value: unknown): string {
@@ -677,6 +682,15 @@ export class LcmContextEngine implements ContextEngine {
   private largeFileTextSummarizerResolved = false;
   private largeFileTextSummarizer?: (prompt: string) => Promise<string | null>;
   private deps: LcmDependencies;
+
+  /**
+   * Replace the engine's dependencies (e.g. after re-registration with fresh config/env).
+   * Updates config and deps without tearing down DB connections or stores.
+   */
+  updateDeps(deps: LcmDependencies): void {
+    this.deps = deps;
+    this.config = deps.config;
+  }
 
   constructor(deps: LcmDependencies) {
     this.deps = deps;
@@ -1347,33 +1361,43 @@ export class LcmContextEngine implements ContextEngine {
       }
 
       // NER enhancement — non-blocking, uses spaCy model server if available
-      try {
-        const nerUrl = `${process.env.THREADCLAW_MODEL_SERVER_URL ?? process.env.MODEL_SERVER_URL ?? "http://127.0.0.1:8012"}/ner`;
-        const nerResp = await fetch(nerUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ texts: [stored.content] }),
-          signal: AbortSignal.timeout(5000),
-        });
-        if (nerResp.ok) {
-          const nerData = await nerResp.json() as { results: Array<{ entities: Array<{ text: string; label: string }> }> };
-          const nerEntities = nerData.results?.[0]?.entities ?? [];
-          if (nerEntities.length > 0) {
-            const { storeExtractionResult: storeNer } = await import("./relations/graph-store.js");
-            const nerResults = nerEntities.map((e: { text: string; label: string }) => ({
-              name: e.text,
-              confidence: 0.8,
-              strategy: `ner:${e.label}` as import("./relations/types.js").ExtractionStrategy,
-              entityType: e.label.toLowerCase(),
-            }));
-            storeNer(this.graphDb!, nerResults, {
-              sourceType: "message",
-              sourceId: String(msgRecord.messageId),
-              actor: "system",
-            });
+      // Circuit breaker: skip if server was recently unreachable
+      if (_nerCircuitOpen && Date.now() - _nerLastFailure < NER_CIRCUIT_RESET_MS) {
+        console.debug("[cc-mem] NER circuit open, skipping request");
+      } else {
+        try {
+          const nerUrl = `${process.env.THREADCLAW_MODEL_SERVER_URL ?? process.env.MODEL_SERVER_URL ?? "http://127.0.0.1:8012"}/ner`;
+          const nerResp = await fetch(nerUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ texts: [stored.content] }),
+            signal: AbortSignal.timeout(5000),
+          });
+          if (nerResp.ok) {
+            _nerCircuitOpen = false;
+            const nerData = await nerResp.json() as { results: Array<{ entities: Array<{ text: string; label: string }> }> };
+            const nerEntities = nerData.results?.[0]?.entities ?? [];
+            if (nerEntities.length > 0) {
+              const { storeExtractionResult: storeNer } = await import("./relations/graph-store.js");
+              const nerResults = nerEntities.map((e: { text: string; label: string }) => ({
+                name: e.text,
+                confidence: 0.8,
+                strategy: `ner:${e.label}` as import("./relations/types.js").ExtractionStrategy,
+                entityType: e.label.toLowerCase(),
+              }));
+              storeNer(this.graphDb!, nerResults, {
+                sourceType: "message",
+                sourceId: String(msgRecord.messageId),
+                actor: "system",
+              });
+            }
           }
+        } catch (err) {
+          _nerCircuitOpen = true;
+          _nerLastFailure = Date.now();
+          console.debug("[cc-mem] NER request failed (circuit opened):", err instanceof Error ? err.message : String(err));
         }
-      } catch (err) { console.debug("[cc-mem] NER request failed:", err instanceof Error ? err.message : String(err)); }
+      }
     }
 
     // Real-time attempt tracking from tool results
@@ -1878,12 +1902,7 @@ export class LcmContextEngine implements ContextEngine {
       return;
     }
 
-    const tokenBudget =
-      typeof params.tokenBudget === "number" &&
-      Number.isFinite(params.tokenBudget) &&
-      params.tokenBudget > 0
-        ? Math.floor(params.tokenBudget)
-        : undefined;
+    const tokenBudget = this.resolveTokenBudget({ tokenBudget: params.tokenBudget });
     if (!tokenBudget) {
       return;
     }
@@ -1960,12 +1979,7 @@ export class LcmContextEngine implements ContextEngine {
         };
       }
 
-      const tokenBudget =
-        typeof params.tokenBudget === "number" &&
-        Number.isFinite(params.tokenBudget) &&
-        params.tokenBudget > 0
-          ? Math.floor(params.tokenBudget)
-          : 128_000;
+      const tokenBudget = this.resolveTokenBudget({ tokenBudget: params.tokenBudget }) ?? 128_000;
 
       const assembled = await this.assembler.assemble({
         conversationId: conversation.conversationId,
@@ -2261,11 +2275,7 @@ export class LcmContextEngine implements ContextEngine {
       }
 
       // When forced, use the token budget as target
-      const convergenceTargetTokens = forceCompaction
-        ? tokenBudget
-        : params.compactionTarget === "threshold"
-          ? decision.threshold
-          : tokenBudget;
+      const convergenceTargetTokens = tokenBudget;
 
       const compactResult = await this.compaction.compactUntilUnder({
         conversationId,

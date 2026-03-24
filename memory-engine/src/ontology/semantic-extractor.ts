@@ -413,6 +413,11 @@ function convertToWriterResult(
       structured = claim;
     }
 
+    // Preserve temporal text as a hint in structured data (not as a date field)
+    if (event.temporal) {
+      (structured as Record<string, unknown>).temporal_hint = event.temporal;
+    }
+
     // Build content string using the correctly-typed local variable
     let content: string;
     if (kind === "claim") {
@@ -445,7 +450,8 @@ function convertToWriterResult(
       provisional: isUncertain,
       status: "active",
       observed_at: timestamp,
-      effective_at: event.temporal ?? undefined,
+      // temporal text is natural language (e.g. "by Friday"), not ISO 8601 — don't store as date
+      effective_at: undefined,
       scope_id: 1,
       influence_weight: influenceWeight,
       created_at: timestamp,

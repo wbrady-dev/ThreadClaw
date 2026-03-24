@@ -386,7 +386,10 @@ export class SummaryStore {
     );
 
     let ownTx1 = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx1 = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx1 = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
     try {
       for (let idx = 0; idx < messageIds.length; idx++) {
         stmt.run(summaryId, messageIds[idx], idx);
@@ -410,7 +413,10 @@ export class SummaryStore {
     );
 
     let ownTx2 = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx2 = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx2 = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
     try {
       for (let idx = 0; idx < parentSummaryIds.length; idx++) {
         stmt.run(summaryId, parentSummaryIds[idx], idx);
@@ -580,19 +586,30 @@ export class SummaryStore {
   }
 
   async appendContextMessage(conversationId: number, messageId: number): Promise<void> {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
-       FROM context_items WHERE conversation_id = ?`,
-      )
-      .get(conversationId) as unknown as MaxOrdinalRow;
+    let ownTx = false;
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
+         FROM context_items WHERE conversation_id = ?`,
+        )
+        .get(conversationId) as unknown as MaxOrdinalRow;
 
-    this.db
-      .prepare(
-        `INSERT INTO context_items (conversation_id, ordinal, item_type, message_id)
-       VALUES (?, ?, 'message', ?)`,
-      )
-      .run(conversationId, row.max_ordinal + 1, messageId);
+      this.db
+        .prepare(
+          `INSERT INTO context_items (conversation_id, ordinal, item_type, message_id)
+         VALUES (?, ?, 'message', ?)`,
+        )
+        .run(conversationId, row.max_ordinal + 1, messageId);
+      if (ownTx) this.db.exec("COMMIT");
+    } catch (err) {
+      if (ownTx) this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   async appendContextMessages(conversationId: number, messageIds: number[]): Promise<void> {
@@ -613,7 +630,10 @@ export class SummaryStore {
        VALUES (?, ?, 'message', ?)`,
     );
     let ownTx3 = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx3 = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx3 = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
     try {
       for (let idx = 0; idx < messageIds.length; idx++) {
         stmt.run(conversationId, baseOrdinal + idx, messageIds[idx]);
@@ -626,19 +646,30 @@ export class SummaryStore {
   }
 
   async appendContextSummary(conversationId: number, summaryId: string): Promise<void> {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
-       FROM context_items WHERE conversation_id = ?`,
-      )
-      .get(conversationId) as unknown as MaxOrdinalRow;
+    let ownTx = false;
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
+         FROM context_items WHERE conversation_id = ?`,
+        )
+        .get(conversationId) as unknown as MaxOrdinalRow;
 
-    this.db
-      .prepare(
-        `INSERT INTO context_items (conversation_id, ordinal, item_type, summary_id)
-       VALUES (?, ?, 'summary', ?)`,
-      )
-      .run(conversationId, row.max_ordinal + 1, summaryId);
+      this.db
+        .prepare(
+          `INSERT INTO context_items (conversation_id, ordinal, item_type, summary_id)
+         VALUES (?, ?, 'summary', ?)`,
+        )
+        .run(conversationId, row.max_ordinal + 1, summaryId);
+      if (ownTx) this.db.exec("COMMIT");
+    } catch (err) {
+      if (ownTx) this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   async replaceContextRangeWithSummary(input: {
@@ -649,7 +680,11 @@ export class SummaryStore {
   }): Promise<void> {
     const { conversationId, startOrdinal, endOrdinal, summaryId } = input;
 
-    this.db.exec("BEGIN IMMEDIATE");
+    let ownTx = false;
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("transaction")) throw err;
+    }
     try {
       // 1. Delete context items in the range [startOrdinal, endOrdinal]
       this.db
@@ -671,9 +706,9 @@ export class SummaryStore {
         )
         .run(conversationId, startOrdinal, summaryId);
 
-      this.db.exec("COMMIT");
+      if (ownTx) this.db.exec("COMMIT");
     } catch (err) {
-      this.db.exec("ROLLBACK");
+      if (ownTx) this.db.exec("ROLLBACK");
       throw err;
     }
   }
@@ -763,6 +798,7 @@ export class SummaryStore {
     useOrMode = false,
   ): SummarySearchResult[] {
     const sanitized = useOrMode ? sanitizeFts5QueryOr(query) : sanitizeFts5Query(query);
+    if (sanitized == null) return [];
     const where: string[] = ["summaries_fts MATCH ?"];
     const args: Array<string | number> = [sanitized];
     const convFilter = buildConversationFilter("s.conversation_id", conversationId, conversationIds);

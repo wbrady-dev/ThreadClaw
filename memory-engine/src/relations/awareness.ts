@@ -15,6 +15,7 @@
 
 import type { GraphDb } from "./types.js";
 import { recordAwarenessEvent } from "./eval.js";
+import { estimateTokens as canonicalEstimateTokens } from "../utils/tokens.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -299,12 +300,7 @@ function safeParse(json: string | null): string[] {
   }
 }
 
-function estimateTokens(text: string): number {
-  const sample = text.slice(0, 200);
-  const codeSignals = (sample.match(/[{}\[\]();=<>]/g) || []).length;
-  const ratio = codeSignals > 10 ? 3 : codeSignals > 5 ? 3.5 : 4;
-  return Math.ceil(text.length / ratio);
-}
+const estimateTokens = canonicalEstimateTokens;
 
 /**
  * Run a query and truncate results if it exceeded the time budget.

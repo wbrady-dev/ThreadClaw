@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function getMigrationStatements(): Record<number, string[]> {
   const dim = config.embedding.dimensions;
@@ -104,6 +104,11 @@ function getMigrationStatements(): Record<number, string[]> {
         INSERT INTO chunk_fts(chunk_fts, rowid, text) VALUES('delete', old.rowid, old.text);
         INSERT INTO chunk_fts(rowid, text) VALUES (new.rowid, new.text);
       END`,
+    ],
+
+    5: [
+      `CREATE INDEX IF NOT EXISTS idx_metadata_doc ON metadata_index(document_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_watch_paths_collection ON watch_paths(collection_id)`,
     ],
   };
 }

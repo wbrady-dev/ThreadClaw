@@ -1,27 +1,45 @@
 import { readFile } from "fs/promises";
-import { basename } from "path";
+import { basename, extname } from "path";
 import { parse } from "csv-parse/sync";
 import type { ParsedDocument, StructureHint, DocMetadata } from "./index.js";
 
 /**
- * Parse CSV files. Converts to a text representation with headers.
+ * Detect delimiter: use tab for .tsv files or when the first line contains
+ * more tabs than commas.
+ */
+function detectDelimiter(filePath: string, raw: string): string {
+  const ext = extname(filePath).toLowerCase();
+  if (ext === ".tsv") return "\t";
+
+  const firstLine = raw.split(/\r?\n/, 1)[0] ?? "";
+  const tabs = (firstLine.match(/\t/g) ?? []).length;
+  const commas = (firstLine.match(/,/g) ?? []).length;
+  if (tabs > commas) return "\t";
+
+  return ",";
+}
+
+/**
+ * Parse CSV/TSV files. Converts to a text representation with headers.
  * Structure hints mark row groups for table chunking.
  */
 export async function parseCsv(filePath: string): Promise<ParsedDocument> {
   const raw = await readFile(filePath, "utf-8");
+  const delimiter = detectDelimiter(filePath, raw);
 
   const records = parse(raw, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
     relax_column_count: true,
+    delimiter,
   }) as Record<string, string>[];
 
   if (records.length === 0) {
     return {
       text: "",
       structure: [],
-      metadata: { fileType: "csv", title: basename(filePath), source: filePath },
+      metadata: { fileType: delimiter === "\t" ? "tsv" : "csv", title: basename(filePath), source: filePath },
     };
   }
 
@@ -43,7 +61,7 @@ export async function parseCsv(filePath: string): Promise<ParsedDocument> {
   }];
 
   const metadata: DocMetadata = {
-    fileType: "csv",
+    fileType: delimiter === "\t" ? "tsv" : "csv",
     title: basename(filePath),
     source: filePath,
   };

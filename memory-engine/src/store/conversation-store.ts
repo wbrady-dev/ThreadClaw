@@ -348,7 +348,10 @@ export class ConversationStore {
 
     const records: MessageRecord[] = [];
     let ownTx = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+    }
     try {
       for (const input of inputs) {
         const result = insertStmt.run(
@@ -501,7 +504,10 @@ export class ConversationStore {
     );
 
     let ownTx = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+    }
     try {
       for (const part of parts) {
         stmt.run(
@@ -581,7 +587,10 @@ export class ConversationStore {
 
     let deleted = 0;
     let ownTx = false;
-    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch { /* already in transaction */ }
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+    }
     try {
       for (const messageId of messageIds) {
         // Skip if referenced by a summary (ON DELETE RESTRICT would fail anyway)
@@ -698,6 +707,7 @@ export class ConversationStore {
     useOrMode = false,
   ): MessageSearchResult[] {
     const sanitized = useOrMode ? sanitizeFts5QueryOr(query) : sanitizeFts5Query(query);
+    if (sanitized == null) return [];
     const where: string[] = ["messages_fts MATCH ?"];
     const args: Array<string | number> = [sanitized];
     const convFilter = buildConversationFilter("m.conversation_id", conversationId, conversationIds);

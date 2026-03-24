@@ -228,9 +228,10 @@ export async function query(
       try {
         const graphDb = getGraphDb(config.relations.graphDbPath);
         const lowerQuery = queryText.toLowerCase().trim();
+        const entityCompositeId = `entity:${lowerQuery}`;
         const entity = graphDb.prepare(
-          "SELECT id, composite_id FROM memory_objects WHERE kind = 'entity' AND composite_id = 'entity:' || ? AND json_extract(structured_json, '$.mentionCount') >= 2",
-        ).get(lowerQuery) as { id: number; composite_id: string } | undefined;
+          "SELECT id, composite_id FROM memory_objects WHERE kind = 'entity' AND composite_id = ? AND json_extract(structured_json, '$.mentionCount') >= 2",
+        ).get(entityCompositeId) as { id: number; composite_id: string } | undefined;
         if (entity) {
           const mentions = graphDb.prepare(
             "SELECT json_extract(metadata, '$.context_terms') as context_terms FROM provenance_links WHERE subject_id = ? AND predicate = 'mentioned_in' AND json_extract(metadata, '$.context_terms') IS NOT NULL AND json_extract(metadata, '$.context_terms') != 'null' LIMIT 5",
@@ -348,6 +349,14 @@ export async function query(
       },
     };
     setCached(ck, result);
+    recordQuery({
+      timestamp: Date.now(), query: queryText, collection: collectionName,
+      strategy: strategy + "+titles", elapsedMs: Date.now() - start,
+      candidates: candidateChunkIds.length, chunksReturned: titles.sources.length,
+      confidence: 0.5, cached: false,
+      vectorHits: dedupedVectorResults.length, bm25Hits: allBm25Results.length,
+      bestDistance: 0, reranked: false,
+    });
     return result;
   }
 

@@ -13,6 +13,11 @@ import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject } from "../ontology/mo-store.js";
 import type { MemoryObject } from "../ontology/types.js";
 
+/** Escape LIKE meta-characters (%, _, \) so the value is treated literally. */
+function escapeLikeValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export function upsertAntiRunbook(
   db: GraphDb,
   input: UpsertAntiRunbookInput,
@@ -127,8 +132,8 @@ export function getAntiRunbooks(
   const args: unknown[] = [scopeId];
 
   if (opts?.toolName) {
-    where.push("structured_json LIKE ?");
-    args.push(`%"toolName":"${opts.toolName}"%`);
+    where.push("structured_json LIKE ? ESCAPE '\\'");
+    args.push(`%"toolName":"${escapeLikeValue(opts.toolName)}"%`);
   }
 
   // isNegative=true for anti-runbooks

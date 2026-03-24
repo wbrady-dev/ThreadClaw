@@ -252,6 +252,11 @@ function resolveSourceConversationId(params: {
   );
 }
 
+/** Escape LIKE meta-characters (%, _, \) so the value is treated literally. */
+function escapeLikeValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 // Common stopwords to drop from evidence search queries
 const STOPWORDS = new Set([
   "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
@@ -289,8 +294,8 @@ async function tryEvidenceFallback(
     if (terms.length === 0) return null;
 
     // Build OR-style LIKE conditions for each term (searching structured_json fields)
-    const likeConditions = terms.map(() => "(json_extract(structured_json, '$.subject') LIKE ? OR json_extract(structured_json, '$.objectText') LIKE ?)").join(" OR ");
-    const likeArgs = terms.flatMap((t) => [`%${t}%`, `%${t}%`]);
+    const likeConditions = terms.map(() => "(json_extract(structured_json, '$.subject') LIKE ? ESCAPE '\\' OR json_extract(structured_json, '$.objectText') LIKE ? ESCAPE '\\')").join(" OR ");
+    const likeArgs = terms.flatMap((t) => { const e = escapeLikeValue(t); return [`%${e}%`, `%${e}%`]; });
 
     const lines: string[] = [];
 
@@ -328,8 +333,8 @@ async function tryEvidenceFallback(
     }
 
     // Search decisions (top 3)
-    const decLikeConditions = terms.map(() => "(json_extract(structured_json, '$.topic') LIKE ? OR json_extract(structured_json, '$.decisionText') LIKE ?)").join(" OR ");
-    const decLikeArgs = terms.flatMap((t) => [`%${t}%`, `%${t}%`]);
+    const decLikeConditions = terms.map(() => "(json_extract(structured_json, '$.topic') LIKE ? ESCAPE '\\' OR json_extract(structured_json, '$.decisionText') LIKE ? ESCAPE '\\')").join(" OR ");
+    const decLikeArgs = terms.flatMap((t) => { const e = escapeLikeValue(t); return [`%${e}%`, `%${e}%`]; });
 
     const decisions = graphDb.prepare(`
       SELECT id,

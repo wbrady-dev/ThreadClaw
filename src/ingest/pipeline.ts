@@ -165,7 +165,19 @@ async function ingestFileInner(
   // TODO(BUG 13): Binary parsers (pdf, pptx, docx) re-read the file from disk.
   // Pass fileBuf to parsers that accept a buffer to avoid double I/O.
   const parser = getParser(absPath);
-  const parsed = await parser(absPath);
+  let parsed;
+  try {
+    parsed = await parser(absPath);
+  } catch (err) {
+    logger.error(`Parser failed for ${absPath}: ${err}`);
+    return {
+      documentsAdded: 0,
+      documentsUpdated: 0,
+      chunksCreated: 0,
+      duplicatesSkipped: 0,
+      elapsedMs: Date.now() - start,
+    };
+  }
 
   // Enrich metadata with auto-tags
   const autoTags = generateAutoTags(absPath, parsed.metadata.fileType);

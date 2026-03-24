@@ -102,3 +102,11 @@ export function splitSentences(text: string): string[] {
 
   return sentences;
 }
+
+/**
+ * Extract the file name from a file path (handles both / and \ separators).
+ */
+export function extractFileName(filePath: string): string {
+  const parts = filePath.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || filePath;
+}

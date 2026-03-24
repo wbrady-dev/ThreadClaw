@@ -1,4 +1,4 @@
-import { estimateTokens } from "../utils/format.js";
+import { estimateTokens, extractFileName } from "../utils/format.js";
 
 export interface PackedChunk {
   chunkId: string;
@@ -164,11 +164,6 @@ export function packTitles(chunks: { sourcePath: string | null; collectionName: 
 
   const text = lines.join("\n");
   return { text, sources, tokenCount };
-}
-
-function extractFileName(filePath: string): string {
-  const parts = filePath.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || filePath;
 }
 
 /**

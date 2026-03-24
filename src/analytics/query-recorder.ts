@@ -31,9 +31,9 @@ export function recordQuery(data: QueryRecord): void {
   }
 }
 
-/** Get the records array (shared reference for route handlers). */
+/** Get a shallow copy of the records array. */
 export function getRecords(): QueryRecord[] {
-  return records;
+  return [...records];
 }
 
 /** Clear all recorded queries. */

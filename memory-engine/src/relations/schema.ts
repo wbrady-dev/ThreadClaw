@@ -571,6 +571,7 @@ CREATE TABLE IF NOT EXISTS memory_objects (
     last_observed_at TEXT,
     observed_at TEXT,
     extraction_method TEXT,
+    provisional INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
 );
@@ -1350,6 +1351,15 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
       db.exec("ALTER TABLE memory_objects ADD COLUMN extraction_method TEXT");
     }
     markMigrationApplied(db, 20);
+  }
+
+  // Migration v21: Add provisional column to memory_objects
+  if (!isMigrationApplied(db, 21)) {
+    const cols = db.prepare("PRAGMA table_info(memory_objects)").all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === "provisional")) {
+      db.exec("ALTER TABLE memory_objects ADD COLUMN provisional INTEGER DEFAULT 0");
+    }
+    markMigrationApplied(db, 21);
   }
 
   // File permissions: chmod 600 on Unix/macOS, skip on Windows

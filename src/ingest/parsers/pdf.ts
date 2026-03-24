@@ -43,25 +43,30 @@ export async function parsePdf(filePath: string): Promise<ParsedDocument> {
   let offset = 0;
 
   for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ")
-      .trim();
+    try {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((item) => ("str" in item ? item.str : ""))
+        .join(" ")
+        .trim();
 
-    if (pageText) {
-      if (pages.length > 0) {
-        // Add page break marker (accounts for \n\n join between pages)
-        structure.push({
-          type: "page_break",
-          startOffset: offset,
-          endOffset: offset + 2,
-        });
-        offset += 2; // for the \n\n join
+      if (pageText) {
+        if (pages.length > 0) {
+          // Add page break marker (accounts for \n\n join between pages)
+          structure.push({
+            type: "page_break",
+            startOffset: offset,
+            endOffset: offset + 2,
+          });
+          offset += 2; // for the \n\n join
+        }
+        pages.push(pageText);
+        offset += pageText.length;
       }
-      pages.push(pageText);
-      offset += pageText.length;
+    } catch (err) {
+      // Skip corrupted page — don't abort the entire document
+      console.error(`[pdf] Failed to extract page ${i}: ${err}`);
     }
   }
 

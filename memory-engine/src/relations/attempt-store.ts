@@ -12,6 +12,11 @@ import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject } from "../ontology/mo-store.js";
 import type { MemoryObject } from "../ontology/types.js";
 
+/** Escape LIKE meta-characters (%, _, \) so the value is treated literally. */
+function escapeLikeValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export function recordAttempt(db: GraphDb, input: RecordAttemptInput): number {
   const branchId = input.branchId ?? 0;
   const now = new Date().toISOString();
@@ -100,12 +105,12 @@ export function getAttemptHistory(
   const args: unknown[] = [scopeId];
 
   if (opts?.toolName) {
-    where.push("structured_json LIKE ?");
-    args.push(`%"toolName":"${opts.toolName}"%`);
+    where.push("structured_json LIKE ? ESCAPE '\\'");
+    args.push(`%"toolName":"${escapeLikeValue(opts.toolName)}"%`);
   }
   if (opts?.status) {
-    where.push("structured_json LIKE ?");
-    args.push(`%"status":"${opts.status}"%`);
+    where.push("structured_json LIKE ? ESCAPE '\\'");
+    args.push(`%"status":"${escapeLikeValue(opts.status)}"%`);
   }
 
   args.push(limit);
@@ -130,8 +135,8 @@ export function getToolSuccessRate(
   toolName: string,
   windowDays?: number,
 ): ToolSuccessRate {
-  const where = ["scope_id = ?", "kind = 'attempt'", "structured_json LIKE ?"];
-  const args: unknown[] = [scopeId, `%"toolName":"${toolName}"%`];
+  const where = ["scope_id = ?", "kind = 'attempt'", "structured_json LIKE ? ESCAPE '\\'"];
+  const args: unknown[] = [scopeId, `%"toolName":"${escapeLikeValue(toolName)}"%`];
 
   if (windowDays != null) {
     where.push("created_at >= datetime('now', ?)");

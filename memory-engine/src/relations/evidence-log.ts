@@ -74,21 +74,28 @@ export function writeWithIdempotency<T>(
  * Increment and return the next scope-local sequence number.
  * Creates the counter row if it doesn't exist.
  *
- * IMPORTANT: This function must be called inside a write transaction
- * (withWriteTransaction or better-sqlite3 transaction()) to guarantee
- * atomicity of the INSERT/UPDATE + SELECT pair. All current callers
- * (logEvidence → storeExtractionResult → reExtractGraphForDocument)
- * satisfy this requirement.
+ * Uses a single atomic INSERT ... ON CONFLICT ... RETURNING statement
+ * so that the read and write happen in one step, making it race-safe
+ * even without an explicit surrounding write transaction.
+ *
+ * NOTE: Callers that need the returned sequence to be consistent with
+ * other writes (e.g. logEvidence inserting into evidence_log) should
+ * still wrap the full operation in a write transaction.
  */
 export function nextScopeSeq(db: GraphDb, scopeId: number): number {
-  db.prepare(`
+  const row = db.prepare(`
     INSERT INTO scope_sequences (scope_id, next_seq) VALUES (?, 2)
     ON CONFLICT(scope_id) DO UPDATE SET next_seq = next_seq + 1
-  `).run(scopeId);
+    RETURNING next_seq - 1 AS seq
+  `).get(scopeId) as { seq: number } | undefined;
 
-  const row = db.prepare(
-    "SELECT next_seq - 1 AS seq FROM scope_sequences WHERE scope_id = ?",
-  ).get(scopeId) as { seq: number };
+  // Fallback for SQLite builds without RETURNING support (< 3.35.0)
+  if (!row) {
+    const fallback = db.prepare(
+      "SELECT next_seq - 1 AS seq FROM scope_sequences WHERE scope_id = ?",
+    ).get(scopeId) as { seq: number };
+    return fallback.seq;
+  }
   return row.seq;
 }
 

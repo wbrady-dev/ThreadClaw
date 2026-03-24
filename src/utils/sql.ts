@@ -1,6 +1,12 @@
 /**
  * Escape a string for use in SQLite LIKE patterns.
  * Escapes backslash, underscore, and optionally percent.
+ *
+ * **IMPORTANT:** Because this uses backslash as the escape character, every
+ * LIKE clause that consumes the escaped value **must** include `ESCAPE '\'`
+ * or the escaping will have no effect in SQLite.
+ *
+ * Example:  `WHERE col LIKE ? ESCAPE '\'`
  */
 export function escapeLike(s: string, keepPercent = false): string {
   let result = s.replace(/\\/g, "\\\\").replace(/_/g, "\\_");

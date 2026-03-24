@@ -10,7 +10,7 @@
 import type { GraphDb, UpsertDecisionInput, UpsertDecisionResult } from "./types.js";
 import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject, supersedeMemoryObject } from "../ontology/mo-store.js";
-import type { MemoryObject } from "../ontology/types.js";
+import type { MemoryObject, MemoryStatus } from "../ontology/types.js";
 
 // ---------------------------------------------------------------------------
 // Upsert (auto-supersede existing active decision on same topic)
@@ -51,7 +51,7 @@ export function upsertDecision(db: GraphDb, input: UpsertDecisionInput): UpsertD
     confidence: 0.5,
     freshness: 1.0,
     provisional: false,
-    status: (input.status as any) ?? "active",
+    status: (input.status ?? "active") as MemoryStatus,
     observed_at: now,
     scope_id: input.scopeId,
     influence_weight: "standard",

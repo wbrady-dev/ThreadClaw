@@ -4,7 +4,9 @@
  * Based on lossless-claw by Martian Engineering (MIT License).
  * Surface-rebranded for ThreadClaw integration.
  */
-console.log("[cc-mem] ████ ThreadClaw Memory Engine v0.3.2-unified loaded ████");
+if (process.env.DEBUG || process.env.THREADCLAW_DEBUG) {
+  console.log("[cc-mem] ████ ThreadClaw Memory Engine v0.3.2-unified loaded ████");
+}
 import { readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -1303,6 +1305,7 @@ const lcmPlugin = {
       // Always use freshDeps so env/config changes take effect on re-registration
       deps = freshDeps;
       lcm = cached.lcm;
+      lcm.updateDeps(freshDeps);
       _engineCache.set(cacheKey, { deps, lcm });
     } else {
       deps = freshDeps;

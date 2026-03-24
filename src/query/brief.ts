@@ -1,4 +1,4 @@
-import { estimateTokens, splitSentences } from "../utils/format.js";
+import { estimateTokens, extractFileName, splitSentences } from "../utils/format.js";
 
 /**
  * Token-efficient sentence extraction for agent consumption.
@@ -196,7 +196,3 @@ export function extractBrief(
   };
 }
 
-function extractFileName(filePath: string): string {
-  const parts = filePath.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || filePath;
-}

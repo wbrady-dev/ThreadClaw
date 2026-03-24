@@ -220,12 +220,16 @@ export async function understandMessage(
       obj.provenance.source_detail = `correction_signal: ${signals.correctionSignal}`;
     }
 
-    // Apply temporal signals
+    // Apply temporal signals — store as note in structured, NOT as date fields
+    // (matchedText is natural language like "next Monday", not ISO 8601)
     if (signals.temporal) {
-      if (signals.temporal.type === "effective") {
-        obj.effective_at = signals.temporal.matchedText;
-      } else {
-        obj.expires_at = signals.temporal.matchedText;
+      const temporalNote = `temporal_${signals.temporal.type}: ${signals.temporal.matchedText}`;
+      if (obj.structured && typeof obj.structured === "object") {
+        (obj.structured as Record<string, unknown>).temporal_hint = signals.temporal.matchedText;
+      }
+      // Append to content if not already present
+      if (!obj.content.includes(signals.temporal.matchedText)) {
+        obj.content += ` [${temporalNote}]`;
       }
     }
   }

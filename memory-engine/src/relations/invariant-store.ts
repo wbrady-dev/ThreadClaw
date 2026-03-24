@@ -10,7 +10,7 @@
 import type { GraphDb, UpsertInvariantInput } from "./types.js";
 import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject } from "../ontology/mo-store.js";
-import type { MemoryObject } from "../ontology/types.js";
+import type { MemoryObject, MemoryStatus } from "../ontology/types.js";
 
 export function upsertInvariant(
   db: GraphDb,
@@ -40,7 +40,7 @@ export function upsertInvariant(
     confidence: 0.5,
     freshness: 1.0,
     provisional: false,
-    status: (input.status as any) ?? "active",
+    status: (input.status ?? "active") as MemoryStatus,
     observed_at: new Date().toISOString(),
     scope_id: input.scopeId,
     influence_weight: "standard",

@@ -134,6 +134,7 @@ export function upsertMemoryObject(
         source_detail = ?,
         source_authority = ?,
         extraction_method = ?,
+        provisional = ?,
         last_observed_at = ?,
         observed_at = ?,
         updated_at = ?
@@ -155,6 +156,7 @@ export function upsertMemoryObject(
       sourceDetail,
       sourceAuthority,
       obj.provenance?.extraction_method ?? null,
+      obj.provisional ? 1 : 0,
       now,
       obj.observed_at ?? now,
       now,
@@ -170,7 +172,7 @@ export function upsertMemoryObject(
       scope_id, branch_id, status, confidence, trust_score,
       influence_weight, superseded_by,
       source_kind, source_id, source_detail, source_authority,
-      extraction_method,
+      extraction_method, provisional,
       first_observed_at, last_observed_at, observed_at,
       created_at, updated_at
     ) VALUES (
@@ -178,7 +180,7 @@ export function upsertMemoryObject(
       ?, ?, ?, ?, ?,
       ?, ?,
       ?, ?, ?, ?,
-      ?,
+      ?, ?,
       ?, ?, ?,
       ?, ?
     )
@@ -200,6 +202,7 @@ export function upsertMemoryObject(
     sourceDetail,
     sourceAuthority,
     obj.provenance?.extraction_method ?? null,
+    obj.provisional ? 1 : 0,
     obj.observed_at ?? now,
     obj.observed_at ?? now,
     obj.observed_at ?? now,
@@ -362,7 +365,7 @@ export function rowToMemoryObject(row: Record<string, unknown>): MemoryObject {
 
     confidence: safeNum(row.confidence, 0.5),
     freshness: 1.0, // Freshness is computed at query time, not stored
-    provisional: false,
+    provisional: row.provisional != null ? !!Number(row.provisional) : false,
 
     status: validStatus(row.status),
     superseded_by: row.superseded_by != null ? String(row.superseded_by) : undefined,

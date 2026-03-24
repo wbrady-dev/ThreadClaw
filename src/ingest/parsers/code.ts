@@ -34,6 +34,13 @@ const DEFINITION_PATTERNS: Record<string, RegExp> = {
   java: /^(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface|enum)\s+\w+|^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)+\w+\s*\(/gm,
   c: /^(?:\w+\s+)+\w+\s*\([^)]*\)\s*\{/gm,
   cpp: /^(?:class|struct)\s+\w+|^(?:\w+\s+)+\w+\s*\([^)]*\)\s*(?:const\s*)?\{/gm,
+  ruby: /^(?:class|module|def)\s+(\w+)/gm,
+  php: /^(?:class|function|interface|trait)\s+(\w+)/gm,
+  swift: /^(?:class|struct|enum|protocol|func)\s+(\w+)/gm,
+  kotlin: /^(?:class|fun|object|interface)\s+(\w+)/gm,
+  csharp: /^(?:class|struct|interface|enum|void|static\s+\w+)\s+(\w+)/gm,
+  bash: /^(?:function\s+)?(\w+)\s*\(\)/gm,
+  powershell: /^function\s+(\w[\w-]*)/gim,
 };
 
 /**
@@ -47,9 +54,7 @@ export async function parseCode(filePath: string): Promise<ParsedDocument> {
   const structure: StructureHint[] = [];
 
   // Find function/class definitions
-  const pattern = DEFINITION_PATTERNS[language] ?? DEFINITION_PATTERNS[
-    language === "jsx" ? "javascript" : language === "tsx" ? "typescript" : ""
-  ];
+  const pattern = DEFINITION_PATTERNS[language];
 
   if (pattern) {
     // Reset regex state

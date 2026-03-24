@@ -13,6 +13,11 @@ import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject } from "../ontology/mo-store.js";
 import type { MemoryObject } from "../ontology/types.js";
 
+/** Escape LIKE meta-characters (%, _, \) so the value is treated literally. */
+function escapeLikeValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export function upsertRunbook(
   db: GraphDb,
   input: UpsertRunbookInput,
@@ -133,8 +138,8 @@ export function getRunbooks(
   const args: unknown[] = [scopeId];
 
   if (opts?.toolName) {
-    where.push("structured_json LIKE ?");
-    args.push(`%"toolName":"${opts.toolName}"%`);
+    where.push("structured_json LIKE ? ESCAPE '\\'");
+    args.push(`%"toolName":"${escapeLikeValue(opts.toolName)}"%`);
   }
 
   // isNegative=false for runbooks
@@ -270,10 +275,10 @@ export function inferRunbookFromAttempts(
   const successes = db.prepare(`
     SELECT id, structured_json FROM memory_objects
     WHERE scope_id = ? AND kind = 'attempt' AND status = 'active'
-      AND structured_json LIKE ?
+      AND structured_json LIKE ? ESCAPE '\'
       AND structured_json LIKE '%"status":"success"%'
     ORDER BY created_at DESC LIMIT ?
-  `).all(scopeId, `%"toolName":"${toolName}"%`, minSuccesses) as Array<{ id: number; structured_json: string | null }>;
+  `).all(scopeId, `%"toolName":"${escapeLikeValue(toolName)}"%`, minSuccesses) as Array<{ id: number; structured_json: string | null }>;
 
   if (successes.length < minSuccesses) return null;
 
