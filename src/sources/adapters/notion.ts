@@ -45,7 +45,7 @@ export class NotionAdapter extends PollingAdapterBase {
       await client.users.me({});
       return true;
     } catch (err) {
-      this.unavailableReason = `Notion API key invalid: ${err}`;
+      this.unavailableReason = `Notion API error: ${err instanceof Error ? err.message : String(err)}`;
       return false;
     }
   }

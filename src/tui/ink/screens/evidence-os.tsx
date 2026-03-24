@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { Menu, Section, Separator, KV, Spinner, t, useInterval, type MenuItem } from "../components.js";
 import { getApiBaseUrl, getApiPort } from "../../platform.js";
@@ -89,6 +89,14 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
 
   // Entity detail loading
   const [entityLoading, setEntityLoading] = useState(false);
+
+  // Escape key cancels "Add Term" input
+  useInput((_input, key) => {
+    if (key.escape && addingTerm) {
+      setAddingTerm(false);
+      setNewTermText("");
+    }
+  });
 
   const fetchData = async () => {
     const up = await isPortReachable(getApiPort());

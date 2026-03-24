@@ -458,7 +458,10 @@ function isPortOpen(port: number): boolean {
     if (getPlatform() === "windows") {
       const out = execFileSync("netstat", ["-an"], { stdio: "pipe", timeout: 5000 }).toString();
       // Check each line individually — port AND LISTENING must be on the same line
-      return out.split("\n").some((line) => line.includes(`:${port}`) && line.includes("LISTENING"));
+      return out.split("\n").some((line) => {
+        const match = line.match(/:(\d+)\s/);
+        return match && parseInt(match[1], 10) === port && line.includes("LISTENING");
+      });
     } else {
       execFileSync("lsof", ["-i", `:${port}`, "-sTCP:LISTEN"], { stdio: "pipe", timeout: 5000 });
       return true;
