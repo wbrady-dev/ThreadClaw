@@ -671,176 +671,248 @@ async function configureFieldGroup(
 
 async function configureParser(): Promise<void> {
   const root = getRootDir();
-  const config = readConfig(root);
+  const python = getPythonCmd();
 
-  const action = await promptMenu({
-    title: "Document Parser",
-    message: `Current parser: ${config?.docling_device ?? "off"}`,
-    items: [
-      { label: "Standard (built-in)", value: "off", description: "No Docling dependency required." },
-      { label: "Docling CPU", value: "cpu", description: "Layout-aware parsing with no VRAM requirement." },
-      { label: "Docling GPU", value: "gpu", description: "Fastest parsing on supported GPUs." },
-      { label: "Back", value: "__back__", color: t.dim },
-    ],
-  });
+  while (true) {
+    const config = readConfig(root);
+    const mode = config?.docling_device ?? "off";
 
-  if (!action || action === "__back__") return;
-  if (action !== "off") {
-    const install = await promptConfirm({
-      title: "Docling Dependency",
-      message: "If Docling is missing, install it now?",
-      confirmLabel: "Install if needed",
-      cancelLabel: "Skip",
+    let doclingInstalled = false;
+    try {
+      execFileSync(python, ["-c", "import docling"], { stdio: "pipe", timeout: 10000 });
+      doclingInstalled = true;
+    } catch {}
+
+    const modeLabel = mode === "off" ? "off" : mode === "cpu" ? "Docling CPU" : "Docling GPU";
+    const statusLabel = doclingInstalled ? t.ok("installed") : t.dim("not installed");
+
+    const action = await promptMenu({
+      title: "Document Parser",
+      message: "Controls how documents are parsed during ingestion.",
+      items: [
+        { label: `  Parser Mode         ${t.dim(modeLabel)}`, value: "mode", description: "Standard / Docling CPU / Docling GPU" },
+        { label: `  Docling Status      ${statusLabel}`, value: "__sep_status__" },
+        { label: `  Install Docling`, value: "install", description: "Download and install the Docling package" },
+        { label: "", value: "__sep_blank__" },
+        { label: "  Back", value: "__back__", color: t.dim },
+      ],
     });
-    if (install == null) return;
-    if (install) {
-      try {
-        execFileSync(getPythonCmd(), ["-c", "import docling"], { stdio: "pipe", timeout: 10000 });
-      } catch {
-        const spinner = ora("Installing Docling...").start();
-        try {
-          execFileSync(getPythonCmd(), ["-m", "pip", "install", "docling"], { stdio: "pipe", timeout: 600000 });
-          spinner.succeed("Docling installed");
-        } catch (error) {
-          spinner.fail("Docling install failed");
-          await showNotice("Docling Install Failed", String(error).slice(0, 240));
-          return;
-        }
+
+    if (!action || action === "__back__") return;
+    if (action.startsWith("__sep")) continue;
+
+    if (action === "mode") {
+      const selected = await promptMenu({
+        title: "Parser Mode",
+        message: `Current: ${modeLabel}`,
+        items: [
+          { label: "Standard (built-in)", value: "off", description: "No Docling dependency required." },
+          { label: "Docling CPU", value: "cpu", description: "Layout-aware parsing with no VRAM requirement." },
+          { label: "Docling GPU", value: "gpu", description: "Fastest parsing on supported GPUs." },
+          { label: "Back", value: "__back__", color: t.dim },
+        ],
+      });
+      if (!selected || selected === "__back__") continue;
+      writeConfig({
+        ...(config ?? { embed_model: "", rerank_model: "", trust_remote_code: false }),
+        docling_device: selected,
+      }, root);
+      await showNotice("Parser Updated", `Parser mode set to ${selected === "off" ? "Standard" : `Docling ${selected.toUpperCase()}`}.`);
+      continue;
+    }
+
+    if (action === "install") {
+      if (doclingInstalled) {
+        await showNotice("Docling", "Docling is already installed.");
+        continue;
       }
+      const spinner = ora("Installing Docling...").start();
+      try {
+        execFileSync(python, ["-m", "pip", "install", "docling"], { stdio: "pipe", timeout: 600000 });
+        spinner.succeed("Docling installed");
+        await showNotice("Docling", "Docling installed successfully.");
+      } catch (error) {
+        spinner.fail("Docling install failed");
+        await showNotice("Docling Install Failed", String(error).slice(0, 240));
+      }
+      continue;
     }
   }
-
-  writeConfig({
-    ...(config ?? { embed_model: "", rerank_model: "", trust_remote_code: false }),
-    docling_device: action,
-  }, root);
-  await showNotice("Parser Updated", "Document parser settings saved.");
 }
 
 async function configureOcr(): Promise<void> {
-  const action = await promptMenu({
-    title: "Image OCR",
-    message: hasTesseract()
-      ? "Tesseract is already installed. OCR is active for supported image files."
-      : "Tesseract is not installed yet.",
-    items: hasTesseract()
-      ? [{ label: "Back", value: "__back__", color: t.dim }]
-      : [
-          { label: "Install Tesseract", value: "install", description: "Install OCR support for images and scans." },
-          { label: "Back", value: "__back__", color: t.dim },
-        ],
-  });
+  const root = getRootDir();
 
-  if (!action || action === "__back__") return;
+  while (true) {
+    const installed = hasTesseract();
+    const env = readEnvMap(root);
+    const ocrLang = env.OCR_LANGUAGE ?? "eng";
+    const statusLabel = installed ? t.ok("installed") : t.dim("not installed");
 
-  const spinner = ora("Installing Tesseract...").start();
-  try {
-    const platform = getPlatform();
-    if (platform === "windows") {
-      try {
-        execFileSync("winget", ["install", "UB-Mannheim.TesseractOCR", "--accept-source-agreements", "--accept-package-agreements"], { stdio: "pipe", timeout: 120000 });
-      } catch {
-        execFileSync("choco", ["install", "tesseract", "-y"], { stdio: "pipe", timeout: 120000 });
+    const action = await promptMenu({
+      title: "Image OCR (Tesseract)",
+      message: "Extracts text from images and scanned documents.",
+      items: [
+        { label: `  Status              ${statusLabel}`, value: "__sep_status__" },
+        { label: `  OCR Language        ${t.dim(ocrLang)}`, value: "language", description: "Tesseract language code (e.g. eng, deu, fra)" },
+        { label: `  Install Tesseract`, value: "install", description: "Download and install Tesseract OCR" },
+        { label: "", value: "__sep_blank__" },
+        { label: "  Back", value: "__back__", color: t.dim },
+      ],
+    });
+
+    if (!action || action === "__back__") return;
+    if (action.startsWith("__sep")) continue;
+
+    if (action === "language") {
+      const newLang = await promptText({
+        title: "OCR Language",
+        message: "Enter Tesseract language code (e.g. eng, deu, fra, jpn):",
+        defaultValue: ocrLang,
+        allowEmpty: false,
+      });
+      if (newLang != null) {
+        updateEnvValues(root, { OCR_LANGUAGE: newLang });
+        await showNotice("OCR Language", `Language set to ${newLang}.`);
       }
-    } else if (platform === "mac") {
-      execFileSync("brew", ["install", "tesseract"], { stdio: "pipe", timeout: 120000 });
-    } else {
-      try {
-        execFileSync("sudo", ["apt", "install", "-y", "tesseract-ocr"], { stdio: "pipe", timeout: 120000 });
-      } catch {
-        execFileSync("sudo", ["yum", "install", "-y", "tesseract"], { stdio: "pipe", timeout: 120000 });
-      }
+      continue;
     }
-    spinner.succeed("Tesseract installed");
-    await showNotice("Image OCR", "Tesseract installed successfully.");
-  } catch (error) {
-    spinner.fail("Tesseract install failed");
-    await showNotice("Image OCR", `Install failed: ${String(error).slice(0, 220)}`);
+
+    if (action === "install") {
+      if (installed) {
+        await showNotice("Tesseract", "Tesseract is already installed.");
+        continue;
+      }
+      const spinner = ora("Installing Tesseract...").start();
+      try {
+        const platform = getPlatform();
+        if (platform === "windows") {
+          try {
+            execFileSync("winget", ["install", "UB-Mannheim.TesseractOCR", "--accept-source-agreements", "--accept-package-agreements"], { stdio: "pipe", timeout: 120000 });
+          } catch {
+            execFileSync("choco", ["install", "tesseract", "-y"], { stdio: "pipe", timeout: 120000 });
+          }
+        } else if (platform === "mac") {
+          execFileSync("brew", ["install", "tesseract"], { stdio: "pipe", timeout: 120000 });
+        } else {
+          try {
+            execFileSync("sudo", ["apt", "install", "-y", "tesseract-ocr"], { stdio: "pipe", timeout: 120000 });
+          } catch {
+            execFileSync("sudo", ["yum", "install", "-y", "tesseract"], { stdio: "pipe", timeout: 120000 });
+          }
+        }
+        spinner.succeed("Tesseract installed");
+        await showNotice("Image OCR", "Tesseract installed successfully.");
+      } catch (error) {
+        spinner.fail("Tesseract install failed");
+        await showNotice("Image OCR", `Install failed: ${String(error).slice(0, 220)}`);
+      }
+      continue;
+    }
   }
 }
 
 async function configureAudio(): Promise<void> {
   const root = getRootDir();
-  const env = readEnvMap(root);
-  const enabled = env.AUDIO_TRANSCRIPTION_ENABLED === "true";
-  const model = env.WHISPER_MODEL ?? "base";
 
-  const action = await promptMenu({
-    title: "Audio Transcription",
-    message: `Current status: ${enabled ? "enabled" : "disabled"} | model: ${model}`,
-    items: [
-      { label: enabled ? "Disable transcription" : "Enable transcription", value: "toggle" },
-      ...WHISPER_MODELS.map((entry) => ({
-        label: `Use ${entry.value}${entry.value === model ? " (current)" : ""}`,
-        value: `model:${entry.value}`,
-        description: entry.label,
-      })),
-      { label: "Back", value: "__back__", color: t.dim },
-    ],
-  });
+  while (true) {
+    const env = readEnvMap(root);
+    const enabled = env.AUDIO_TRANSCRIPTION_ENABLED === "true";
+    const model = env.WHISPER_MODEL ?? "base";
 
-  if (!action || action === "__back__") return;
-  if (action === "toggle") {
-    updateEnvValues(root, { AUDIO_TRANSCRIPTION_ENABLED: enabled ? "false" : "true" });
-    await showNotice("Audio Transcription", enabled ? "Transcription disabled." : "Transcription enabled.");
-    return;
-  }
-
-  if (action.startsWith("model:")) {
-    const selectedModel = action.slice("model:".length);
-    updateEnvValues(root, {
-      WHISPER_MODEL: selectedModel,
-      AUDIO_TRANSCRIPTION_ENABLED: "true",
+    const action = await promptMenu({
+      title: "Audio Transcription",
+      message: "Whisper-based audio transcription for ingested audio files.",
+      items: [
+        { label: "Status", value: "toggle", description: enabled ? "on" : "off" },
+        { label: "Model", value: "model", description: model },
+        { label: "Back", value: "__back__", color: t.dim },
+      ],
     });
-    await showNotice("Audio Transcription", `Whisper model set to ${selectedModel}.`);
+
+    if (!action || action === "__back__") return;
+
+    if (action === "toggle") {
+      updateEnvValues(root, { AUDIO_TRANSCRIPTION_ENABLED: enabled ? "false" : "true" });
+      await showNotice("Audio Transcription", enabled ? "Transcription disabled." : "Transcription enabled.");
+      continue;
+    }
+
+    if (action === "model") {
+      const selected = await promptMenu({
+        title: "Whisper Model",
+        message: "Select the Whisper model to use for audio transcription.",
+        items: [
+          ...WHISPER_MODELS.map((entry) => ({
+            label: `${entry.value}${entry.value === model ? " (current)" : ""}`,
+            value: entry.value,
+            description: entry.label,
+          })),
+          { label: "Back", value: "__back__", color: t.dim },
+        ],
+      });
+
+      if (selected && selected !== "__back__") {
+        updateEnvValues(root, { WHISPER_MODEL: selected });
+        await showNotice("Whisper Model", `Model set to ${selected}.`);
+      }
+      continue;
+    }
   }
 }
 
 async function configureNer(): Promise<void> {
   const python = getPythonCmd();
-  let installed = false;
-  try {
-    execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 10000 });
-    installed = true;
-  } catch {}
 
-  const action = await promptMenu({
-    title: "NER (Entity Extraction)",
-    message: installed
-      ? "spaCy NER model (en_core_web_sm) is installed and available."
-      : "NER model not installed. Entity extraction uses regex fallback.\nNER improves entity extraction accuracy when Evidence OS is enabled.",
-    items: [
-      ...(!installed ? [{ label: "Install NER model", value: "install", description: "Download spaCy en_core_web_sm (~12 MB)" }] : []),
-      ...(installed ? [{ label: "Reinstall / update NER model", value: "install" }] : []),
-      { label: "Back", value: "__back__", color: t.dim },
-    ],
-  });
-
-  if (!action || action === "__back__") return;
-
-  if (action === "install") {
-    const spinner = ora("Installing spaCy NER model...").start();
+  while (true) {
+    let installed = false;
     try {
-      execFileSync(python, ["-m", "spacy", "download", "en_core_web_sm"], { stdio: "pipe", timeout: 120000 });
-      spinner.succeed("NER model installed (en_core_web_sm)");
+      execFileSync(python, ["-c", "import spacy; spacy.load('en_core_web_sm')"], { stdio: "pipe", timeout: 10000 });
+      installed = true;
+    } catch {}
 
-      const restart = await promptConfirm({
-        title: "Restart Required",
-        message: "The model server must be restarted for NER to load. Restart now?",
-      });
-      if (restart) {
-        const { performServiceAction } = await import("../service-actions.js");
-        await performServiceAction("restart", {
-          onStatus: (detail) => process.stdout.write(`\r  ${detail}${"".padEnd(40)}`),
+    const statusLabel = installed ? t.ok("installed") : t.dim("not installed");
+
+    const action = await promptMenu({
+      title: "NER — Named Entity Recognition (spaCy)",
+      message: "Improves entity extraction accuracy for Evidence OS.",
+      items: [
+        { label: `  Status              ${statusLabel}`, value: "__sep_status__" },
+        { label: `  Model               ${t.dim("en_core_web_sm")}`, value: "__sep_model__" },
+        { label: `  Install / Update`, value: "install", description: "Download spaCy en_core_web_sm (~12 MB)" },
+        { label: "", value: "__sep_blank__" },
+        { label: "  Back", value: "__back__", color: t.dim },
+      ],
+    });
+
+    if (!action || action === "__back__") return;
+    if (action.startsWith("__sep")) continue;
+
+    if (action === "install") {
+      const spinner = ora("Installing spaCy NER model...").start();
+      try {
+        execFileSync(python, ["-m", "spacy", "download", "en_core_web_sm"], { stdio: "pipe", timeout: 120000 });
+        spinner.succeed("NER model installed (en_core_web_sm)");
+
+        const restart = await promptConfirm({
+          title: "Restart Required",
+          message: "The model server must be restarted for NER to load. Restart now?",
         });
-        console.log("");
-        await showNotice("NER", "Model server restarted. NER is now active.");
-      } else {
-        await showNotice("NER", "NER will activate on next model server restart.");
+        if (restart) {
+          const { performServiceAction } = await import("../service-actions.js");
+          await performServiceAction("restart", {
+            onStatus: (detail) => process.stdout.write(`\r  ${detail}${"".padEnd(40)}`),
+          });
+          console.log("");
+          await showNotice("NER", "Model server restarted. NER is now active.");
+        } else {
+          await showNotice("NER", "NER will activate on next model server restart.");
+        }
+      } catch (error) {
+        spinner.fail("NER install failed");
+        await showNotice("NER", `Install failed: ${String(error).slice(0, 220)}`);
       }
-    } catch (error) {
-      spinner.fail("NER install failed");
-      await showNotice("NER", `Install failed: ${String(error).slice(0, 220)}`);
+      continue;
     }
   }
 }
