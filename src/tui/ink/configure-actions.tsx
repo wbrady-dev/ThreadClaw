@@ -624,62 +624,119 @@ async function configureCustomModel(type: "embed" | "rerank", python: string): P
 
 async function configureExpansion(): Promise<void> {
   const root = getRootDir();
-  const env = readEnvMap(root);
-  const enabled = env.QUERY_EXPANSION_ENABLED === "true";
 
-  const action = await promptMenu({
-    title: "Query Expansion",
-    message: enabled
-      ? `Currently enabled with ${env.QUERY_EXPANSION_MODEL ?? "an unknown model"}.`
-      : "Currently disabled.",
-    items: [
-      { label: "Enable / Update", value: "enable", description: "Set URL, model, and optional API key." },
-      { label: "Disable", value: "disable", description: "Turn off query expansion." },
-      { label: "Back", value: "__back__", color: t.dim },
-    ],
-  });
+  while (true) {
+    const env = readEnvMap(root);
+    const enabled = env.QUERY_EXPANSION_ENABLED === "true";
+    const url = env.QUERY_EXPANSION_URL || "http://127.0.0.1:1234/v1";
+    const model = env.QUERY_EXPANSION_MODEL || "not set";
+    const apiKey = env.QUERY_EXPANSION_API_KEY;
+    const temperature = env.QUERY_EXPANSION_TEMPERATURE || "0.3";
+    const maxTokens = env.QUERY_EXPANSION_MAX_TOKENS || "512";
+    const timeout = env.QUERY_EXPANSION_TIMEOUT_MS || "15000";
+    const dot = (on: boolean) => on ? t.ok("on") : t.dim("off");
 
-  if (!action || action === "__back__") return;
-  if (action === "disable") {
-    updateEnvValues(root, { QUERY_EXPANSION_ENABLED: "false" });
-    await showNotice("Query Expansion", "Query expansion disabled.");
-    return;
+    const action = await promptMenu({
+      title: "Query Expansion",
+      message: "LLM-powered query rewriting (optional).\nAll settings take effect immediately.",
+      items: [
+        { label: t.dim("── Status ────────────────────"), value: "__sep_status__" },
+        { label: `  Enabled               ${dot(enabled)}`, value: "toggle-enabled", description: "Toggle query expansion on/off" },
+        { label: "", value: "__sep_blank1__" },
+        { label: t.dim("── LLM Connection ────────────"), value: "__sep_llm__" },
+        { label: `  Endpoint URL          ${t.dim(url)}`, value: "edit-url", description: "Local LM Studio / Ollama or cloud chat endpoint" },
+        { label: `  Model                 ${t.dim(model)}`, value: "edit-model", description: "Model name for query rewriting" },
+        { label: `  API Key               ${t.dim(apiKey ? "••••••" : "not set")}`, value: "edit-apikey", description: "Required for cloud providers" },
+        { label: "", value: "__sep_blank2__" },
+        { label: t.dim("── Parameters ────────────────"), value: "__sep_params__" },
+        { label: `  Temperature           ${t.dim(temperature)}`, value: "edit-temperature", description: "Sampling temperature (0.0–2.0)" },
+        { label: `  Max Tokens            ${t.dim(maxTokens)}`, value: "edit-max-tokens", description: "Maximum tokens in expansion response" },
+        { label: `  Timeout (ms)          ${t.dim(timeout)}`, value: "edit-timeout", description: "Request timeout in milliseconds" },
+        { label: "", value: "__sep_blank3__" },
+        { label: "  Back", value: "__back__", color: t.dim },
+      ],
+    });
+
+    if (!action || action === "__back__") return;
+    if (action.startsWith("__sep")) continue;
+
+    if (action === "toggle-enabled") {
+      updateEnvValues(root, { QUERY_EXPANSION_ENABLED: enabled ? "false" : "true" });
+      continue;
+    }
+    if (action === "edit-url") {
+      const val = await promptText({
+        title: "Expansion Endpoint URL",
+        message: "Local LM Studio / Ollama or cloud OpenAI-compatible chat endpoint.",
+        label: "URL",
+        initial: env.QUERY_EXPANSION_URL || "http://127.0.0.1:1234/v1",
+        validate: (v) => validateField(v, "url"),
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_URL: val });
+      continue;
+    }
+    if (action === "edit-model") {
+      const val = await promptText({
+        title: "Expansion Model",
+        message: "Model name used to rewrite user queries (e.g. llama3.1:8b, gpt-4o-mini).",
+        label: "Model",
+        initial: env.QUERY_EXPANSION_MODEL ?? "",
+        allowEmpty: false,
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_MODEL: val });
+      continue;
+    }
+    if (action === "edit-apikey") {
+      const val = await promptText({
+        title: "Expansion API Key",
+        message: "Leave blank if this is a local endpoint.",
+        label: "API Key",
+        initial: env.QUERY_EXPANSION_API_KEY ?? "",
+        mask: "*",
+        allowEmpty: true,
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_API_KEY: val });
+      continue;
+    }
+    if (action === "edit-temperature") {
+      const val = await promptText({
+        title: "Expansion Temperature",
+        message: "Sampling temperature for query rewriting (0.0–2.0). Lower = more focused.",
+        label: "Temperature",
+        initial: env.QUERY_EXPANSION_TEMPERATURE || "0.3",
+        validate: (v) => {
+          const n = Number(v);
+          if (isNaN(n)) return "Must be a number.";
+          if (n < 0 || n > 2) return "Must be between 0.0 and 2.0.";
+          return null;
+        },
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_TEMPERATURE: val });
+      continue;
+    }
+    if (action === "edit-max-tokens") {
+      const val = await promptText({
+        title: "Expansion Max Tokens",
+        message: "Maximum tokens in the expansion response.",
+        label: "Max Tokens",
+        initial: env.QUERY_EXPANSION_MAX_TOKENS || "512",
+        validate: (v) => validateField(v, "number"),
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_MAX_TOKENS: val });
+      continue;
+    }
+    if (action === "edit-timeout") {
+      const val = await promptText({
+        title: "Expansion Timeout",
+        message: "Request timeout in milliseconds. Increase for slow endpoints.",
+        label: "Timeout (ms)",
+        initial: env.QUERY_EXPANSION_TIMEOUT_MS || "15000",
+        validate: (v) => validateField(v, "number"),
+      });
+      if (val != null) updateEnvValues(root, { QUERY_EXPANSION_TIMEOUT_MS: val });
+      continue;
+    }
   }
-
-  const url = await promptText({
-    title: "Expansion Endpoint",
-    message: "Local LM Studio / Ollama or cloud OpenAI-compatible chat endpoint.",
-    label: "URL",
-    initial: env.QUERY_EXPANSION_URL ?? "http://127.0.0.1:1234/v1",
-  });
-  if (!url) return;
-
-  const model = await promptText({
-    title: "Expansion Model",
-    message: "Model name used to rewrite user queries.",
-    label: "Model",
-    initial: env.QUERY_EXPANSION_MODEL ?? "",
-  });
-  if (!model) return;
-
-  const apiKey = await promptText({
-    title: "API Key",
-    message: "Leave blank if this is a local endpoint.",
-    label: "API Key",
-    initial: env.QUERY_EXPANSION_API_KEY ?? "",
-    mask: "*",
-    allowEmpty: true,
-  });
-  if (apiKey == null) return;
-
-  const updates: Record<string, string> = {
-    QUERY_EXPANSION_ENABLED: "true",
-    QUERY_EXPANSION_URL: url,
-    QUERY_EXPANSION_MODEL: model,
-  };
-  if (apiKey) updates.QUERY_EXPANSION_API_KEY = apiKey;
-  updateEnvValues(root, updates);
-  await showNotice("Query Expansion", "Query expansion settings saved.");
 }
 
 async function configureFieldGroup(
