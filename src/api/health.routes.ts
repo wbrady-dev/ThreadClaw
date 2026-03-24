@@ -57,7 +57,10 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
     }
   });
 
-  server.get("/stats", async () => {
+  server.get("/stats", async (request, reply) => {
+    if (!isLocalRequest(request)) {
+      return reply.code(403).send({ error: "Forbidden" });
+    }
     const db = getDb(resolve(config.dataDir, "threadclaw.db"));
 
     const collections = listCollections(db);

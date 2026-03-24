@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, renameSync, statSync, copyFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, statSync, copyFileSync, chmodSync } from "fs";
 import { resolve } from "path";
 
 export type EnvMap = Record<string, string>;
@@ -116,11 +116,17 @@ export function backupEnvIfNeeded(envPath: string): void {
   try {
     if (!existsSync(bakPath)) {
       copyFileSync(envPath, bakPath);
+      if (process.platform !== "win32") {
+        try { chmodSync(bakPath, 0o600); } catch {}
+      }
       return;
     }
     const age = Date.now() - statSync(bakPath).mtimeMs;
     if (age > ONE_HOUR_MS) {
       copyFileSync(envPath, bakPath);
+      if (process.platform !== "win32") {
+        try { chmodSync(bakPath, 0o600); } catch {}
+      }
     }
   } catch {}
 }

@@ -1143,21 +1143,30 @@ function printVerification(root: string, python: string, envPath: string): void 
   }
 }
 
-function installSkills(openclawDir: string | null, sourceRoot: string, root: string): void {
+function installSkills(openclawDir: string | null, _sourceRoot: string, root: string): void {
   if (!openclawDir) return;
   try {
     const openclawConfig = JSON.parse(readFileSync(resolve(openclawDir, "openclaw.json"), "utf-8"));
     const workspace = openclawConfig?.agents?.defaults?.workspace ?? resolve(openclawDir, "workspace");
-    const skillsSource = resolve(root, "skills");
-    if (!existsSync(skillsSource)) return;
-    const skillsDestination = resolve(workspace, "skills");
-    mkdirSync(skillsDestination, { recursive: true });
-    for (const skillDir of ["threadclaw-evidence", "threadclaw-knowledge"]) {
-      const source = resolve(skillsSource, skillDir);
-      if (existsSync(source)) cpSync(source, resolve(skillsDestination, skillDir), { recursive: true });
+    const shippedDir = resolve(root, "skills");
+    if (!existsSync(shippedDir)) return;
+    const workspaceSkillsDir = resolve(workspace, "skills");
+    mkdirSync(workspaceSkillsDir, { recursive: true });
+
+    // Use syncSkills for proper 3-way merge (same as upgrade path)
+    const { syncSkills } = require("../../skills.js");
+    const { readManifest, writeManifest } = require("../../version.js");
+    const manifest = readManifest();
+    const { results, updatedHashes } = syncSkills(shippedDir, workspaceSkillsDir, manifest.skills ?? {});
+    for (const r of results) {
+      if (r.action === "installed") console.log(t.ok(`  Skills: ${r.name} installed`));
+      else if (r.action === "updated") console.log(t.ok(`  Skills: ${r.name} updated`));
+      else if (r.action === "skipped") console.log(t.warn(`  Skills: ${r.name} skipped — ${r.reason}`));
     }
+    // Persist skill hashes in manifest so upgrade can detect user modifications
+    writeManifest({ ...manifest, skills: updatedHashes });
   } catch (error) {
-    console.error(t.warn(`  Skills installation failed: ${String(error).slice(0, 200)}`));
+    console.error(t.warn(`  Skills sync failed (non-fatal): ${String(error).slice(0, 200)}`));
   }
 }
 

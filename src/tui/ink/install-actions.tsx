@@ -173,15 +173,28 @@ export async function runInkInstall(): Promise<boolean> {
     embedChoice = EMBED_MODELS.find((model) => model.id === presetMap[tier].embed) ?? null;
     rerankChoice = RERANK_MODELS.find((model) => model.id === presetMap[tier].rerank) ?? null;
   } else {
-    // Advanced: pick models individually — cancel goes back to re-pick
+    // Advanced: pick models individually — cancel offers exit
     while (true) {
       embedChoice = await selectModel("embed", gpu, 0, python);
       if (embedChoice) break;
-      // User cancelled — loop back to re-pick
+      const retry = await promptConfirm({
+        title: "Embedding Model",
+        message: "No model selected. Try again?",
+        confirmLabel: "Try Again",
+        cancelLabel: "Cancel Install",
+      });
+      if (!retry) return false;
     }
     while (true) {
       rerankChoice = await selectModel("rerank", gpu, embedChoice.vramMb, python);
       if (rerankChoice) break;
+      const retry = await promptConfirm({
+        title: "Reranker Model",
+        message: "No model selected. Try again?",
+        confirmLabel: "Try Again",
+        cancelLabel: "Cancel Install",
+      });
+      if (!retry) return false;
     }
   }
   if (!embedChoice || !rerankChoice) {

@@ -13,7 +13,7 @@
  * Read-only: ThreadClaw NEVER writes, modifies, or deletes Drive files.
  */
 import { google, type drive_v3 } from "googleapis";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, createWriteStream } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, createWriteStream, chmodSync } from "fs";
 import { resolve, join, extname } from "path";
 import { homedir } from "os";
 import { createServer } from "http";
@@ -214,6 +214,10 @@ async function initDriveClient(): Promise<drive_v3.Drive> {
     };
     mkdirSync(CREDENTIALS_DIR, { recursive: true });
     writeFileSync(CREDENTIALS_FILE, JSON.stringify(updated, null, 2));
+    // Restrict permissions on Unix (match initial OAuth write)
+    if (process.platform !== "win32") {
+      try { chmodSync(CREDENTIALS_FILE, 0o600); } catch {}
+    }
   });
 
   return google.drive({ version: "v3", auth: oauth2 });
