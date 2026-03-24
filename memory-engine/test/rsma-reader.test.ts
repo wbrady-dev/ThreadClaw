@@ -18,7 +18,6 @@ import {
   insertProvenanceLink,
   getProvenanceLinksForSubject,
 } from "../src/ontology/projector.js";
-import { buildCanonicalKey } from "../src/ontology/canonical.js";
 import { computeRelevance, TASK_MODE_WEIGHTS } from "../src/ontology/types.js";
 
 let db: GraphDb;

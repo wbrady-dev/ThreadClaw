@@ -62,6 +62,10 @@ export function listCollections(db: Database.Database): Collection[] {
 }
 
 export function deleteCollection(db: Database.Database, id: string): void {
+  // Gather document IDs before deletion (needed for graph cleanup)
+  const docIds = (db.prepare("SELECT id FROM documents WHERE collection_id = ?").all(id) as { id: string }[])
+    .map((d) => d.id);
+
   db.transaction(() => {
     // Delete vectors for chunks in this collection
     db.prepare(
@@ -75,6 +79,16 @@ export function deleteCollection(db: Database.Database, id: string): void {
     // Cascading deletes handle documents -> chunks -> metadata_index
     db.prepare("DELETE FROM collections WHERE id = ?").run(id);
   })();
+
+  // Clean up graph data for each document (best-effort, outside transaction since it's a separate DB)
+  try {
+    if (config.relations?.enabled && config.relations?.graphDbPath && docIds.length > 0) {
+      const graphDb = getGraphDb(config.relations.graphDbPath);
+      for (const docId of docIds) {
+        deleteSourceData(graphDb, "document", docId);
+      }
+    }
+  } catch {} // Non-fatal — graph cleanup is best-effort
 }
 
 export function getCollectionStats(

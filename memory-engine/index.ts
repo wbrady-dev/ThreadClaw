@@ -1299,8 +1299,10 @@ const lcmPlugin = {
     let lcm: LcmContextEngine;
     const cached = _engineCache.get(cacheKey);
     if (cached) {
-      deps = cached.deps;
+      // Always use freshDeps so env/config changes take effect on re-registration
+      deps = freshDeps;
       lcm = cached.lcm;
+      _engineCache.set(cacheKey, { deps, lcm });
     } else {
       deps = freshDeps;
       lcm = new LcmContextEngine(deps);

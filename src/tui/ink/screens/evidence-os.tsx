@@ -57,7 +57,6 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState("");
   const [online, setOnline] = useState(false);
   const [relationsEnabled, setRelationsEnabled] = useState(true);
-  const [, setTick] = useState(0);
 
   const fetchData = async () => {
     const up = await isPortReachable(getApiPort());

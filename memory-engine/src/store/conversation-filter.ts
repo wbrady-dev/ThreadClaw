@@ -3,7 +3,7 @@
  * Used by both ConversationStore and SummaryStore.
  */
 
-export type ConversationId = number;
+type ConversationId = number;
 
 /**
  * Build WHERE clause fragments for conversation-scoped queries.

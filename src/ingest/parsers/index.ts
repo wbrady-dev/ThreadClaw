@@ -10,7 +10,7 @@ import { parseDocx } from "./docx.js";
 import { parsePptx } from "./pptx.js";
 import { parseImage } from "./image.js";
 import { parseEpub } from "./epub.js";
-import { parseAudio, isAudioTranscriptionEnabled } from "./audio.js";
+import { parseAudio } from "./audio.js";
 import { ParseError } from "../../utils/errors.js";
 import { extname } from "path";
 
@@ -152,5 +152,3 @@ export function getParser(filePath: string): Parser {
 export function getSupportedExtensions(): string[] {
   return [...new Set([...Object.keys(PARSER_MAP), ...DOCLING_PREFERRED])];
 }
-
-

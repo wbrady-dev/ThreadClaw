@@ -187,12 +187,11 @@ if %EXIT_CODE% equ 0 (
 
     :: Find Python and models script
     set "PYTHON=%SCRIPT_DIR%\.venv\Scripts\python.exe"
-    if exist "%SCRIPT_DIR%\server\server.py" (
-        set "MODELS_SCRIPT=%SCRIPT_DIR%\server\server.py"
-    ) else if exist "%SCRIPT_DIR%\..\rerank-server.py" (
-        set "MODELS_SCRIPT=%SCRIPT_DIR%\..\rerank-server.py"
-    ) else (
-        set "MODELS_SCRIPT=%SCRIPT_DIR%\server\rerank-server.py"
+    set "MODELS_SCRIPT=%SCRIPT_DIR%\server\server.py"
+    if not exist "!MODELS_SCRIPT!" (
+        echo [ERROR] server\server.py not found. Installation may be corrupt.
+        pause
+        exit /b 1
     )
 
     :: Create wrapper scripts for Task Scheduler

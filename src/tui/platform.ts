@@ -421,16 +421,7 @@ function findApiEntryArgs(root: string): string[] {
 }
 
 export function findModelsScript(root: string): string {
-  const candidates = [
-    resolve(root, "server", "server.py"),
-    resolve(root, "..", "rerank-server.py"),       // legacy fallback
-    resolve(root, "server", "rerank-server.py"),   // legacy fallback
-    resolve(root, "rerank-server.py"),             // legacy fallback
-  ];
-  for (const p of candidates) {
-    if (existsSync(p)) return p;
-  }
-  return candidates[0];
+  return resolve(root, "server", "server.py");
 }
 
 /**

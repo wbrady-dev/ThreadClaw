@@ -21,6 +21,7 @@ export type {
   ContextItemType,
   CreateSummaryInput,
   SummaryRecord,
+  SummarySubtreeNodeRecord,
   ContextItemRecord,
   SummarySearchInput,
   SummarySearchResult,

@@ -61,12 +61,12 @@ console.log("");
 
 // ── KG: Existing Entity Graph ──
 console.log("\u2500\u2500 KG: Knowledge Graph (existing data) \u2500\u2500");
-const entityCount = (db.prepare("SELECT COUNT(*) as cnt FROM entities").get() as any).cnt;
-const mentionCount = (db.prepare("SELECT COUNT(*) as cnt FROM entity_mentions").get() as any).cnt;
+const entityCount = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as any).cnt;
+const mentionCount = (db.prepare("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'mentioned_in'").get() as any).cnt;
 test(`entities in live DB (${entityCount})`, () => assert(entityCount > 0));
 test(`mentions in live DB (${mentionCount})`, () => assert(mentionCount > 0));
 
-const topEntities = db.prepare("SELECT display_name, mention_count FROM entities ORDER BY mention_count DESC LIMIT 5").all() as any[];
+const topEntities = db.prepare("SELECT content AS display_name, json_extract(structured_json, '$.mentionCount') AS mention_count FROM memory_objects WHERE kind = 'entity' ORDER BY json_extract(structured_json, '$.mentionCount') DESC LIMIT 5").all() as any[];
 console.log(`    Top: ${topEntities.map((e: any) => `${e.display_name}(${e.mention_count})`).join(", ")}`);
 
 // ── KG: Entity Extraction ──
@@ -221,8 +221,8 @@ test("relation upsert + query", () => {
     upsertEntity(db as any, { name: `smoke-svc-a-${RUN}`, displayName: "Service A", entityType: "service" });
     upsertEntity(db as any, { name: `smoke-svc-b-${RUN}`, displayName: "Service B", entityType: "service" });
   });
-  const aId = (db.prepare("SELECT id FROM entities WHERE name = ?").get(`smoke-svc-a-${RUN}`) as any).id;
-  const bId = (db.prepare("SELECT id FROM entities WHERE name = ?").get(`smoke-svc-b-${RUN}`) as any).id;
+  const aId = (db.prepare("SELECT id FROM memory_objects WHERE composite_id = ?").get(`entity:smoke-svc-a-${RUN}`) as any).id;
+  const bId = (db.prepare("SELECT id FROM memory_objects WHERE composite_id = ?").get(`entity:smoke-svc-b-${RUN}`) as any).id;
   const { isNew } = upsertRelation(db as any, { scopeId: 1, subjectEntityId: aId, predicate: "depends_on", objectEntityId: bId, confidence: 0.9, sourceType: "smoke", sourceId: "r1" });
   assert(isNew);
   assert(getRelationsForEntity(db as any, aId).some((r: any) => r.predicate === "depends_on"));

@@ -580,7 +580,8 @@ export class ConversationStore {
     }
 
     let deleted = 0;
-    this.db.exec("BEGIN IMMEDIATE");
+    let ownTx = false;
+    try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch { /* already in transaction */ }
     try {
       for (const messageId of messageIds) {
         // Skip if referenced by a summary (ON DELETE RESTRICT would fail anyway)
@@ -603,9 +604,9 @@ export class ConversationStore {
 
         deleted += 1;
       }
-      this.db.exec("COMMIT");
+      if (ownTx) this.db.exec("COMMIT");
     } catch (err) {
-      this.db.exec("ROLLBACK");
+      if (ownTx) this.db.exec("ROLLBACK");
       throw err;
     }
 
@@ -613,8 +614,6 @@ export class ConversationStore {
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
-
-  // buildConversationFilter is imported from ./conversation-filter.ts
 
   async searchMessages(input: MessageSearchInput): Promise<MessageSearchResult[]> {
     const limit = input.limit ?? 50;

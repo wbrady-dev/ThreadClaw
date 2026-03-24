@@ -323,11 +323,11 @@ export function deleteSourceData(db: Database.Database, sourceType: string, sour
  * Clear all data tables in the graph DB (for full reset).
  * Preserves infrastructure tables (state_scopes, promotion_policies, _evidence_migrations).
  *
- * Phase 3: Primary data lives in memory_objects + provenance_links.
- * Legacy tables are also cleared for backward compatibility.
+ * Primary entity data lives in entities + entity_mentions.
+ * Also clears memory_objects/provenance_links and legacy tables if present.
  */
 export function clearAllGraphTables(db: Database.Database): void {
-  // Primary unified tables
+  // RSMA unified tables (created by memory-engine, cleared if present)
   try { db.prepare("DELETE FROM provenance_links").run(); } catch {}
   try { db.prepare("DELETE FROM memory_objects").run(); } catch {}
 
@@ -348,7 +348,7 @@ export function clearAllGraphTables(db: Database.Database): void {
     try { db.prepare(`DELETE FROM ${table}`).run(); } catch {}
   }
 
-  // Keep evidence_log, state_deltas, capabilities
+  // Clear evidence log (audit trail is also reset on full wipe)
   try { db.prepare("DELETE FROM evidence_log").run(); } catch {}
 
   // Reset scope sequences to 1

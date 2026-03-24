@@ -3,5 +3,7 @@ torchvision
 sentence-transformers
 flask
 waitress
+spacy
 docling
-# Optional: pip install spacy && python -m spacy download en_core_web_sm
+# Note: spaCy model must be downloaded separately:
+#   python -m spacy download en_core_web_sm

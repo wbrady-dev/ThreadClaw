@@ -649,7 +649,7 @@ export class SummaryStore {
   }): Promise<void> {
     const { conversationId, startOrdinal, endOrdinal, summaryId } = input;
 
-    this.db.exec("BEGIN");
+    this.db.exec("BEGIN IMMEDIATE");
     try {
       // 1. Delete context items in the range [startOrdinal, endOrdinal]
       this.db
@@ -703,8 +703,6 @@ export class SummaryStore {
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
-
-  // buildConversationFilter is imported from ./conversation-filter.ts
 
   async searchSummaries(input: SummarySearchInput): Promise<SummarySearchResult[]> {
     const limit = input.limit ?? 50;

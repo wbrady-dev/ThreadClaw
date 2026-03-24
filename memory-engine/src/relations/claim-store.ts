@@ -93,8 +93,14 @@ export function upsertClaim(db: GraphDb, input: UpsertClaimInput): UpsertClaimRe
 // ---------------------------------------------------------------------------
 
 export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): number {
+  // Look up the claim's scope_id so we don't hardcode 1
+  const claimRow = db.prepare(
+    "SELECT scope_id FROM memory_objects WHERE id = ?",
+  ).get(input.claimId) as { scope_id: number } | undefined;
+  const scopeId = claimRow?.scope_id ?? 1;
+
   // Write ONLY to provenance_links (unified relationship table)
-  const result = db.prepare(`
+  db.prepare(`
     INSERT INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(subject_id, predicate, object_id) DO UPDATE SET
@@ -106,7 +112,7 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
     `${input.sourceType}:${input.sourceId}`,
     Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1)),
     input.sourceDetail ?? null,
-    1,
+    scopeId,
     JSON.stringify({ evidence_role: input.evidenceRole, snippet_hash: input.snippetHash, confidence_delta: input.confidenceDelta }),
   );
 
@@ -121,7 +127,7 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
   const evidenceId = evidenceRow.id;
 
   logEvidence(db, {
-    scopeId: 1,
+    scopeId,
     objectType: "claim_evidence",
     objectId: evidenceId,
     eventType: "create",

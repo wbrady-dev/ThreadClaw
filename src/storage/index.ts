@@ -1,4 +1,4 @@
-export { getDb, closeDb } from "./sqlite.js";
+export { getDb, closeDb, checkpoint } from "./sqlite.js";
 export { runMigrations } from "./schema.js";
 export { insertVector, searchVectors, deleteVectors } from "./vectors.js";
 export type { VectorSearchResult } from "./vectors.js";
@@ -12,7 +12,11 @@ export {
   deleteCollection,
   getCollectionStats,
   ensureCollection,
+  deleteDocument,
+  listDocuments,
+  resetKnowledgeBase,
 } from "./collections.js";
-export type { Collection, CollectionStats } from "./collections.js";
+export type { Collection, CollectionStats, DocumentInfo } from "./collections.js";
 export { insertMetadata, getDocumentIdsByMetadata } from "./metadata.js";
 export type { MetadataFilter } from "./metadata.js";
+export { getGraphDb, closeGraphDb } from "./graph-sqlite.js";

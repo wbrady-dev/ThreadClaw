@@ -1113,6 +1113,22 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     markMigrationApplied(db, 18);
   }
 
+  // Migration v19: Enforce UNIQUE on composite_id, add updated_at index for reader ORDER BY
+  if (!isMigrationApplied(db, 19)) {
+    // Deduplicate any composite_id collisions before adding UNIQUE constraint
+    db.exec(`
+      DELETE FROM memory_objects WHERE id NOT IN (
+        SELECT MIN(id) FROM memory_objects GROUP BY composite_id
+      )
+    `);
+    // Drop non-unique index and recreate as UNIQUE
+    db.exec(`DROP INDEX IF EXISTS idx_mo_composite`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mo_composite ON memory_objects(composite_id)`);
+    // Add index for reader's ORDER BY updated_at DESC queries
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_updated ON memory_objects(updated_at DESC)`);
+    markMigrationApplied(db, 19);
+  }
+
   // File permissions: chmod 600 on Unix/macOS, skip on Windows
   if (dbPath && process.platform !== "win32") {
     try {

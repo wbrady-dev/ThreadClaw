@@ -185,13 +185,6 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
           sizeMb: +(statSync(graphDbPath).size / 1024 / 1024).toFixed(2),
           entities: safe("SELECT COUNT(*) as cnt FROM entities"),
           mentions: safe("SELECT COUNT(*) as cnt FROM entity_mentions"),
-          claims: safe("SELECT COUNT(*) as cnt FROM claims WHERE status = 'active'"),
-          decisions: safe("SELECT COUNT(*) as cnt FROM decisions WHERE status = 'active'"),
-          loops: safe("SELECT COUNT(*) as cnt FROM open_loops WHERE status IN ('open','blocked')"),
-          attempts: safe("SELECT COUNT(*) as cnt FROM attempts"),
-          runbooks: safe("SELECT COUNT(*) as cnt FROM runbooks WHERE status = 'active'"),
-          antiRunbooks: safe("SELECT COUNT(*) as cnt FROM anti_runbooks WHERE status = 'active'"),
-          relations: safe("SELECT COUNT(*) as cnt FROM entity_relations"),
           evidenceEvents: safe("SELECT COUNT(*) as cnt FROM evidence_log"),
         };
       } catch (e: any) {

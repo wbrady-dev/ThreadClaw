@@ -16,7 +16,6 @@ import type { GpuInfo } from "../../models.js";
 let cachedSvc: ServiceStatus = { models: { running: false }, clawcore: { running: false } };
 let cachedAutoStart = false;
 let cachedGpu: GpuInfo = { name: "None detected", vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: false };
-let statusInitialized = false;
 
 export function StatusScreen({ onBack }: { onBack: () => void }) {
   const [tick, setTick] = useState(0);
@@ -66,7 +65,6 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
       };
       cachedSvc = serviceState;
       cachedAutoStart = autoStartState;
-      statusInitialized = true;
       setSvc(serviceState);
       setAutoStart(autoStartState);
 

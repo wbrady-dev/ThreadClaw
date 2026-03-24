@@ -63,10 +63,6 @@ export function failTask(id: string, detail: string): void {
   updateTask(id, { state: "error", detail });
 }
 
-export function infoTask(id: string, detail: string): void {
-  updateTask(id, { state: "info", detail });
-}
-
 export function getTaskSnapshot(): UiTask[] {
   return tasks;
 }

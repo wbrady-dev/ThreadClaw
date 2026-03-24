@@ -76,7 +76,7 @@ function escapeLike(keyword: string): string {
 // ── All queryable kinds ─────────────────────────────────────────────────────
 
 const ALL_QUERYABLE_KINDS: MemoryKind[] = [
-  "claim", "decision", "entity", "loop", "attempt", "procedure", "invariant",
+  "claim", "decision", "entity", "loop", "attempt", "procedure", "invariant", "conflict",
 ];
 
 // ── Public API ──────────────────────────────────────────────────────────────

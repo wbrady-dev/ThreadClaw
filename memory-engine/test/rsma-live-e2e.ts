@@ -311,14 +311,24 @@ withWriteTransaction(db, () => {
   });
 });
 
-db.prepare(`INSERT INTO decisions (scope_id, branch_id, topic, decision_text, status, decided_at, created_at)
-  VALUES (1, 0, 'deployment strategy', 'Use blue-green deployments', 'active', datetime('now'), datetime('now'))`).run();
+db.prepare(`INSERT INTO memory_objects (composite_id, kind, canonical_key, content, structured_json,
+  scope_id, branch_id, status, confidence, influence_weight, created_at, updated_at)
+  VALUES ('decision:e2e:deploy', 'decision', 'decision::deployment strategy',
+    'deployment strategy: Use blue-green deployments',
+    '{"topic":"deployment strategy","decisionText":"Use blue-green deployments"}',
+    1, 0, 'active', 0.5, 'high', datetime('now'), datetime('now'))`).run();
 
-db.prepare(`INSERT INTO open_loops (scope_id, branch_id, loop_type, text, status, priority, opened_at)
-  VALUES (1, 0, 'task', 'Configure SSL certificates', 'open', 7, datetime('now'))`).run();
+db.prepare(`INSERT INTO memory_objects (composite_id, kind, content, structured_json,
+  scope_id, branch_id, status, confidence, created_at, updated_at)
+  VALUES ('loop:e2e:ssl', 'loop', 'Configure SSL certificates',
+    '{"loopType":"task","text":"Configure SSL certificates","priority":7}',
+    1, 0, 'active', 0.5, datetime('now'), datetime('now'))`).run();
 
-db.prepare(`INSERT INTO entities (name, display_name, entity_type, mention_count, first_seen_at, last_seen_at)
-  VALUES ('kubernetes', 'Kubernetes', 'technology', 12, datetime('now'), datetime('now'))`).run();
+db.prepare(`INSERT INTO memory_objects (composite_id, kind, canonical_key, content, structured_json,
+  scope_id, branch_id, status, confidence, first_observed_at, last_observed_at, created_at, updated_at)
+  VALUES ('entity:kubernetes', 'entity', 'entity::kubernetes', 'Kubernetes',
+    '{"name":"kubernetes","displayName":"Kubernetes","entityType":"technology","mentionCount":12}',
+    1, 0, 'active', 0.5, datetime('now'), datetime('now'), datetime('now'), datetime('now'))`).run();
 
 const allObjects = readMemoryObjects(db, { limit: 100 });
 assert(allObjects.length >= 4, `Reader returned ${allObjects.length} objects`);
@@ -367,8 +377,8 @@ runGraphMigrations(migDb);
 assert(isMigrationNeeded(migDb) === true, "Migration needed on fresh DB");
 
 // Seed legacy data
-migDb.prepare("INSERT INTO entities (name, display_name, mention_count, first_seen_at, last_seen_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))").run("docker", "Docker", 5);
-migDb.prepare("INSERT INTO entity_mentions (entity_id, scope_id, source_type, source_id, source_detail, actor, created_at) VALUES (1, 1, 'message', '99', 'user mentioned Docker', 'system', datetime('now'))").run();
+migDb.prepare("INSERT INTO _legacy_entities (name, display_name, mention_count, first_seen_at, last_seen_at) VALUES (?, ?, ?, datetime('now'), datetime('now'))").run("docker", "Docker", 5);
+migDb.prepare("INSERT INTO _legacy_entity_mentions (entity_id, scope_id, source_type, source_id, source_detail, actor, created_at) VALUES (1, 1, 'message', '99', 'user mentioned Docker', 'system', datetime('now'))").run();
 
 withWriteTransaction(migDb, () => {
   upsertClaim(migDb, {
@@ -378,7 +388,7 @@ withWriteTransaction(migDb, () => {
   });
 });
 
-migDb.prepare("INSERT INTO claim_evidence (claim_id, source_type, source_id, evidence_role, confidence_delta) VALUES (1, 'message', '99', 'support', 0.1)").run();
+migDb.prepare("INSERT INTO _legacy_claim_evidence (claim_id, source_type, source_id, evidence_role, confidence_delta) VALUES (1, 'message', '99', 'support', 0.1)").run();
 
 const stats = migrateToProvenanceLinks(migDb);
 assert(stats.total > 0, `Migrated ${stats.total} legacy relationships`);

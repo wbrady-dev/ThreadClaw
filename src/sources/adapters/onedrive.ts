@@ -17,7 +17,6 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlink
 import { resolve, join, extname } from "path";
 import { homedir } from "os";
 import { createServer } from "http";
-import { URL } from "url";
 import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
 import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";

@@ -383,7 +383,7 @@ function convertToWriterResult(
     // Demote transient debugging context
     if (kind === "claim") {
       const lowerContent = (event.content ?? "").toLowerCase();
-      if (lowerContent.match(/\berror\b|\bexception\b|\bfailed\b|\bcrash\b|\b\d{3}\s+(error|not found|forbidden|unauthorized)\b/i)) {
+      if (lowerContent.match(/\berror\b|\bexception\b|\bfailed\b|\bcrash\b|\b\d{3}\s+(error|not found|forbidden|unauthorized)\b/)) {
         confidence = Math.min(confidence, 0.4); // Cap at 0.4 — will decay quickly
       }
     }

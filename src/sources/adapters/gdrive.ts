@@ -17,7 +17,6 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, createW
 import { resolve, join, extname } from "path";
 import { homedir } from "os";
 import { createServer } from "http";
-import { URL } from "url";
 import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
 import { config } from "../../config.js";
@@ -295,14 +294,23 @@ export class GDriveAdapter implements SourceAdapter {
     for (const fileId of changes.removed) {
       const entry = this.manifest.get(fileId);
       if (entry) {
-        const stagingPath = join(STAGING_DIR, `${fileId}${extname(entry.name) || ".bin"}`);
-        try { if (existsSync(stagingPath)) unlinkSync(stagingPath); } catch {}
+        // Try both possible staging paths: binary files use fileId, native docs use file name
+        const binaryPath = join(STAGING_DIR, `${fileId}${extname(entry.name) || ".bin"}`);
+        const nativePath = join(STAGING_DIR, entry.name);
+        for (const p of [binaryPath, nativePath]) {
+          try { if (existsSync(p)) unlinkSync(p); } catch {}
+        }
 
-        // Clean up DB documents/chunks/vectors to prevent orphans
+        // Clean up DB documents/chunks/vectors to prevent orphans.
+        // Use LIKE with staging dir prefix + fileId OR file name to match
+        // regardless of which download path was used during ingestion.
         try {
           const db = getDb(resolve(config.dataDir, "clawcore.db"));
-          const doc = db.prepare("SELECT id FROM documents WHERE source_path = ?").get(stagingPath) as { id: string } | undefined;
-          if (doc) {
+          const stagingPrefix = STAGING_DIR.replace(/\\/g, "/");
+          const docs = db.prepare(
+            "SELECT id FROM documents WHERE source_path LIKE ? OR source_path LIKE ?",
+          ).all(`%${fileId}%`, `%${stagingPrefix}/${entry.name}%`) as { id: string }[];
+          for (const doc of docs) {
             deleteDocument(db, doc.id);
             logger.info({ source: "gdrive", fileId, docId: doc.id }, "Deleted orphaned document from DB");
           }
@@ -597,5 +605,4 @@ export async function listDriveFolders(): Promise<{ id: string; name: string }[]
   }
 }
 
-/** List files inside a specific folder (for TUI preview) */
 

@@ -196,8 +196,6 @@ export function extractBrief(
   };
 }
 
-// splitSentences imported from utils/format.js
-
 function extractFileName(filePath: string): string {
   const parts = filePath.replace(/\\/g, "/").split("/");
   return parts[parts.length - 1] || filePath;

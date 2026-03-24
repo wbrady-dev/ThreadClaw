@@ -188,8 +188,7 @@ export function upsertMemoryObject(
     obj.updated_at ?? now,
   );
 
-  const lastId = (db.prepare("SELECT last_insert_rowid() as id").get() as { id: number }).id;
-  return { moId: lastId, isNew: true };
+  return { moId: Number(result.lastInsertRowid), isNew: true };
 }
 
 /**
@@ -199,7 +198,6 @@ export function supersedeMemoryObject(
   db: GraphDb,
   oldCompositeId: string,
   newCompositeId: string,
-  _reason?: string,
 ): void {
   db.prepare(`
     UPDATE memory_objects
@@ -310,31 +308,6 @@ export function queryMemoryObjects(
 
   const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
   return rows.map(rowToMemoryObject);
-}
-
-/**
- * Count MemoryObjects by kind, optionally filtered by scope.
- */
-export function countMemoryObjects(
-  db: GraphDb,
-  scopeId?: number,
-): Record<string, number> {
-  let sql = "SELECT kind, COUNT(*) as cnt FROM memory_objects";
-  const params: unknown[] = [];
-
-  if (scopeId != null) {
-    sql += " WHERE scope_id = ?";
-    params.push(scopeId);
-  }
-
-  sql += " GROUP BY kind";
-
-  const rows = db.prepare(sql).all(...params) as Array<{ kind: string; cnt: number }>;
-  const result: Record<string, number> = {};
-  for (const row of rows) {
-    result[row.kind] = row.cnt;
-  }
-  return result;
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────

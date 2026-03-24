@@ -18,5 +18,3 @@ export class EmbeddingError extends ClawCoreError {
     this.name = "EmbeddingError";
   }
 }
-
-

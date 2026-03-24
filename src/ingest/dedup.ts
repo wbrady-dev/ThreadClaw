@@ -1,9 +1,6 @@
 import type Database from "better-sqlite3";
 import { logger } from "../utils/logger.js";
 
-/**
- * Check if a document with this content hash already exists in the collection.
- */
 // ── Semantic Deduplication ──
 
 const SIMILARITY_THRESHOLD = 0.95; // cosine similarity above this = duplicate

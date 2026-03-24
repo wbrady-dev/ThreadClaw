@@ -406,9 +406,11 @@ describe("RSMA Golden Corpus: False-Supersession Guards", () => {
 
   it("correction from different scope should not supersede", () => {
     // Agent A's correction should not supersede Agent B's claim
-    // This is tested at the TruthEngine level in RSMA Phase 4
-    // Baseline: current system has no scope-aware supersession
-    expect(true).toBe(true); // Placeholder — real test comes in Phase 4
+    // Verified in rsma-truth.test.ts Rule 5: "fails guard: different scope"
+    // Baseline: current extraction system has no scope-aware supersession
+    const text = "Actually, the project timeline changed to 6 months.";
+    const decisions = extractDecisionsFromText(text, "msg-73");
+    // Current system extracts the decision but scope checking is in TruthEngine
   });
 });
 
@@ -437,15 +439,6 @@ describe("RSMA Golden Corpus: Combined Fast Extraction", () => {
   });
 });
 
-// ============================================================================
-// 10. CONTEXT COMPILER BASELINE (for regression comparison)
-// ============================================================================
-// These will be expanded in Phase 1 when MemoryReader replaces direct store queries.
-
-describe("RSMA Golden Corpus: Context Compiler Baseline", () => {
-  it("placeholder — will capture capsule output in Phase 1", () => {
-    // Phase 1 will add snapshot tests for compileContextCapsules()
-    // using a seeded in-memory graph DB with known claims/decisions/loops
-    expect(true).toBe(true);
-  });
-});
+// Context Compiler baseline tests are covered in:
+// - relations-h2-compiler.test.ts (compileContextCapsules with seeded data)
+// - rsma-stress.test.ts Phase 11 (budget enforcement under load)

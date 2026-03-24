@@ -1,12 +1,9 @@
 import React, { useState } from "react";
 import { Box, Text } from "ink";
-import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
 import { getRootDir, readConfig } from "../../platform.js";
 import { Menu, Section, KV, Separator, t, useInterval, type MenuItem } from "../components.js";
 import { formatDoclingDevice, getExpansionStatus, getWatchPaths } from "../../screens/configure.js";
-
-type EnvMap = Record<string, string>;
+import { readEnvMap } from "../../env.js";
 
 export function ConfigureScreen({
   onBack,
@@ -20,7 +17,7 @@ export function ConfigureScreen({
 
   const root = getRootDir();
   const config = readConfig();
-  const env = readEnv(root);
+  const env = readEnvMap(root);
   const watchPaths = getWatchPaths(root);
   const relationsEnabled = env.CLAWCORE_MEMORY_RELATIONS_ENABLED === "true";
   const deepEnabled = env.CLAWCORE_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED === "true";
@@ -100,24 +97,3 @@ export function ConfigureScreen({
   );
 }
 
-function readEnv(root: string): EnvMap {
-  try {
-    const envPath = resolve(root, ".env");
-    if (!existsSync(envPath)) return {};
-
-    const envData = readFileSync(envPath, "utf-8");
-    const values: EnvMap = {};
-    for (const line of envData.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const separator = trimmed.indexOf("=");
-      if (separator <= 0) continue;
-      const key = trimmed.slice(0, separator).trim();
-      const value = trimmed.slice(separator + 1).trim();
-      values[key] = value;
-    }
-    return values;
-  } catch {
-    return {};
-  }
-}

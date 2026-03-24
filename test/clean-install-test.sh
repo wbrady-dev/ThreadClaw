@@ -60,7 +60,7 @@ CLAWCORE_DIR="${1:-$(pwd)}"
 cd "$CLAWCORE_DIR"
 check "package.json exists" test -f package.json
 check "memory-engine/package.json exists" test -f memory-engine/package.json
-check "server/rerank-server.py exists" test -f server/rerank-server.py
+check "server/server.py exists" test -f server/server.py
 check "bin/clawcore.mjs exists" test -f bin/clawcore.mjs
 check "install.bat exists" test -f install.bat
 check "install.sh exists" test -f install.sh
@@ -116,9 +116,9 @@ check_warn "Tesseract" bash -c "tesseract --version 2>/dev/null"
 
 # ── Python Server ──
 echo "── Model Server ──"
-check "rerank-server.py valid syntax" bash -c "$PYTHON -c \"import py_compile; py_compile.compile('server/rerank-server.py', doraise=True)\""
-check "/ner endpoint in server" grep -q "def extract_entities" server/rerank-server.py
-check "health reports NER" grep -q "ner" server/rerank-server.py
+check "server.py valid syntax" bash -c "$PYTHON -c \"import py_compile; py_compile.compile('server/server.py', doraise=True)\""
+check "/ner endpoint in server" grep -q "def extract_entities" server/server.py
+check "health reports NER" grep -q "ner" server/server.py
 
 # ── Schema Migration ──
 echo "── Schema Migration ──"

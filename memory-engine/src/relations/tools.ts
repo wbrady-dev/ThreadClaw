@@ -478,14 +478,14 @@ export function createCcDiagnosticsTool(input: {
           try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
         };
 
-        const entities = safe("SELECT COUNT(*) as cnt FROM entities");
-        const mentions = safe("SELECT COUNT(*) as cnt FROM entity_mentions");
-        const claims = safe("SELECT COUNT(*) as cnt FROM claims WHERE status = 'active'");
-        const decisions = safe("SELECT COUNT(*) as cnt FROM decisions WHERE status = 'active'");
-        const loops = safe("SELECT COUNT(*) as cnt FROM open_loops WHERE status IN ('open','blocked')");
-        const attempts = safe("SELECT COUNT(*) as cnt FROM attempts");
-        const rbooks = safe("SELECT COUNT(*) as cnt FROM runbooks WHERE status = 'active'");
-        const arbooks = safe("SELECT COUNT(*) as cnt FROM anti_runbooks WHERE status = 'active'");
+        const entities = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity' AND status = 'active'");
+        const mentions = safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'mentioned_in'");
+        const claims = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'claim' AND status = 'active'");
+        const decisions = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'decision' AND status = 'active'");
+        const loops = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'loop' AND status IN ('active','blocked')");
+        const attempts = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'attempt'");
+        const rbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND (json_extract(structured_json, '$.isNegative') IS NULL OR json_extract(structured_json, '$.isNegative') = 0)");
+        const arbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND json_extract(structured_json, '$.isNegative') = 1");
         const evEvents = safe("SELECT COUNT(*) as cnt FROM evidence_log");
         const rels = safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'relates_to'");
         const n = (v: number) => v >= 0 ? String(v) : "n/a";
@@ -620,12 +620,15 @@ export function createCcMemoryTool(input: {
         // ── 1. Search claims (structured facts) ──
         const claimTerms = queryLower.split(/\s+/).filter((t) => t.length > 2);
         if (claimTerms.length > 0) {
-          const likeConditions = claimTerms.map(() => "(subject LIKE ? ESCAPE '\\' OR object_text LIKE ? ESCAPE '\\')").join(" OR ");
+          const likeConditions = claimTerms.map(() => "(content LIKE ? ESCAPE '\\' OR structured_json LIKE ? ESCAPE '\\')").join(" OR ");
           const likeArgs = claimTerms.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`]);
 
           const claims = db.prepare(`
-            SELECT subject, predicate, object_text, confidence
-            FROM claims WHERE status = 'active' AND (${likeConditions})
+            SELECT json_extract(structured_json, '$.subject') as subject,
+                   json_extract(structured_json, '$.predicate') as predicate,
+                   json_extract(structured_json, '$.objectText') as object_text,
+                   confidence
+            FROM memory_objects WHERE kind = 'claim' AND status = 'active' AND (${likeConditions})
             ORDER BY confidence DESC LIMIT 5
           `).all(...likeArgs) as Array<{
             subject: string; predicate: string; object_text: string | null; confidence: number;
@@ -649,13 +652,15 @@ export function createCcMemoryTool(input: {
 
         // ── 2. Search decisions ──
         if (claimTerms.length > 0) {
-          const decConditions = claimTerms.map(() => "(topic LIKE ? ESCAPE '\\' OR decision_text LIKE ? ESCAPE '\\')").join(" OR ");
+          const decConditions = claimTerms.map(() => "(content LIKE ? ESCAPE '\\' OR structured_json LIKE ? ESCAPE '\\')").join(" OR ");
           const decArgs = claimTerms.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`]);
 
           const decisions = db.prepare(`
-            SELECT topic, decision_text, decided_at
-            FROM decisions WHERE status = 'active' AND (${decConditions})
-            ORDER BY decided_at DESC LIMIT 3
+            SELECT json_extract(structured_json, '$.topic') as topic,
+                   COALESCE(json_extract(structured_json, '$.decisionText'), content) as decision_text,
+                   created_at as decided_at
+            FROM memory_objects WHERE kind = 'decision' AND status = 'active' AND (${decConditions})
+            ORDER BY created_at DESC LIMIT 3
           `).all(...decArgs) as Array<{
             topic: string; decision_text: string; decided_at: string;
           }>;
@@ -678,13 +683,15 @@ export function createCcMemoryTool(input: {
 
         // ── 3. Search relationships (claims with relational predicates) ──
         if (claimTerms.length > 0) {
-          const relConditions = claimTerms.map(() => "(subject LIKE ? ESCAPE '\\' OR object_text LIKE ? ESCAPE '\\')").join(" OR ");
+          const relConditions = claimTerms.map(() => "(content LIKE ? ESCAPE '\\' OR structured_json LIKE ? ESCAPE '\\')").join(" OR ");
           const relArgs = claimTerms.flatMap((t) => [`%${escapeLike(t)}%`, `%${escapeLike(t)}%`]);
 
           const rels = db.prepare(`
-            SELECT subject, predicate, object_text
-            FROM claims WHERE status = 'active'
-              AND predicate NOT IN ('is', 'states')
+            SELECT json_extract(structured_json, '$.subject') as subject,
+                   json_extract(structured_json, '$.predicate') as predicate,
+                   json_extract(structured_json, '$.objectText') as object_text
+            FROM memory_objects WHERE kind = 'claim' AND status = 'active'
+              AND json_extract(structured_json, '$.predicate') NOT IN ('is', 'states')
               AND (${relConditions})
             ORDER BY confidence DESC LIMIT 5
           `).all(...relArgs) as Array<{

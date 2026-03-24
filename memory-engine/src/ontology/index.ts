@@ -31,6 +31,18 @@ export {
   PROVISIONAL_CONFIDENCE_FACTOR,
 } from "./types.js";
 
+// Unified CRUD (mo-store)
+export {
+  upsertMemoryObject,
+  supersedeMemoryObject,
+  updateMemoryObjectStatus,
+  deleteMemoryObjectsBySource,
+  getMemoryObject,
+  queryMemoryObjects,
+  rowToMemoryObject,
+} from "./mo-store.js";
+export type { QueryMemoryObjectsOpts } from "./mo-store.js";
+
 // Canonical keys
 export { buildCanonicalKey, normalize, hashPrefix } from "./canonical.js";
 

@@ -17,7 +17,7 @@ import type {
 import { blockFromPart, ContextAssembler } from "./assembler.js";
 import { CompactionEngine, type CompactionConfig } from "./compaction.js";
 import type { LcmConfig } from "./db/config.js";
-import { getLcmConnection, closeLcmConnection } from "./db/connection.js";
+import { getLcmConnection } from "./db/connection.js";
 import { getLcmDbFeatures } from "./db/features.js";
 import { runLcmMigrations } from "./db/migration.js";
 import {
@@ -25,7 +25,6 @@ import {
   removeDelegatedExpansionGrantForSession,
   revokeDelegatedExpansionGrantForSession,
 } from "./expansion-auth.js";
-import type { StructuredClaim, StructuredDecision, StructuredLoop, StructuredEntity } from "./ontology/types.js";
 import { isMigrationNeeded as isProvenanceMigrationNeeded, migrateToProvenanceLinks } from "./ontology/migration.js";
 import {
   extensionFromNameOrMime,
@@ -77,47 +76,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function safeBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
-}
-
-/**
- * Safely extract typed StructuredClaim from a Record<string, unknown>.
- * Single point of truth for field mapping — includes s.value fallback for
- * legacy data that may still use "value" instead of "objectText".
- */
-function asClaimStructured(s: Record<string, unknown>): StructuredClaim | null {
-  if (typeof s.subject !== "string" || typeof s.predicate !== "string") return null;
-  return {
-    subject: s.subject,
-    predicate: s.predicate,
-    objectText: String(s.objectText ?? s.value ?? ""),
-    objectJson: typeof s.objectJson === "string" ? s.objectJson : undefined,
-    valueType: typeof s.valueType === "string" ? s.valueType : undefined,
-  };
-}
-
-/** Safely extract typed StructuredDecision from a Record<string, unknown>. */
-function asDecisionStructured(s: Record<string, unknown>): StructuredDecision | null {
-  if (typeof s.topic !== "string") return null;
-  return {
-    topic: s.topic,
-    decisionText: String(s.decisionText ?? ""),
-  };
-}
-
-/** Safely extract typed StructuredLoop from a Record<string, unknown>. */
-function asLoopStructured(s: Record<string, unknown>): StructuredLoop | null {
-  return {
-    loopType: (typeof s.loopType === "string" ? s.loopType : "task") as StructuredLoop["loopType"],
-    text: String(s.text ?? ""),
-  };
-}
-
-/** Safely extract typed StructuredEntity from a Record<string, unknown>. */
-function asEntityStructured(s: Record<string, unknown>): StructuredEntity | null {
-  return {
-    name: String(s.name ?? ""),
-    entityType: typeof s.entityType === "string" ? s.entityType : undefined,
-  };
 }
 
 function appendTextValue(value: unknown, out: string[]): void {
@@ -895,58 +853,6 @@ export class LcmContextEngine implements ContextEngine {
     }
   }
 
-  /**
-   * Run LLM-based deep extraction for claims + relations in a single pass.
-   * Fire-and-forget from ingest — does not block message processing.
-   */
-  private async runDeepExtraction(graphDb: GraphDb, content: string, messageId: string): Promise<void> {
-    const { extractClaimsDeep, extractRelationsDeep } = await import("./relations/deep-extract.js");
-    const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
-    const { upsertRelation } = await import("./relations/relation-store.js");
-    const { withWriteTransaction } = await import("./relations/evidence-log.js");
-
-    // Deep claim extraction (LLM)
-    const deepClaims = await extractClaimsDeep(content, this.deps, this.config);
-    if (deepClaims.length > 0) {
-      withWriteTransaction(graphDb, () => {
-        storeClaimExtractionResults(graphDb, deepClaims, {
-          scopeId: 1,
-          sourceType: "deep_extraction",
-          sourceId: messageId,
-        });
-      });
-    }
-
-    // Deep relation extraction (LLM) — uses known entities from DB
-    const entityRows = graphDb.prepare(
-      "SELECT name FROM entities WHERE length(name) <= 40 ORDER BY mention_count DESC, last_seen_at DESC LIMIT 100",
-    ).all() as Array<{ name: string }>;
-    const entityNames = entityRows.map((r) => r.name);
-
-    if (entityNames.length >= 2) {
-      const deepRelations = await extractRelationsDeep(content, entityNames, this.deps, this.config);
-      if (deepRelations.length > 0) {
-        withWriteTransaction(graphDb, () => {
-          for (const rel of deepRelations) {
-            const subj = graphDb.prepare("SELECT id FROM entities WHERE name = ?").get(rel.subject) as { id: number } | undefined;
-            const obj = graphDb.prepare("SELECT id FROM entities WHERE name = ?").get(rel.object) as { id: number } | undefined;
-            if (subj && obj) {
-              upsertRelation(graphDb, {
-                scopeId: 1,
-                subjectEntityId: subj.id,
-                predicate: rel.predicate,
-                objectEntityId: obj.id,
-                confidence: rel.confidence,
-                sourceType: "deep_extraction",
-                sourceId: messageId,
-              });
-            }
-          }
-        });
-      }
-    }
-  }
-
   /** Build a summarize callback with runtime provider fallback handling. */
   private async resolveSummarize(params: {
     legacyParams?: Record<string, unknown>;
@@ -1641,13 +1547,11 @@ export class LcmContextEngine implements ContextEngine {
     // mode with strict filtering, but it's not enabled here to avoid
     // hallucinated facts from assistant self-description.
     //
-    // BUG 13 NOTE: withWriteTransaction (used in the legacy bridge below)
-    // is synchronous and runs inside the fire-and-forget async IIFE.
-    // The RSMA reconciliation loop runs BEFORE the legacy bridge write.
-    // This ordering matters: if reconciliation produces supersession actions,
-    // the legacy bridge must see the new objects, not stale ones.
+    // NOTE: withWriteTransaction is synchronous and runs inside the
+    // fire-and-forget async IIFE. Reconciliation runs before store writes
+    // so supersession actions apply to the latest objects.
     if (rsmaWillRun) {
-      const _graphDb = this.graphDb;
+      const _graphDb = this.graphDb!;
       const _content = stored.content;
       const _messageId = String(msgRecord.messageId);
       const _config = this.config;
@@ -1776,8 +1680,7 @@ export class LcmContextEngine implements ContextEngine {
             }
           }
 
-          // Legacy bridge REMOVED (Phase 2): store functions now delegate
-          // directly to mo-store.ts / memory_objects table. No dual-write needed.
+          // Store functions delegate directly to mo-store.ts / memory_objects table.
         }
         // Health monitoring: track success
         _rsmaSuccessCount++;
@@ -2359,7 +2262,7 @@ export class LcmContextEngine implements ContextEngine {
     // OpenClaw's runner calls dispose() after every run, but the plugin
     // registers a single engine instance reused by the factory. Closing
     // the DB here would break subsequent runs with "database is not open".
-    // The connection is cleaned up on process exit via closeLcmConnection().
+    // The connection is cleaned up on process exit via the connection module.
   }
 
   // ── Public accessors for retrieval (used by subagent expansion) ─────────

@@ -82,7 +82,7 @@ export interface ReconcileResult {
 const MIN_SUPERSESSION_CONFIDENCE = 0.3;
 
 const SUPERSESSION_KINDS = new Set<MemoryKind>([
-  "claim", "decision", "loop", "invariant",
+  "claim", "decision", "loop", "invariant", "procedure",
 ]);
 
 function kindFamily(kind: MemoryKind): string {

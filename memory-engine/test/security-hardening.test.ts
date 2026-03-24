@@ -19,16 +19,11 @@ const CLAWCORE_SRC = resolve(CLAWCORE_ROOT, "src");
 const MEMORY_SRC = resolve(__dirname, "..", "src");
 
 /**
- * Find rerank-server.py — lives in the parent dir in live installs
- * (.openclaw/services/rerank-server.py) or under server/ in standalone copies.
+ * Find the Python model server (server/server.py).
  */
-function findRerankServer(): string | null {
-  const candidates = [
-    resolve(CLAWCORE_ROOT, "..", "rerank-server.py"),      // legacy live install layout
-    resolve(CLAWCORE_ROOT, "server", "rerank-server.py"),  // legacy distribution layout
-    resolve(CLAWCORE_ROOT, "server", "server.py"),         // current layout (renamed)
-  ];
-  return candidates.find((p) => existsSync(p)) ?? null;
+function findModelServer(): string | null {
+  const p = resolve(CLAWCORE_ROOT, "server", "server.py");
+  return existsSync(p) ? p : null;
 }
 
 // ── 1. contentHashBytes determinism ──
@@ -171,8 +166,8 @@ describe("network binding", () => {
 // ── 5. Python server binds to localhost ──
 
 describe("python server binding", () => {
-  it("rerank-server.py defaults to 127.0.0.1", () => {
-    const serverPath = findRerankServer();
+  it("server.py defaults to 127.0.0.1", () => {
+    const serverPath = findModelServer();
     expect(serverPath).not.toBeNull();
     const serverPy = readFileSync(serverPath!, "utf-8");
     expect(serverPy).toContain('os.environ.get("MODEL_SERVER_HOST", "127.0.0.1")');
