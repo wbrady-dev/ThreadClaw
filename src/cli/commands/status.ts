@@ -1,16 +1,39 @@
 import { Command } from "commander";
 import { resolve } from "path";
 import { existsSync, statSync } from "fs";
+import chalk from "chalk";
 import { config } from "../../config.js";
 import { getInitializedDb, listCollections } from "../../storage/index.js";
 import { getCollectionStats } from "../../storage/collections.js";
 import { getGraphDb, closeGraphDb } from "../../storage/graph-sqlite.js";
+import { isPortReachable } from "../../tui/runtime-status.js";
+import { getApiPort, getModelPort } from "../../tui/platform.js";
 
 
 export const statusCommand = new Command("status")
   .description("Show ThreadClaw system status")
   .action(async () => {
-    console.log("ThreadClaw RAG System Status\n");
+    console.log(chalk.bold("\nThreadClaw RAG System Status\n"));
+
+    // Service liveness checks
+    const apiPort = getApiPort();
+    const modelPort = getModelPort();
+    const [modelsUp, apiUp] = await Promise.all([
+      isPortReachable(modelPort),
+      isPortReachable(apiPort),
+    ]);
+
+    console.log(
+      modelsUp
+        ? chalk.green(`  Models:  RUNNING`) + chalk.dim(` on port ${modelPort}`)
+        : chalk.red(`  Models:  STOPPED`),
+    );
+    console.log(
+      apiUp
+        ? chalk.green(`  API:     RUNNING`) + chalk.dim(` on port ${apiPort}`)
+        : chalk.red(`  API:     STOPPED`),
+    );
+    console.log("");
 
     // Check embedding/rerank server
     try {

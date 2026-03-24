@@ -17,6 +17,10 @@ import { updateCommand } from "./commands/update.js";
 import { integrateCommand } from "./commands/integrate.js";
 import { installCommand } from "./commands/install.js";
 import { uninstallCommand } from "./commands/uninstall.js";
+import { startCommand } from "./commands/start.js";
+import { stopCommand } from "./commands/stop.js";
+import { restartCommand } from "./commands/restart.js";
+import { logsCommand } from "./commands/logs.js";
 import { getAppVersion } from "../version.js";
 
 // If no arguments provided, launch the interactive TUI
@@ -49,6 +53,10 @@ if (process.argv.length <= 2) {
   program.addCommand(integrateCommand);
   program.addCommand(installCommand);
   program.addCommand(uninstallCommand);
+  program.addCommand(startCommand);
+  program.addCommand(stopCommand);
+  program.addCommand(restartCommand);
+  program.addCommand(logsCommand);
 
   await program.parseAsync();
 }
