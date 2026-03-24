@@ -1,6 +1,7 @@
 import type { ConversationStore } from "./store/conversation-store.js";
 import type {
   SummaryStore,
+  ContextItemRecord,
 } from "./store/summary-store.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -49,6 +50,9 @@ export class IntegrityChecker {
   async scan(conversationId: number): Promise<IntegrityReport> {
     const checks: IntegrityCheck[] = [];
 
+    // Fetch context items once and pass to all checks that need them
+    const contextItems = await this.summaryStore.getContextItems(conversationId);
+
     // 1. conversation_exists
     checks.push(await this.checkConversationExists(conversationId));
 
@@ -56,25 +60,25 @@ export class IntegrityChecker {
     // execute (operating on empty result sets) so the report is complete.
 
     // 2. context_items_ordered (monotonically increasing ordinals; gaps allowed)
-    checks.push(await this.checkContextItemsOrdered(conversationId));
+    checks.push(this.checkContextItemsOrdered(contextItems));
 
     // 3. context_items_valid_refs
-    checks.push(await this.checkContextItemsValidRefs(conversationId));
+    checks.push(this.checkContextItemsValidRefs(contextItems));
 
     // 4. summaries_have_lineage
     checks.push(await this.checkSummariesHaveLineage(conversationId));
 
     // 5. no_orphan_summaries
-    checks.push(await this.checkNoOrphanSummaries(conversationId));
+    checks.push(await this.checkNoOrphanSummaries(conversationId, contextItems));
 
     // 6. context_token_consistency
-    checks.push(await this.checkContextTokenConsistency(conversationId));
+    checks.push(await this.checkContextTokenConsistency(conversationId, contextItems));
 
     // 7. message_seq_contiguous
     checks.push(await this.checkMessageSeqContiguous(conversationId));
 
     // 8. no_duplicate_context_refs
-    checks.push(await this.checkNoDuplicateContextRefs(conversationId));
+    checks.push(this.checkNoDuplicateContextRefs(contextItems));
 
     const passCount = checks.filter((c) => c.status === "pass").length;
     const failCount = checks.filter((c) => c.status === "fail").length;
@@ -111,10 +115,9 @@ export class IntegrityChecker {
     };
   }
 
-  private async checkContextItemsOrdered(
-    conversationId: number,
-  ): Promise<IntegrityCheck> {
-    const items = await this.summaryStore.getContextItems(conversationId);
+  private checkContextItemsOrdered(
+    items: ContextItemRecord[],
+  ): IntegrityCheck {
     if (items.length === 0) {
       return {
         name: "context_items_ordered",
@@ -151,20 +154,33 @@ export class IntegrityChecker {
     };
   }
 
-  private async checkContextItemsValidRefs(
-    conversationId: number,
-  ): Promise<IntegrityCheck> {
-    const items = await this.summaryStore.getContextItems(conversationId);
+  private checkContextItemsValidRefs(
+    items: ContextItemRecord[],
+  ): IntegrityCheck {
     const danglingRefs: {
       ordinal: number;
       itemType: string;
       refId: number | string;
     }[] = [];
 
+    // Batch-fetch all referenced messages and summaries in two queries
+    const messageIds = items
+      .filter((item) => item.itemType === "message" && item.messageId != null)
+      .map((item) => item.messageId as number);
+    const summaryIds = items
+      .filter((item) => item.itemType === "summary" && item.summaryId != null)
+      .map((item) => item.summaryId as string);
+
+    const foundMessages = new Set(
+      this.conversationStore.getMessagesByIds(messageIds).map((m) => m.messageId),
+    );
+    const foundSummaries = new Set(
+      this.summaryStore.getSummariesByIds(summaryIds).map((s) => s.summaryId),
+    );
+
     for (const item of items) {
       if (item.itemType === "message" && item.messageId != null) {
-        const msg = await this.conversationStore.getMessageById(item.messageId);
-        if (!msg) {
+        if (!foundMessages.has(item.messageId)) {
           danglingRefs.push({
             ordinal: item.ordinal,
             itemType: "message",
@@ -172,8 +188,7 @@ export class IntegrityChecker {
           });
         }
       } else if (item.itemType === "summary" && item.summaryId != null) {
-        const sum = await this.summaryStore.getSummary(item.summaryId);
-        if (!sum) {
+        if (!foundSummaries.has(item.summaryId)) {
           danglingRefs.push({
             ordinal: item.ordinal,
             itemType: "summary",
@@ -253,11 +268,10 @@ export class IntegrityChecker {
 
   private async checkNoOrphanSummaries(
     conversationId: number,
+    contextItems: ContextItemRecord[],
   ): Promise<IntegrityCheck> {
     const summaries =
       await this.summaryStore.getSummariesByConversation(conversationId);
-    const contextItems =
-      await this.summaryStore.getContextItems(conversationId);
 
     // Build set of summary IDs that appear in context_items
     const contextSummaryIds = new Set(
@@ -306,20 +320,33 @@ export class IntegrityChecker {
 
   private async checkContextTokenConsistency(
     conversationId: number,
+    contextItems: ContextItemRecord[],
   ): Promise<IntegrityCheck> {
-    const contextItems =
-      await this.summaryStore.getContextItems(conversationId);
+    // Batch-fetch all referenced messages and summaries
+    const messageIds = contextItems
+      .filter((item) => item.itemType === "message" && item.messageId != null)
+      .map((item) => item.messageId as number);
+    const summaryIds = contextItems
+      .filter((item) => item.itemType === "summary" && item.summaryId != null)
+      .map((item) => item.summaryId as string);
+
+    const messageMap = new Map(
+      this.conversationStore.getMessagesByIds(messageIds).map((m) => [m.messageId, m]),
+    );
+    const summaryMap = new Map(
+      this.summaryStore.getSummariesByIds(summaryIds).map((s) => [s.summaryId, s]),
+    );
 
     // Manually sum token counts from referenced messages and summaries
     let manualSum = 0;
     for (const item of contextItems) {
       if (item.itemType === "message" && item.messageId != null) {
-        const msg = await this.conversationStore.getMessageById(item.messageId);
+        const msg = messageMap.get(item.messageId);
         if (msg) {
           manualSum += msg.tokenCount;
         }
       } else if (item.itemType === "summary" && item.summaryId != null) {
-        const sum = await this.summaryStore.getSummary(item.summaryId);
+        const sum = summaryMap.get(item.summaryId);
         if (sum) {
           manualSum += sum.tokenCount;
         }
@@ -381,10 +408,9 @@ export class IntegrityChecker {
     };
   }
 
-  private async checkNoDuplicateContextRefs(
-    conversationId: number,
-  ): Promise<IntegrityCheck> {
-    const items = await this.summaryStore.getContextItems(conversationId);
+  private checkNoDuplicateContextRefs(
+    items: ContextItemRecord[],
+  ): IntegrityCheck {
 
     const seenMessageIds = new Map<number, number[]>();
     const seenSummaryIds = new Map<string, number[]>();

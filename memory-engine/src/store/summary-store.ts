@@ -358,6 +358,26 @@ export class SummaryStore {
     return row ? toSummaryRecord(row) : null;
   }
 
+  /** Batch-fetch summaries by IDs. Chunks to respect SQLite variable limits. */
+  getSummariesByIds(ids: string[]): SummaryRecord[] {
+    if (ids.length === 0) return [];
+    const results: SummaryRecord[] = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = this.db
+        .prepare(
+          `SELECT summary_id, conversation_id, kind, depth, content, token_count, file_ids,
+                  earliest_at, latest_at, descendant_count, created_at
+                  , descendant_token_count, source_message_token_count
+           FROM summaries WHERE summary_id IN (${placeholders})`,
+        )
+        .all(...chunk) as unknown as SummaryRow[];
+      results.push(...rows.map(toSummaryRecord));
+    }
+    return results;
+  }
+
   async getSummariesByConversation(conversationId: number): Promise<SummaryRecord[]> {
     const rows = this.db
       .prepare(

@@ -266,9 +266,14 @@ export class CompactionEngine {
 
     const tokensBefore = await this.summaryStore.getContextTokenCount(conversationId);
     const threshold = Math.floor(this.config.contextThreshold * tokenBudget);
-    const leafTrigger = await this.evaluateLeafTrigger(conversationId);
 
-    if (!force && tokensBefore <= threshold && !leafTrigger.shouldCompact) {
+    // Fetch context items once for the pre-mutation phase
+    const contextItems = await this.summaryStore.getContextItems(conversationId);
+    const rawTokensOutsideTail = await this.countRawTokensOutsideFreshTail(conversationId, contextItems);
+    const leafThreshold = this.resolveLeafChunkTokens();
+    const leafTriggerShouldCompact = rawTokensOutsideTail >= leafThreshold;
+
+    if (!force && tokensBefore <= threshold && !leafTriggerShouldCompact) {
       return {
         actionTaken: false,
         tokensBefore,
@@ -277,7 +282,7 @@ export class CompactionEngine {
       };
     }
 
-    const leafChunk = await this.selectOldestLeafChunk(conversationId);
+    const leafChunk = await this.selectOldestLeafChunk(conversationId, contextItems);
     if (leafChunk.items.length === 0) {
       return {
         actionTaken: false,
@@ -289,7 +294,7 @@ export class CompactionEngine {
 
     const previousSummaryContent =
       input.previousSummaryContent ??
-      (await this.resolvePriorLeafSummaryContext(conversationId, leafChunk.items));
+      (await this.resolvePriorLeafSummaryContext(conversationId, leafChunk.items, contextItems));
 
     const leafResult = await this.leafPass(
       conversationId,
@@ -379,9 +384,14 @@ export class CompactionEngine {
 
     const tokensBefore = await this.summaryStore.getContextTokenCount(conversationId);
     const threshold = Math.floor(this.config.contextThreshold * tokenBudget);
-    const leafTrigger = await this.evaluateLeafTrigger(conversationId);
 
-    if (!force && tokensBefore <= threshold && !leafTrigger.shouldCompact) {
+    // Fetch context items once for the pre-mutation evaluation phase
+    let contextItems = await this.summaryStore.getContextItems(conversationId);
+    const rawTokensOutsideTail = await this.countRawTokensOutsideFreshTail(conversationId, contextItems);
+    const leafThreshold = this.resolveLeafChunkTokens();
+    const leafTriggerShouldCompact = rawTokensOutsideTail >= leafThreshold;
+
+    if (!force && tokensBefore <= threshold && !leafTriggerShouldCompact) {
       return {
         actionTaken: false,
         tokensBefore,
@@ -390,7 +400,6 @@ export class CompactionEngine {
       };
     }
 
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
     if (contextItems.length === 0) {
       return {
         actionTaken: false,
@@ -413,7 +422,7 @@ export class CompactionEngine {
       if (++totalRounds > this.config.maxRounds) {
         break;
       }
-      const leafChunk = await this.selectOldestLeafChunk(conversationId);
+      const leafChunk = await this.selectOldestLeafChunk(conversationId, contextItems);
       if (leafChunk.items.length === 0) {
         break;
       }
@@ -425,6 +434,8 @@ export class CompactionEngine {
         summarize,
         previousSummaryContent,
       );
+      // Context was mutated by leafPass — re-fetch for next iteration
+      contextItems = await this.summaryStore.getContextItems(conversationId);
       const passTokensAfter = await this.summaryStore.getContextTokenCount(conversationId);
       await this.persistCompactionEvents({
         conversationId,
@@ -454,6 +465,7 @@ export class CompactionEngine {
       const candidate = await this.selectShallowestCondensationCandidate({
         conversationId,
         hardTrigger: hardTrigger === true,
+        cachedContextItems: contextItems,
       });
       if (!candidate) {
         break;
@@ -466,6 +478,8 @@ export class CompactionEngine {
         candidate.targetDepth,
         summarize,
       );
+      // Context was mutated by condensedPass — re-fetch for next iteration
+      contextItems = await this.summaryStore.getContextItems(conversationId);
       const passTokensAfter = await this.summaryStore.getContextTokenCount(conversationId);
       await this.persistCompactionEvents({
         conversationId,
@@ -635,8 +649,11 @@ export class CompactionEngine {
   }
 
   /** Sum raw message tokens outside the protected fresh tail. */
-  private async countRawTokensOutsideFreshTail(conversationId: number): Promise<number> {
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+  private async countRawTokensOutsideFreshTail(
+    conversationId: number,
+    cachedContextItems?: ContextItemRecord[],
+  ): Promise<number> {
+    const contextItems = cachedContextItems ?? await this.summaryStore.getContextItems(conversationId);
     const freshTailOrdinal = this.resolveFreshTailOrdinal(contextItems);
     let rawTokens = 0;
 
@@ -659,8 +676,11 @@ export class CompactionEngine {
    * The selected chunk size is capped by `leafChunkTokens`, but we always pick
    * at least one message when any compactable message exists.
    */
-  private async selectOldestLeafChunk(conversationId: number): Promise<LeafChunkSelection> {
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+  private async selectOldestLeafChunk(
+    conversationId: number,
+    cachedContextItems?: ContextItemRecord[],
+  ): Promise<LeafChunkSelection> {
+    const contextItems = cachedContextItems ?? await this.summaryStore.getContextItems(conversationId);
     const freshTailOrdinal = this.resolveFreshTailOrdinal(contextItems);
     const threshold = this.resolveLeafChunkTokens();
 
@@ -719,13 +739,14 @@ export class CompactionEngine {
   private async resolvePriorLeafSummaryContext(
     conversationId: number,
     messageItems: ContextItemRecord[],
+    cachedContextItems?: ContextItemRecord[],
   ): Promise<string | undefined> {
     if (messageItems.length === 0) {
       return undefined;
     }
 
     const startOrdinal = Math.min(...messageItems.map((item) => item.ordinal));
-    const priorSummaryItems = (await this.summaryStore.getContextItems(conversationId))
+    const priorSummaryItems = (cachedContextItems ?? await this.summaryStore.getContextItems(conversationId))
       .filter(
         (item) =>
           item.ordinal < startOrdinal &&
@@ -847,9 +868,10 @@ export class CompactionEngine {
   private async selectShallowestCondensationCandidate(params: {
     conversationId: number;
     hardTrigger: boolean;
+    cachedContextItems?: ContextItemRecord[];
   }): Promise<CondensedPhaseCandidate | null> {
-    const { conversationId, hardTrigger } = params;
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+    const { conversationId, hardTrigger, cachedContextItems } = params;
+    const contextItems = cachedContextItems ?? await this.summaryStore.getContextItems(conversationId);
     const freshTailOrdinal = this.resolveFreshTailOrdinal(contextItems);
     const minChunkTokens = this.resolveCondensedMinChunkTokens();
     const depthLevels = await this.summaryStore.getDistinctDepthsInContext(conversationId, {
@@ -862,6 +884,7 @@ export class CompactionEngine {
         conversationId,
         targetDepth,
         freshTailOrdinal,
+        contextItems,
       );
       if (chunk.items.length < fanout) {
         continue;
@@ -885,8 +908,9 @@ export class CompactionEngine {
     conversationId: number,
     targetDepth: number,
     freshTailOrdinalOverride?: number,
+    cachedContextItems?: ContextItemRecord[],
   ): Promise<CondensedChunkSelection> {
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+    const contextItems = cachedContextItems ?? await this.summaryStore.getContextItems(conversationId);
     const freshTailOrdinal =
       typeof freshTailOrdinalOverride === "number"
         ? freshTailOrdinalOverride
@@ -939,13 +963,14 @@ export class CompactionEngine {
     conversationId: number,
     summaryItems: ContextItemRecord[],
     targetDepth: number,
+    cachedContextItems?: ContextItemRecord[],
   ): Promise<string | undefined> {
     if (summaryItems.length === 0) {
       return undefined;
     }
 
     const startOrdinal = Math.min(...summaryItems.map((item) => item.ordinal));
-    const priorSummaryItems = (await this.summaryStore.getContextItems(conversationId))
+    const priorSummaryItems = (cachedContextItems ?? await this.summaryStore.getContextItems(conversationId))
       .filter(
         (item) =>
           item.ordinal < startOrdinal &&
