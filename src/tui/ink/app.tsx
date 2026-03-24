@@ -297,7 +297,8 @@ async function runResetKnowledgeBase(): Promise<void> {
             const memPath = resolve(appConfig.dataDir, "memory.db");
             const memDb = new DatabaseSync(memPath);
             // Count before deleting
-            const safeCount = (tbl: string) => { try { return (memDb.prepare(`SELECT COUNT(*) as c FROM ${tbl}`).get() as any)?.c ?? 0; } catch { return 0; } };
+            const ALLOWED_MEM_TABLES = new Set(["conversations", "messages", "summaries", "context_items", "summary_parents", "summary_messages", "message_parts", "large_files"]);
+            const safeCount = (tbl: string) => { if (!ALLOWED_MEM_TABLES.has(tbl)) return 0; try { return (memDb.prepare(`SELECT COUNT(*) as c FROM ${tbl}`).get() as any)?.c ?? 0; } catch { return 0; } };
             data.memoryStats = {
               conversations: safeCount("conversations"),
               messages: safeCount("messages"),
@@ -305,7 +306,7 @@ async function runResetKnowledgeBase(): Promise<void> {
               contextItems: safeCount("context_items"),
             };
             const memTables = ["context_items", "summary_parents", "summary_messages", "message_parts", "large_files", "summaries", "messages", "conversations"];
-            for (const tbl of memTables) { try { memDb.exec(`DELETE FROM ${tbl}`); } catch {} }
+            for (const tbl of memTables) { if (!ALLOWED_MEM_TABLES.has(tbl)) continue; try { memDb.exec(`DELETE FROM ${tbl}`); } catch {} }
             try { memDb.exec("DELETE FROM messages_fts"); } catch {}
             try { memDb.exec("DELETE FROM summaries_fts"); } catch {}
             try { memDb.exec("VACUUM"); } catch {}
