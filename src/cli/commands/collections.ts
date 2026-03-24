@@ -16,7 +16,12 @@ function db() {
 }
 
 export const collectionsCommand = new Command("collections")
-  .description("Manage collections");
+  .description("Manage collections")
+  .addHelpText("after", `
+Examples:
+  $ threadclaw collections list                 Show all collections with stats
+  $ threadclaw collections create myproject     Create a new collection
+  $ threadclaw collections stats research       Detailed stats for a collection`);
 
 collectionsCommand
   .command("list")
@@ -77,7 +82,7 @@ collectionsCommand
 
     const stats = getCollectionStats(d, match.id);
     if (!stats) {
-      console.error("Could not get stats");
+      console.error("Could not get stats. Run 'threadclaw doctor' to check for database issues.");
       process.exit(1);
     }
 

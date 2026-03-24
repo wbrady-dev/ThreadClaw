@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
-import { Menu, Section, Separator, KV, t, useInterval, type MenuItem } from "../components.js";
+import { Menu, Section, Separator, KV, t, useInterval, formatAge, type MenuItem } from "../components.js";
 import { getApiBaseUrl, getApiPort } from "../../platform.js";
 import { isPortReachable } from "../../runtime-status.js";
 
@@ -19,7 +19,12 @@ interface DocumentData {
   collection: string;
   chunk_count?: number;
   size?: number;
+  created_at?: string;
 }
+
+/* ── Constants ────────────────────────────────────────────────────── */
+
+const DOCS_PER_PAGE = 20;
 
 /* ── Module-level cache ───────────────────────────────────────────── */
 
@@ -53,6 +58,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
   const [apiReachable, setApiReachable] = useState(true);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
   /* ── Fetch collections ──────────────────────────────────────────── */
 
@@ -95,6 +101,8 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
         setDocuments(docs);
       }
     } catch {
+      setApiReachable(false);
+      setStatusMessage(t.err("Failed to fetch documents"));
       // Use cached if available
       setDocuments(cachedDocuments[collectionName] ?? []);
     }
@@ -275,15 +283,27 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       );
     }
 
-    const menuItems: MenuItem[] = documents.map((doc) => {
+    const totalPages = Math.max(1, Math.ceil(documents.length / DOCS_PER_PAGE));
+    const currentPage = Math.min(page, totalPages - 1);
+    const pageStart = currentPage * DOCS_PER_PAGE;
+    const pageDocs = documents.slice(pageStart, pageStart + DOCS_PER_PAGE);
+
+    const menuItems: MenuItem[] = pageDocs.map((doc) => {
       const name = basename(doc.source_path);
       const chunks = doc.chunk_count != null ? ` [${doc.chunk_count} chunks]` : "";
       const size = doc.size ? ` ${formatSize(doc.size)}` : "";
+      const age = doc.created_at ? ` ${formatAge(doc.created_at)}` : "";
       return {
-        label: `${name}${chunks}${size}`,
+        label: `${name}${chunks}${size}${t.dim(age)}`,
         value: `doc:${doc.id}`,
       };
     });
+    if (currentPage < totalPages - 1) {
+      menuItems.push({ label: "Next page \u2192", value: "__next_page__", color: t.dim });
+    }
+    if (currentPage > 0) {
+      menuItems.push({ label: "\u2190 Previous page", value: "__prev_page__", color: t.dim });
+    }
     menuItems.push({
       label: "Delete all in collection",
       value: "delete-all",
@@ -295,7 +315,16 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       setStatusMessage(null);
       if (value === "__back__") {
         setSelectedCollection(null);
+        setPage(0);
         setLevel("collections");
+        return;
+      }
+      if (value === "__next_page__") {
+        setPage((p) => Math.min(p + 1, totalPages - 1));
+        return;
+      }
+      if (value === "__prev_page__") {
+        setPage((p) => Math.max(p - 1, 0));
         return;
       }
       if (value === "delete-all") {
@@ -318,6 +347,9 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       <Box flexDirection="column">
         <Section title={`${selectedCollection.name}`} />
         <KV label="Documents" value={t.value(String(docCount))} />
+        {documents.length > DOCS_PER_PAGE && (
+          <Text>{"  " + t.dim(`Page ${currentPage + 1} of ${totalPages}`)}</Text>
+        )}
         {statusMessage && <Text>{"  " + statusMessage}</Text>}
         <Text> </Text>
 
@@ -368,6 +400,40 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       );
     }
 
+    /* ── Confirm: re-ingest document ──────────────────────────── */
+    if (confirmAction === "reingest-doc") {
+      const confirmItems: MenuItem[] = [
+        {
+          label: `Yes, re-ingest "${basename(selectedDoc.source_path)}"`,
+          value: "confirm",
+          color: t.value,
+        },
+        { label: "Cancel", value: "cancel", color: t.dim },
+      ];
+
+      return (
+        <Box flexDirection="column">
+          <Section title="Confirm Re-ingest" />
+          <Text>{"  " + t.warn(`Re-ingest "${basename(selectedDoc.source_path)}"?`)}</Text>
+          <Text>{"  " + t.dim("This will re-parse and re-chunk the document.")}</Text>
+          <Text> </Text>
+          <Menu
+            items={confirmItems}
+            onSelect={async (value) => {
+              if (value === "confirm") {
+                await reingestDocument(selectedDoc);
+                setConfirmAction(null);
+                setSelectedDoc(null);
+                setLevel("documents");
+              } else {
+                setConfirmAction(null);
+              }
+            }}
+          />
+        </Box>
+      );
+    }
+
     const docName = basename(selectedDoc.source_path);
     const menuItems: MenuItem[] = [
       { label: "Delete document", value: "delete", color: t.err },
@@ -387,9 +453,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
         return;
       }
       if (value === "reingest") {
-        await reingestDocument(selectedDoc);
-        setSelectedDoc(null);
-        setLevel("documents");
+        setConfirmAction("reingest-doc");
       }
     };
 
@@ -403,6 +467,9 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
         )}
         {selectedDoc.size != null && (
           <KV label="Size" value={t.value(formatSize(selectedDoc.size))} />
+        )}
+        {selectedDoc.created_at && (
+          <KV label="Added" value={t.dim(formatAge(selectedDoc.created_at))} />
         )}
         {statusMessage && <Text>{"  " + statusMessage}</Text>}
         <Text> </Text>

@@ -281,6 +281,7 @@ function ensureWindowsTasks(root: string): { success: boolean; error?: string } 
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <Hidden>true</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure><Interval>PT30S</Interval><Count>3</Count></RestartOnFailure>
   </Settings>
   <Actions>
     <Exec>
@@ -303,6 +304,7 @@ function ensureWindowsTasks(root: string): { success: boolean; error?: string } 
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <Hidden>true</Hidden>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure><Interval>PT30S</Interval><Count>3</Count></RestartOnFailure>
   </Settings>
   <Actions>
     <Exec>

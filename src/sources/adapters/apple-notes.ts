@@ -59,7 +59,7 @@ export class AppleNotesAdapter extends PollingAdapterBase {
 
   async initClient(): Promise<void> {
     if (process.platform !== "darwin") {
-      throw new Error("macOS only");
+      throw new Error(`Apple Notes adapter requires macOS. Cannot run on ${process.platform}. Disable it in source configuration.`);
     }
     // No persistent client needed — AppleScript calls are stateless
   }

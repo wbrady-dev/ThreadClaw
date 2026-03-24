@@ -6,6 +6,20 @@ import { existsSync, unlinkSync, readFileSync, writeFileSync, readdirSync } from
 import { resolve } from "path";
 import { homedir, tmpdir } from "os";
 import { section, kvLine, t, clearScreen } from "../theme.js";
+import { getTerminalCapabilities } from "../capabilities.js";
+
+/** Write an ANSI escape sequence only when the terminal supports it. */
+function ansi(seq: string): void {
+  if (getTerminalCapabilities().ansi) process.stdout.write(seq);
+}
+/** Erase the current line (ANSI \x1b[2K). Falls back to nothing. */
+function eraseLine(): string {
+  return getTerminalCapabilities().ansi ? "\x1b[2K" : "";
+}
+/** Move cursor up N lines. */
+function cursorUp(n: number): void {
+  if (getTerminalCapabilities().ansi) process.stdout.write(`\x1b[${n}A`);
+}
 import {
   readConfig,
   writeConfig,
@@ -1293,7 +1307,7 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
     };
 
     const fullRender = () => {
-      process.stdout.write("\x1b[2J\x1b[H");
+      ansi("\x1b[2J\x1b[H");
 
       console.log(section("Watch Paths"));
       console.log(t.dim("  Space = toggle, ←/→ = collapse/expand"));
@@ -1325,7 +1339,7 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
 
     fullRender();
 
-    process.stdout.write("\x1b[?25l"); // hide cursor
+    ansi("\x1b[?25l"); // hide cursor
 
     // Ensure stdin is fully active for raw keyboard input
     // Must resume BEFORE setting raw mode to avoid EAGAIN on some platforms
@@ -1352,7 +1366,7 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
         try { process.stdin.setRawMode(false); } catch {}
       }
       process.stdin.pause();
-      process.stdout.write("\x1b[?25h"); // show cursor
+      ansi("\x1b[?25h"); // show cursor
       resolveMenu(result);
     };
 
@@ -1698,7 +1712,7 @@ function evidenceCheckboxMenu(
         const check = t.dim("[-]");
         const label = t.dim(item.label.padEnd(20));
         const desc = t.dim("(needs Entity Relations)");
-        process.stdout.write(`\x1b[2K${prefix}${cursor} ${check} ${label} ${desc}\n`);
+        process.stdout.write(`${eraseLine()}${prefix}${cursor} ${check} ${label} ${desc}\n`);
       } else {
         const check = item.enabled ? t.ok("[✓]") : t.dim("[ ]");
         const label = i === selected ? t.selected(item.label.padEnd(20)) : t.value(item.label.padEnd(20));
@@ -1712,27 +1726,27 @@ function evidenceCheckboxMenu(
             desc = t.dim("No model set  [ENTER to configure]");
           }
         }
-        process.stdout.write(`\x1b[2K${prefix}${cursor} ${check} ${label} ${desc}\n`);
+        process.stdout.write(`${eraseLine()}${prefix}${cursor} ${check} ${label} ${desc}\n`);
       }
     };
 
     const renderAll = () => {
-      process.stdout.write(`\x1b[${ROW_COUNT}A`);
+      cursorUp(ROW_COUNT);
       for (let i = 0; i < items.length; i++) {
         renderLine(i);
       }
       // Separator
-      process.stdout.write(`\x1b[2K\n`);
+      process.stdout.write(`${eraseLine()}\n`);
       // Confirm row
       const confirmIdx = items.length;
       const confirmSel = selected === confirmIdx;
-      process.stdout.write(`\x1b[2K  ${confirmSel ? t.selected("›") : " "} ${confirmSel ? t.ok("Save & Continue") : t.value("Save & Continue")}\n`);
+      process.stdout.write(`${eraseLine()}  ${confirmSel ? t.selected("›") : " "} ${confirmSel ? t.ok("Save & Continue") : t.value("Save & Continue")}\n`);
       // Back row
       const backIdx = items.length + 1;
       const backSel = selected === backIdx;
-      process.stdout.write(`\x1b[2K  ${backSel ? t.selected("›") : " "} ${backSel ? t.dim("Back (discard changes)") : t.dim("Back (discard changes)")}\n`);
+      process.stdout.write(`${eraseLine()}  ${backSel ? t.selected("›") : " "} ${backSel ? t.dim("Back (discard changes)") : t.dim("Back (discard changes)")}\n`);
       // Hint
-      process.stdout.write(`\x1b[2K${t.dim("  ↑↓ navigate  SPACE toggle  ENTER select/configure  ESC back")}\n`);
+      process.stdout.write(`${eraseLine()}${t.dim("  ↑↓ navigate  SPACE toggle  ENTER select/configure  ESC back")}\n`);
     };
 
     // Initial render — reserve lines
@@ -1741,7 +1755,7 @@ function evidenceCheckboxMenu(
     }
     renderAll();
 
-    process.stdout.write("\x1b[?25l");
+    ansi("\x1b[?25l");
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
 
@@ -1795,7 +1809,7 @@ function evidenceCheckboxMenu(
             for (let i = 0; i < ROW_COUNT; i++) {
               process.stdout.write("\n");
             }
-            process.stdout.write("\x1b[?25l");
+            ansi("\x1b[?25l");
             if (process.stdin.isTTY) process.stdin.setRawMode(true);
             process.stdin.resume();
             process.stdin.on("data", onKey);

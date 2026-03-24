@@ -1,7 +1,7 @@
 import { execFileSync } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, writeFileSync, unlinkSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { resolve } from "path";
 import {
   type EvidenceConfig,
@@ -39,7 +39,7 @@ import { t } from "./components.js";
 export async function runInkInstall(): Promise<boolean> {
   const proceed = await promptConfirm({
     title: "Welcome to ThreadClaw",
-    message: "Recommended setup gets you to a working local install quickly. Advanced setup lets you tune models, parsing, evidence, integrations, and services up front.",
+    message: "ThreadClaw is a local RAG system that indexes your documents and provides\nsemantic search, knowledge graphs, and context compilation for AI assistants.\n\nRecommended setup gets you to a working local install quickly. Advanced setup lets you tune models, parsing, evidence, integrations, and services up front.",
     confirmLabel: "Begin setup",
     cancelLabel: "Cancel",
   });
@@ -204,6 +204,33 @@ export async function runInkInstall(): Promise<boolean> {
     enableAudio = true;
     evidenceConfig = QUICK_EVIDENCE;
     if (openclawDir) integrateOpenClaw = true;
+
+    // Offer to set up watch paths for document folders
+    const docsFolder = resolve(homedir(), "Documents");
+    const docsFolderExists = existsSync(docsFolder);
+    const watchPrompt = docsFolderExists
+      ? `Would you like ThreadClaw to watch your Documents folder (${docsFolder}) for new files to index? You can add more folders later from Configure.`
+      : "Would you like ThreadClaw to watch any folders for documents? You can add more later from Configure.";
+    const watchDocs = await promptConfirm({
+      title: "Watch Paths",
+      message: watchPrompt,
+      confirmLabel: docsFolderExists ? "Watch Documents folder" : "Add a folder",
+      cancelLabel: "Skip for now",
+    });
+    if (watchDocs) {
+      if (docsFolderExists) {
+        process.env.THREADCLAW_INSTALL_WATCH_PATHS = `${docsFolder}|documents`;
+      } else {
+        const customPath = await promptText({
+          title: "Watch Path",
+          message: "Enter the full path to a folder you'd like ThreadClaw to watch.",
+          label: "Folder path",
+        });
+        if (customPath && existsSync(customPath)) {
+          process.env.THREADCLAW_INSTALL_WATCH_PATHS = `${customPath}|documents`;
+        }
+      }
+    }
   } else {
     ({ parser, enableOcr, enableAudio } = await promptDocumentSettings());
     evidenceConfig = await promptEvidenceSettings();
@@ -575,15 +602,25 @@ async function promptCloudModel(type: "embed" | "rerank"): Promise<ModelInfo | n
     dims = parseInt(dimsVal, 10) || 1536;
   }
 
+  const apiKey = await promptText({
+    title: "API Key",
+    message: `Enter the API key for ${providerName}. This will be saved locally in your .env file.`,
+    label: "API Key",
+    mask: "*",
+    allowEmpty: true,
+  }) ?? "";
+
   // Store cloud config in env during install (performInstallPlan handles .env writing)
   // Set env vars so config.ts picks them up
   if (type === "embed") {
     process.env.EMBEDDING_URL = apiUrl.replace(/\/+$/, "");
     process.env.EMBEDDING_MODEL = modelName;
     process.env.EMBEDDING_DIMENSIONS = String(dims);
+    if (apiKey) process.env.EMBEDDING_API_KEY = apiKey;
   } else {
     process.env.RERANKER_URL = apiUrl.replace(/\/+$/, "");
     process.env.RERANKER_MODEL = modelName;
+    if (apiKey) process.env.RERANKER_API_KEY = apiKey;
   }
 
   return {

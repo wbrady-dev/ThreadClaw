@@ -6,7 +6,7 @@ import { Box, Text } from "ink";
 import { execFile } from "child_process";
 import { existsSync, readFileSync, statSync } from "fs";
 import { resolve } from "path";
-import { Section, KV, StatusDot, Menu, t, useInterval } from "../components.js";
+import { Section, KV, StatusDot, Menu, t, useInterval, type MenuItem } from "../components.js";
 import { readConfig, getRootDir, getDataDir, findOpenClaw, getPlatform, getApiPort, getModelPort, getApiBaseUrl, getModelBaseUrl, type ServiceStatus } from "../../platform.js";
 import { checkAutoStartupAsync, detectGpuAsync, isPortReachable } from "../../runtime-status.js";
 import { subscribeTasks } from "../../tasks.js";
@@ -90,6 +90,9 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
 
     return () => { cancelled = true; };
   }, [tick]);
+
+  // Immediately fetch on mount to clear stale module-level caches
+  useEffect(() => { setTick((v) => v + 1); setGpuTick((v) => v + 1); }, []);
 
   useEffect(() => subscribeTasks(() => {
     setTick((value) => value + 1);
@@ -213,7 +216,16 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
       {ocDir && <KV label="OpenClaw" value={t.ok(`detected at ${ocDir}`)} />}
 
       <Text> </Text>
-      <Menu items={[{ label: "Back", value: "__back__", color: t.dim }]} onSelect={onBack} />
+      <Menu
+        items={[
+          { label: "Refresh", value: "refresh" },
+          { label: "Back", value: "__back__", color: t.dim },
+        ] as MenuItem[]}
+        onSelect={(value) => {
+          if (value === "refresh") setTick((v) => v + 1);
+          else onBack();
+        }}
+      />
     </Box>
   );
 }

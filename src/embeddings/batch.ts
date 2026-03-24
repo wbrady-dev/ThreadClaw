@@ -3,7 +3,7 @@ import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 
 const BATCH_SIZE = config.embedding.batchSize;
-const MAX_CONCURRENT = 2;
+const MAX_CONCURRENT = config.extraction.embeddingMaxConcurrent;
 
 export interface BatchProgress {
   completed: number;

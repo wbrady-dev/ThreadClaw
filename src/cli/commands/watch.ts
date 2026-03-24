@@ -10,6 +10,11 @@ export const watchCommand = new Command("watch")
   .option("-t, --tags <tags>", "Comma-separated tags")
   .option("-d, --debounce <ms>", "Debounce delay in milliseconds", "2000")
   .option("--existing", "Ingest existing files on startup", false)
+  .addHelpText("after", `
+Examples:
+  $ threadclaw watch ~/Documents                          Watch a directory for changes
+  $ threadclaw watch --existing ./notes                   Ingest existing files then watch
+  $ threadclaw watch ./src ./docs -c codebase --tags dev  Watch multiple dirs with tags`)
   .action(
     async (
       paths: string[],

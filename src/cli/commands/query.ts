@@ -14,6 +14,12 @@ export const queryCommand = new Command("query")
   .option("--expand", "Force query expansion (requires configured LLM)")
   .option("-b, --budget <tokens>", "Token budget for context", "1500")
   .option("--json", "Output as JSON")
+  .addHelpText("after", `
+Examples:
+  $ threadclaw query "What is RSMA?"                        Default mode with reranking
+  $ threadclaw query "summarize auth flow" --brief          Compressed output for agents
+  $ threadclaw query "list all configs" --titles            Document titles only
+  $ threadclaw query "explain caching" --full -k 5          Full chunks, top 5 results`)
   .action(
     async (
       question: string,
@@ -75,7 +81,11 @@ export const queryCommand = new Command("query")
           );
         }
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${msg}`);
+        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
+          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
+        }
         process.exit(1);
       }
     },

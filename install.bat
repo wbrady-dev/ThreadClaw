@@ -49,11 +49,19 @@ if %errorlevel% neq 0 (
 )
 for /f "tokens=*" %%v in ('python --version') do echo [OK] %%v
 
+:: Check Python version >= 3.10
+for /f %%m in ('python -c "import sys; print(sys.version_info.minor)"') do set PYTHON_MINOR=%%m
+if %PYTHON_MINOR% LSS 10 (
+    echo [ERROR] Python 3.%PYTHON_MINOR% detected. ThreadClaw requires Python 3.10+.
+    pause
+    exit /b 1
+)
+
 :: ── Step 3: Node.js dependencies ──
 if not exist "%SCRIPT_DIR%\node_modules" (
     echo.
     echo [install] Installing Node.js dependencies...
-    call npm install
+    call npm install --no-audit --no-fund
     if %errorlevel% neq 0 (
         echo [ERROR] npm install failed.
         pause
@@ -88,8 +96,8 @@ echo [install] Installing Python dependencies (this may take several minutes)...
 :: Install PyTorch first (platform-specific)
 "%SCRIPT_DIR%\.venv\Scripts\python.exe" -c "import torch" >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [install] Installing PyTorch...
-    "%SCRIPT_DIR%\.venv\Scripts\pip.exe" install torch torchvision --index-url https://download.pytorch.org/whl/cu124 >nul 2>&1
+    echo [install] Downloading PyTorch (this may take 5-10 minutes)...
+    "%SCRIPT_DIR%\.venv\Scripts\pip.exe" install torch torchvision --index-url https://download.pytorch.org/whl/cu124
     if %errorlevel% neq 0 (
         echo [install] GPU PyTorch failed, trying CPU version...
         "%SCRIPT_DIR%\.venv\Scripts\pip.exe" install torch torchvision
@@ -138,7 +146,10 @@ if %errorlevel% neq 0 (
 if not exist "%SCRIPT_DIR%\memory-engine\node_modules\@sinclair\typebox" (
     echo [install] Installing memory-engine dependencies...
     cd /d "%SCRIPT_DIR%\memory-engine"
-    call npm install >nul 2>&1
+    call npm install --no-audit --no-fund >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [WARN] memory-engine npm install returned an error.
+    )
     cd /d "%SCRIPT_DIR%"
     if exist "%SCRIPT_DIR%\memory-engine\node_modules\@sinclair\typebox" (
         echo [OK] Memory-engine dependencies installed
@@ -168,10 +179,12 @@ if %EXIT_CODE% equ 0 (
         echo node "%SCRIPT_DIR%\bin\threadclaw.mjs" %%*
     ) > "%LOCALAPPDATA%\ThreadClaw\threadclaw.cmd"
 
-    :: Add to user PATH if not already there
-    echo %PATH% | findstr /i "ThreadClaw" >nul 2>&1
-    if %errorlevel% neq 0 (
-        setx PATH "%PATH%;%LOCALAPPDATA%\ThreadClaw" >nul 2>&1
+    :: Add to user PATH if not already there (read from registry to avoid corruption)
+    for /f "tokens=2*" %%a in ('reg query "HKCU\Environment" /v PATH 2^>nul') do set "USER_PATH=%%b"
+    if not defined USER_PATH set "USER_PATH="
+    echo !USER_PATH! | findstr /i "ThreadClaw" >nul 2>&1
+    if !errorlevel! neq 0 (
+        setx PATH "!USER_PATH!;%LOCALAPPDATA%\ThreadClaw" >nul 2>&1
         set "PATH=%PATH%;%LOCALAPPDATA%\ThreadClaw"
         echo [OK] threadclaw command registered. Restart your terminal to use it.
     ) else (
@@ -189,9 +202,7 @@ if %EXIT_CODE% equ 0 (
     set "PYTHON=%SCRIPT_DIR%\.venv\Scripts\python.exe"
     set "MODELS_SCRIPT=%SCRIPT_DIR%\server\server.py"
     if not exist "!MODELS_SCRIPT!" (
-        echo [ERROR] server\server.py not found. Installation may be corrupt.
-        pause
-        exit /b 1
+        echo [WARN] server\server.py not found. Model services may not start.
     )
 
     :: Create wrapper scripts for Task Scheduler

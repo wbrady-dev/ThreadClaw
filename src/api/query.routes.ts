@@ -61,7 +61,11 @@ export function registerQueryRoutes(server: FastifyInstance) {
         titlesOnly: titles_only,
       });
     } catch (err) {
-      return reply.status(500).send({ error: `Query failed: ${err instanceof Error ? err.message : String(err)}` });
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
+        return reply.status(503).send({ error: `Embedding service unavailable: ${msg}. Ensure the embedding model is running (threadclaw start).` });
+      }
+      return reply.status(500).send({ error: `Query failed: ${msg}` });
     }
   });
 
@@ -88,7 +92,11 @@ export function registerQueryRoutes(server: FastifyInstance) {
         useReranker: false,
       });
     } catch (err) {
-      return reply.status(500).send({ error: `Search failed: ${err instanceof Error ? err.message : String(err)}` });
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
+        return reply.status(503).send({ error: `Embedding service unavailable: ${msg}. Ensure the embedding model is running (threadclaw start).` });
+      }
+      return reply.status(500).send({ error: `Search failed: ${msg}` });
     }
   });
 }

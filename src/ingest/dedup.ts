@@ -1,9 +1,10 @@
 import type Database from "better-sqlite3";
+import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 
 // ── Semantic Deduplication ──
 
-const SIMILARITY_THRESHOLD = 0.95; // cosine similarity above this = duplicate
+const SIMILARITY_THRESHOLD = config.extraction.dedupSimilarityThreshold;
 
 /**
  * Find duplicate chunk indices within a batch of new embeddings.
@@ -12,7 +13,7 @@ const SIMILARITY_THRESHOLD = 0.95; // cosine similarity above this = duplicate
 export function findIntraBatchDuplicates(embeddings: number[][]): Set<number> {
   if (embeddings.length < 2) return new Set();
 
-  const MAX_PAIRWISE = 500;
+  const MAX_PAIRWISE = config.extraction.dedupMaxPairwise;
   if (embeddings.length > MAX_PAIRWISE) {
     logger.warn(
       { count: embeddings.length, limit: MAX_PAIRWISE },

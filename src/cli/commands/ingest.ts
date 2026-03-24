@@ -13,6 +13,11 @@ export const ingestCommand = new Command("ingest")
   .option("-t, --tags <tags>", "Comma-separated tags")
   .option("-r, --recursive", "Recursively ingest folders", false)
   .option("-f, --force", "Force re-ingestion even if unchanged", false)
+  .addHelpText("after", `
+Examples:
+  $ threadclaw ingest ./docs                            Ingest all supported files in ./docs
+  $ threadclaw ingest report.pdf --collection research  Ingest a single file into "research"
+  $ threadclaw ingest ./notes -r --tags meeting,2026    Recursively ingest with tags`)
   .action(
     async (
       filePath: string,
@@ -48,7 +53,11 @@ export const ingestCommand = new Command("ingest")
           printResult(result);
         }
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${msg}`);
+        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
+          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
+        }
         process.exit(1);
       }
     },

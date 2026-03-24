@@ -15,6 +15,7 @@ import { existsSync, readFileSync, rmSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { ParsedDocument, DocMetadata } from "./index.js";
+import { getSystemPythonCmd } from "../../tui/platform.js";
 
 const WHISPER_MODELS = new Set([
   "tiny", "base", "small", "medium", "large", "large-v2", "large-v3", "turbo",
@@ -29,7 +30,7 @@ function isWhisperAvailable(): boolean {
     _whisperAvailable = true;
   } catch {
     try {
-      execFileSync("python", ["-m", "whisper", "--help"], { stdio: "pipe", timeout: 10000 });
+      execFileSync(getSystemPythonCmd(), ["-m", "whisper", "--help"], { stdio: "pipe", timeout: 10000 });
       _whisperAvailable = true;
     } catch {
       _whisperAvailable = false;

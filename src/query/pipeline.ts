@@ -86,7 +86,7 @@ const getVectorDistanceThreshold = () => config.embedding.similarityThreshold;
  * 7. Output mode: brief (200 tokens) / titles (30 tokens) / full (original)
  */
 /** Max query length to prevent abuse / excessive embedding cost */
-const MAX_QUERY_LENGTH = 2000;
+const MAX_QUERY_LENGTH = config.query.maxLength;
 
 export async function query(
   queryText: string,
@@ -172,7 +172,7 @@ export async function query(
     ? allCollections.map((c) => c.name)
     : [collectionName];
 
-  const retrieveCount = topK * 2;
+  const retrieveCount = topK * config.query.retrieveMultiplier;
   let strategy = "dense";
 
   // === Query Expansion (optional) ===
@@ -469,7 +469,7 @@ export async function query(
   }
 
   const elapsed = Date.now() - start;
-  const lowConfidence = confidence < 0.3 && chunksReturned > 0;
+  const lowConfidence = confidence < config.query.lowConfidenceThreshold && chunksReturned > 0;
 
   logger.info({
     query: queryText,

@@ -15,6 +15,7 @@ export const updateCommand = new Command("update")
 
     if (!existsSync(script)) {
       console.error(`Update script not found: ${script}`);
+      console.error("Your installation may be incomplete. Try re-installing: git clone https://github.com/anthropics/threadclaw && cd threadclaw && npm install && npm run build");
       process.exit(1);
     }
 
@@ -25,6 +26,7 @@ export const updateCommand = new Command("update")
         execFileSync("bash", [script], { stdio: "inherit", cwd: root });
       }
     } catch (error) {
+      console.error("Update failed: " + (error instanceof Error ? error.message : String(error)));
       process.exit(1);
     }
   });

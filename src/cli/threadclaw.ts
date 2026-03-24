@@ -34,8 +34,14 @@ if (process.argv.length <= 2) {
 
   program
     .name("threadclaw")
-    .description("State-of-the-art RAG system for OpenClaw")
-    .version(getAppVersion());
+    .description("State-of-the-art RAG system for OpenClaw. Run without arguments to launch the interactive TUI.")
+    .version(getAppVersion())
+    .addHelpText("after", `
+Quick start:
+  $ threadclaw                                Launch the interactive TUI
+  $ threadclaw ingest ./docs                  Add documents to the knowledge base
+  $ threadclaw query "How does auth work?"    Query your ingested documents
+  $ threadclaw status                         Check service health`);
 
   program.addCommand(ingestCommand);
   program.addCommand(queryCommand);

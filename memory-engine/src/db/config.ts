@@ -78,6 +78,62 @@ export type LcmConfig = {
   relationsDeepExtractionApiKey: string;
   /** Base URL override for extraction model (e.g., Ollama at http://localhost:11434). */
   relationsDeepExtractionBaseUrl: string;
+  // ── Engine Tuning ────────────────────────────────────────────────────
+  /** Max compaction rounds per cycle (default 10). */
+  maxRounds: number;
+  /** NER circuit breaker reset interval in ms (default 30000). */
+  nerCircuitResetMs: number;
+  /** SQLite busy_timeout in ms for memory DB (default 5000). */
+  busyTimeoutMs: number;
+  /** SQLite busy_timeout in ms for graph DB (default 5000). */
+  graphBusyTimeoutMs: number;
+  // ── Decay Tuning ──────────────────────────────────────────────────────
+  /** Anti-runbook tool-success decay multiplier (default 0.7). */
+  relationsDecayToolSuccessMultiplier: number;
+  /** Anti-runbook staleness decay multiplier (default 0.8). */
+  relationsDecayStalenessMultiplier: number;
+  /** Anti-runbook tool-success decay floor (default 0.3). */
+  relationsDecayToolSuccessFloor: number;
+  /** Anti-runbook staleness decay floor (default 0.2). */
+  relationsDecayStalenessFloor: number;
+  /** Days before runbook is marked stale (default 180). */
+  relationsRunbookStaleDays: number;
+  // ── Confidence Tuning ─────────────────────────────────────────────────
+  /** Recency bracket boundary in days: full weight below this (default 7). */
+  relationsRecencyFullDays: number;
+  /** Recency bracket boundary in days: high weight below this (default 30). */
+  relationsRecencyHighDays: number;
+  /** Recency bracket boundary in days: medium weight below this (default 90). */
+  relationsRecencyMediumDays: number;
+  /** Recency weight for the high bracket (default 0.8). */
+  relationsRecencyHighWeight: number;
+  /** Recency weight for the medium bracket (default 0.5). */
+  relationsRecencyMediumWeight: number;
+  /** Recency weight for the stale bracket (default 0.3). */
+  relationsRecencyStaleWeight: number;
+  // ── Awareness Cache ───────────────────────────────────────────────────
+  /** Max entities in awareness cache (default 5000). */
+  relationsAwarenessCacheMaxSize: number;
+  /** Awareness cache TTL in ms (default 30000). */
+  relationsAwarenessCacheTtlMs: number;
+  // ── Deep Extraction Limits ────────────────────────────────────────────
+  /** Max input chars for deep extraction LLM call (default 4000). */
+  relationsDeepExtractionMaxInputChars: number;
+  /** Max tokens for deep extraction LLM response (default 1000). */
+  relationsDeepExtractionMaxTokens: number;
+  /** Max field length for extracted claims (default 500). */
+  relationsDeepExtractionMaxFieldLength: number;
+  /** Max items from a single extraction (default 50). */
+  relationsDeepExtractionMaxItems: number;
+  /** Default trust score for deep-extracted claims (default 0.6). */
+  relationsDeepExtractionDefaultTrust: number;
+  /** Default source authority for deep-extracted claims (default 0.6). */
+  relationsDeepExtractionDefaultAuthority: number;
+  // ── Context Compiler ──────────────────────────────────────────────────
+  /** Auto-archive check interval in ms (default 3600000). */
+  relationsAutoArchiveIntervalMs: number;
+  /** Evidence log event threshold to trigger auto-archive (default 5000). */
+  relationsAutoArchiveEventThreshold: number;
   // ── RSMA Extraction Mode ─────────────────────────────────────────────
   /**
    * Extraction mode: "smart" | "fast"
@@ -307,6 +363,137 @@ export function resolveLcmConfig(
       e("RELATIONS_DEEP_EXTRACTION_BASE_URL")?.trim()
       ?? toStr(pc.relationsDeepExtractionBaseUrl)
       ?? "",
+    // ── Engine Tuning ─────────────────────────────────────────────────
+    maxRounds: clampInt(
+      (e("MAX_ROUNDS") !== undefined ? parseInt(e("MAX_ROUNDS")!, 10) : undefined)
+        ?? toNumber(pc.maxRounds),
+      1, 100, 10,
+    ),
+    nerCircuitResetMs: clampInt(
+      (e("NER_CIRCUIT_RESET_MS") !== undefined ? parseInt(e("NER_CIRCUIT_RESET_MS")!, 10) : undefined)
+        ?? toNumber(pc.nerCircuitResetMs),
+      1000, 600_000, 30_000,
+    ),
+    busyTimeoutMs: clampInt(
+      (e("BUSY_TIMEOUT_MS") !== undefined ? parseInt(e("BUSY_TIMEOUT_MS")!, 10) : undefined)
+        ?? toNumber(pc.busyTimeoutMs),
+      100, 60_000, 5000,
+    ),
+    graphBusyTimeoutMs: clampInt(
+      (e("GRAPH_BUSY_TIMEOUT_MS") !== undefined ? parseInt(e("GRAPH_BUSY_TIMEOUT_MS")!, 10) : undefined)
+        ?? toNumber(pc.graphBusyTimeoutMs),
+      100, 60_000, 5000,
+    ),
+    // ── Decay Tuning ────────────────────────────────────────────────────
+    relationsDecayToolSuccessMultiplier: clampFloat(
+      (e("RELATIONS_DECAY_TOOL_SUCCESS_MULTIPLIER") !== undefined ? parseFloat(e("RELATIONS_DECAY_TOOL_SUCCESS_MULTIPLIER")!) : undefined)
+        ?? toNumber(pc.relationsDecayToolSuccessMultiplier),
+      0, 1, 0.7,
+    ),
+    relationsDecayStalenessMultiplier: clampFloat(
+      (e("RELATIONS_DECAY_STALENESS_MULTIPLIER") !== undefined ? parseFloat(e("RELATIONS_DECAY_STALENESS_MULTIPLIER")!) : undefined)
+        ?? toNumber(pc.relationsDecayStalenessMultiplier),
+      0, 1, 0.8,
+    ),
+    relationsDecayToolSuccessFloor: clampFloat(
+      (e("RELATIONS_DECAY_TOOL_SUCCESS_FLOOR") !== undefined ? parseFloat(e("RELATIONS_DECAY_TOOL_SUCCESS_FLOOR")!) : undefined)
+        ?? toNumber(pc.relationsDecayToolSuccessFloor),
+      0, 1, 0.3,
+    ),
+    relationsDecayStalenessFloor: clampFloat(
+      (e("RELATIONS_DECAY_STALENESS_FLOOR") !== undefined ? parseFloat(e("RELATIONS_DECAY_STALENESS_FLOOR")!) : undefined)
+        ?? toNumber(pc.relationsDecayStalenessFloor),
+      0, 1, 0.2,
+    ),
+    relationsRunbookStaleDays: clampInt(
+      (e("RELATIONS_RUNBOOK_STALE_DAYS") !== undefined ? parseInt(e("RELATIONS_RUNBOOK_STALE_DAYS")!, 10) : undefined)
+        ?? toNumber(pc.relationsRunbookStaleDays),
+      1, 3650, 180,
+    ),
+    // ── Confidence Tuning ───────────────────────────────────────────────
+    relationsRecencyFullDays: clampInt(
+      (e("RELATIONS_RECENCY_FULL_DAYS") !== undefined ? parseInt(e("RELATIONS_RECENCY_FULL_DAYS")!, 10) : undefined)
+        ?? toNumber(pc.relationsRecencyFullDays),
+      1, 365, 7,
+    ),
+    relationsRecencyHighDays: clampInt(
+      (e("RELATIONS_RECENCY_HIGH_DAYS") !== undefined ? parseInt(e("RELATIONS_RECENCY_HIGH_DAYS")!, 10) : undefined)
+        ?? toNumber(pc.relationsRecencyHighDays),
+      1, 365, 30,
+    ),
+    relationsRecencyMediumDays: clampInt(
+      (e("RELATIONS_RECENCY_MEDIUM_DAYS") !== undefined ? parseInt(e("RELATIONS_RECENCY_MEDIUM_DAYS")!, 10) : undefined)
+        ?? toNumber(pc.relationsRecencyMediumDays),
+      1, 3650, 90,
+    ),
+    relationsRecencyHighWeight: clampFloat(
+      (e("RELATIONS_RECENCY_HIGH_WEIGHT") !== undefined ? parseFloat(e("RELATIONS_RECENCY_HIGH_WEIGHT")!) : undefined)
+        ?? toNumber(pc.relationsRecencyHighWeight),
+      0, 1, 0.8,
+    ),
+    relationsRecencyMediumWeight: clampFloat(
+      (e("RELATIONS_RECENCY_MEDIUM_WEIGHT") !== undefined ? parseFloat(e("RELATIONS_RECENCY_MEDIUM_WEIGHT")!) : undefined)
+        ?? toNumber(pc.relationsRecencyMediumWeight),
+      0, 1, 0.5,
+    ),
+    relationsRecencyStaleWeight: clampFloat(
+      (e("RELATIONS_RECENCY_STALE_WEIGHT") !== undefined ? parseFloat(e("RELATIONS_RECENCY_STALE_WEIGHT")!) : undefined)
+        ?? toNumber(pc.relationsRecencyStaleWeight),
+      0, 1, 0.3,
+    ),
+    // ── Awareness Cache ─────────────────────────────────────────────────
+    relationsAwarenessCacheMaxSize: clampInt(
+      (e("RELATIONS_AWARENESS_CACHE_MAX_SIZE") !== undefined ? parseInt(e("RELATIONS_AWARENESS_CACHE_MAX_SIZE")!, 10) : undefined)
+        ?? toNumber(pc.relationsAwarenessCacheMaxSize),
+      100, 100_000, 5000,
+    ),
+    relationsAwarenessCacheTtlMs: clampInt(
+      (e("RELATIONS_AWARENESS_CACHE_TTL_MS") !== undefined ? parseInt(e("RELATIONS_AWARENESS_CACHE_TTL_MS")!, 10) : undefined)
+        ?? toNumber(pc.relationsAwarenessCacheTtlMs),
+      1000, 600_000, 30_000,
+    ),
+    // ── Deep Extraction Limits ──────────────────────────────────────────
+    relationsDeepExtractionMaxInputChars: clampInt(
+      (e("RELATIONS_DEEP_EXTRACTION_MAX_INPUT_CHARS") !== undefined ? parseInt(e("RELATIONS_DEEP_EXTRACTION_MAX_INPUT_CHARS")!, 10) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionMaxInputChars),
+      100, 100_000, 4000,
+    ),
+    relationsDeepExtractionMaxTokens: clampInt(
+      (e("RELATIONS_DEEP_EXTRACTION_MAX_TOKENS") !== undefined ? parseInt(e("RELATIONS_DEEP_EXTRACTION_MAX_TOKENS")!, 10) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionMaxTokens),
+      100, 10_000, 1000,
+    ),
+    relationsDeepExtractionMaxFieldLength: clampInt(
+      (e("RELATIONS_DEEP_EXTRACTION_MAX_FIELD_LENGTH") !== undefined ? parseInt(e("RELATIONS_DEEP_EXTRACTION_MAX_FIELD_LENGTH")!, 10) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionMaxFieldLength),
+      10, 10_000, 500,
+    ),
+    relationsDeepExtractionMaxItems: clampInt(
+      (e("RELATIONS_DEEP_EXTRACTION_MAX_ITEMS") !== undefined ? parseInt(e("RELATIONS_DEEP_EXTRACTION_MAX_ITEMS")!, 10) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionMaxItems),
+      1, 500, 50,
+    ),
+    relationsDeepExtractionDefaultTrust: clampFloat(
+      (e("RELATIONS_DEEP_EXTRACTION_DEFAULT_TRUST") !== undefined ? parseFloat(e("RELATIONS_DEEP_EXTRACTION_DEFAULT_TRUST")!) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionDefaultTrust),
+      0, 1, 0.6,
+    ),
+    relationsDeepExtractionDefaultAuthority: clampFloat(
+      (e("RELATIONS_DEEP_EXTRACTION_DEFAULT_AUTHORITY") !== undefined ? parseFloat(e("RELATIONS_DEEP_EXTRACTION_DEFAULT_AUTHORITY")!) : undefined)
+        ?? toNumber(pc.relationsDeepExtractionDefaultAuthority),
+      0, 1, 0.6,
+    ),
+    // ── Context Compiler ────────────────────────────────────────────────
+    relationsAutoArchiveIntervalMs: clampInt(
+      (e("RELATIONS_AUTO_ARCHIVE_INTERVAL_MS") !== undefined ? parseInt(e("RELATIONS_AUTO_ARCHIVE_INTERVAL_MS")!, 10) : undefined)
+        ?? toNumber(pc.relationsAutoArchiveIntervalMs),
+      60_000, 86_400_000, 3_600_000,
+    ),
+    relationsAutoArchiveEventThreshold: clampInt(
+      (e("RELATIONS_AUTO_ARCHIVE_EVENT_THRESHOLD") !== undefined ? parseInt(e("RELATIONS_AUTO_ARCHIVE_EVENT_THRESHOLD")!, 10) : undefined)
+        ?? toNumber(pc.relationsAutoArchiveEventThreshold),
+      100, 1_000_000, 5000,
+    ),
     // ── RSMA Extraction Mode ────────────────────────────────────────────
     // BUG 4 FIX: Derive default from whether deep extraction is enabled.
     // "smart" requires an LLM model; if deep extraction is disabled, default to "fast"

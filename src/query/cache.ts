@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
+import { config } from "../config.js";
 
 /**
  * LRU query cache — avoids redundant searches within a session.
  * Same query + collection = instant return, zero embedding/reranking cost.
  *
- * 50 entries max, 5 minute TTL. No persistence — memory only.
+ * Configurable entries max and TTL. No persistence — memory only.
  */
 
-const MAX_ENTRIES = 50;
-const TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_ENTRIES = config.query.cacheMaxEntries;
+const TTL_MS = config.query.cacheTtlMs;
 
 interface CacheEntry {
   result: unknown;

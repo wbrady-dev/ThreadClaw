@@ -24,13 +24,19 @@ import { ServicesScreen } from "./screens/services.js";
 import { ConfigureScreen } from "./screens/configure.js";
 import { DocumentsScreen } from "./screens/documents.js";
 import { EvidenceOsScreen } from "./screens/evidence-os.js";
+import { SearchScreen } from "./screens/search.js";
 
 export async function launchInkTui(): Promise<void> {
   while (true) {
     const action = await showInkScreen("home");
 
-    if (action === "exit") {
+    if (action === "exit" || action === "__confirm_exit__") {
       process.exit(0);
+    }
+
+    if (action === "search") {
+      await showInkScreen("search");
+      continue;
     }
 
     if (action === "status") {
@@ -63,7 +69,6 @@ export async function launchInkTui(): Promise<void> {
       await showInkScreen("evidence-os");
       continue;
     }
-
     if (action === "reset-kb") {
       await runResetKnowledgeBase();
       continue;
@@ -89,7 +94,7 @@ export async function launchInkTui(): Promise<void> {
   }
 }
 
-function showInkScreen(screen: "home" | "status" | "sources" | "services" | "configure" | "documents" | "evidence-os"): Promise<string> {
+function showInkScreen(screen: "home" | "status" | "sources" | "services" | "configure" | "documents" | "evidence-os" | "search"): Promise<string> {
   return new Promise((resolveAction) => {
     resetStdin();
     clearScreen();
@@ -137,6 +142,8 @@ function showInkScreen(screen: "home" | "status" | "sources" | "services" | "con
       ScreenComponent = () => <DocumentsScreen onBack={() => onAction("__back__")} />;
     } else if (screen === "evidence-os") {
       ScreenComponent = () => <EvidenceOsScreen onBack={() => onAction("__back__")} />;
+    } else if (screen === "search") {
+      ScreenComponent = () => <SearchScreen onBack={() => onAction("__back__")} />;
     } else if (screen === "configure") {
       ScreenComponent = () => (
         <ConfigureScreen
@@ -431,9 +438,7 @@ async function runServicesScreenAction(action: string): Promise<void> {
   const ora = (await import("ora")).default;
   const {
     getPlatform,
-    isAdmin,
     getRootDir,
-    stopServices,
     installWindowsServices,
     removeWindowsServices,
     installLinuxServices,
@@ -455,11 +460,6 @@ async function runServicesScreenAction(action: string): Promise<void> {
     }
 
     if (platform === "linux") {
-      if (!isAdmin()) {
-        spinner.fail("sudo/root is required for systemd services");
-        await sleep(1200);
-        return;
-      }
       const result = installLinuxServices(root);
       result.success ? spinner.succeed("Auto-start enabled") : spinner.fail(result.error ?? "Failed to enable auto-start");
       await sleep(1000);
@@ -474,22 +474,16 @@ async function runServicesScreenAction(action: string): Promise<void> {
 
   if (action === "services-auto-off") {
     spinner.text = "Disabling auto-start...";
-    stopServices();
 
     if (platform === "windows") {
       removeWindowsServices();
     } else if (platform === "linux") {
-      if (!isAdmin()) {
-        spinner.fail("sudo/root is required for systemd services");
-        await sleep(1200);
-        return;
-      }
       removeLinuxServices();
     } else {
       removeMacServices();
     }
 
-    spinner.succeed("Auto-start disabled");
+    spinner.succeed("Auto-start disabled (running services are not affected)");
     await sleep(1000);
   }
 }
@@ -504,6 +498,9 @@ let cachedModelHealth: any = null;
 let cachedGpu = { detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 };
 let cachedAutoStart = false;
 let cachedEnvContent = "";
+let envNeedsReload = true;  // true on first load, set true after config actions
+/** Call after any config action that modifies .env to trigger a re-read on next poll */
+export function markEnvDirty() { envNeedsReload = true; }
 let cachedParsedEnv = {
   deepEnabled: false,
   relationsEnabled: false,
@@ -575,11 +572,14 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       fetch(`${getModelBaseUrl()}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null),
     ]);
 
-    // Refresh .env content and parse all values once
-    try {
-      const envPath = resolve(root, ".env");
-      if (existsSync(envPath)) cachedEnvContent = readFileSync(envPath, "utf-8");
-    } catch {}
+    // Read .env only on first load or after a config action marks it dirty
+    if (envNeedsReload) {
+      try {
+        const envPath = resolve(root, ".env");
+        if (existsSync(envPath)) cachedEnvContent = readFileSync(envPath, "utf-8");
+      } catch {}
+      envNeedsReload = false;
+    }
     const ec = cachedEnvContent;
     const watchPaths = ec.match(/WATCH_PATHS=(.+)/)?.[1]?.trim() ?? "";
     const sourceIcons: string[] = [];
@@ -717,6 +717,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     { label: "Status & Health", value: "status" },
     { label: "Sources", value: "sources" },
     { label: "Documents", value: "documents", description: docCount > 0 ? `${docCount} documents` : undefined },
+    { label: "Search", value: "search" },
     { label: "Evidence OS", value: "evidence-os", description: relationsEnabled && stats?.graphStats ? `${stats.graphStats.entities} entities` : undefined },
     { label: "Configure", value: "configure" },
     { label: "Services", value: "services" },
@@ -737,8 +738,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{"  " + (modelsUp ? t.ok("●") : t.err("○")) + " Models " + t.dim("|") + " " + (threadclawUp ? t.ok("●") : t.err("○")) + " ThreadClaw" + (autoStart ? t.dim("  (auto-start on)") : "")}</Text>
 
       {/* ── Models ── */}
-      <Text>{" "}</Text>
-      <Text>{t.title("--- Models ---")}</Text>
+      <Text>{t.title("  Models")}</Text>
       <Text>{"  " + t.dim("Embed: ") + t.value(embedName)}</Text>
       <Text>{"  " + t.dim("Rerank: ") + t.value(rerankName)}</Text>
       <Text>{"  " + t.dim("Deep Extract: ") + deepExtractLabel}</Text>
@@ -746,13 +746,11 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       <Text>{"  " + t.dim("GPU: ") + gpuLine}</Text>
 
       {/* ── Document Intelligence ── */}
-      <Text>{" "}</Text>
-      <Text>{t.title("--- Document Intelligence ---")}</Text>
+      <Text>{t.title("  Document Intelligence")}</Text>
       <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
 
       {/* ── Knowledge Base ── */}
-      <Text>{" "}</Text>
-      <Text>{t.title("--- Knowledge Base ---")}</Text>
+      <Text>{t.title("  Knowledge Base")}</Text>
       <Text>{"  " + t.dim("Sources: ") + (sourceIcons.length > 0 ? sourceIcons.join(t.dim("  |  ")) : t.dim("none configured"))}</Text>
       <Text>{"  " + t.dim("Watch Paths: ") + (watchCount > 0 ? t.ok(`${watchCount} paths`) : t.dim("none"))}</Text>
       {stats ? (
@@ -765,8 +763,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       )}
 
       {/* ── Evidence OS ── */}
-      <Text>{" "}</Text>
-      <Text>{t.title("--- Evidence OS ---")}</Text>
+      <Text>{t.title("  Evidence OS")}</Text>
       <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
       {relationsEnabled && (
         <>
@@ -781,8 +778,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {/* ── Activity / Service Action ── */}
       {(recentTasks.length > 0 || svcAction) && (
         <Box flexDirection="column">
-          <Text>{" "}</Text>
-          <Text>{t.title("--- Activity ---")}</Text>
+          <Text>{t.title("  Activity")}</Text>
           {svcAction && (
             <Text>{"  " + (svcAction.done
               ? (svcAction.success ? t.ok("✓ ") : t.err("✗ ")) + (svcAction.success ? t.ok(svcAction.message) : t.err(svcAction.message))
@@ -796,7 +792,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       )}
 
       <Separator />
-      <Menu items={items} onSelect={(value) => {
+      <Menu items={items} isRoot onSelect={(value) => {
         if (value === "start" || value === "stop" || value === "restart") {
           fireServiceAction(value);
           return;

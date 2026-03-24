@@ -3,8 +3,9 @@ import { Box, Text, useInput } from "ink";
 import chalk from "chalk";
 import { getTerminalCapabilities } from "../capabilities.js";
 import { t } from "../theme.js";
+import { getAppVersion } from "../../version.js";
 
-const r = chalk.hex("#e72d19");
+const r = t.brandAccent;
 const w = chalk.bold.white;
 
 // Re-export t so existing imports from this module keep working.
@@ -13,11 +14,12 @@ export { t };
 
 export function Banner() {
   const caps = getTerminalCapabilities();
+  const version = chalk.dim(` v${getAppVersion()}`);
 
   if (!caps.unicode) {
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <Text>{r("  THREADCLAW")}</Text>
+        <Text>{r("  THREADCLAW")}{version}</Text>
         <Text>{w("  Premium RAG for OpenClaw")}</Text>
       </Box>
     );
@@ -25,8 +27,8 @@ export function Banner() {
 
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text>{"              "}{r("🦞")} {w("THREADCLAW")} {r("🦞")}</Text>
-      <Text>{"          "}{chalk.dim("RSMA So Good It Pinches")}</Text>
+      <Text>{"              "}{r("🦞")} {w("THREADCLAW")}{version} {r("🦞")}</Text>
+      <Text>{"          "}{t.dim("RSMA So Good It Pinches")}</Text>
     </Box>
   );
 }
@@ -51,7 +53,8 @@ export function StatusDot({ ok, label, detail }: { ok: boolean; label: string; d
   return <Text>  {icon} {t.label(label)}{det}</Text>;
 }
 
-export function Separator({ width = 36 }: { width?: number }) {
+export function Separator({ width: explicitWidth }: { width?: number }) {
+  const width = explicitWidth ?? Math.min((process.stdout.columns || 80) - 4, 60);
   return (
     <Box marginTop={1} marginBottom={1}>
       <Text>{t.dim("  " + "-".repeat(width))}</Text>
@@ -66,14 +69,20 @@ export interface MenuItem {
   color?: (s: string) => string;
 }
 
-export function Menu({ items, onSelect }: { items: MenuItem[]; onSelect: (value: string) => void }) {
+export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; onSelect: (value: string) => void; isRoot?: boolean }) {
   const [selected, setSelected] = useState(0);
 
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSelected((prev) => (prev - 1 + items.length) % items.length);
     else if (key.downArrow || input === "j") setSelected((prev) => (prev + 1) % items.length);
     else if (key.return) onSelect(items[selected].value);
-    else if (input === "q") onSelect("exit");
+    else if (input === "q") {
+      if (isRoot) {
+        onSelect("__confirm_exit__");
+      } else {
+        onSelect("__back__");
+      }
+    }
     else if (key.escape) onSelect("__back__");
     else if (input === "\u0003") process.exit(0);
   });
@@ -89,6 +98,7 @@ export function Menu({ items, onSelect }: { items: MenuItem[]; onSelect: (value:
           <Text key={item.value}>{"  " + prefix + " " + color(item.label) + description}</Text>
         );
       })}
+      <Text>{t.dim("  ↑/↓ j/k navigate · Enter select · Esc back · q quit")}</Text>
     </Box>
   );
 }
@@ -115,7 +125,7 @@ export function useInterval(callback: () => void, delayMs: number) {
     const id = setInterval(async () => {
       if (running.current) return; // prevent overlapping async calls
       running.current = true;
-      try { await savedCallback.current(); } finally { running.current = false; }
+      try { await savedCallback.current(); } catch (e) { /* useInterval: swallowed error to avoid crashing render loop */ } finally { running.current = false; }
     }, delayMs);
     return () => clearInterval(id);
   }, [delayMs]);

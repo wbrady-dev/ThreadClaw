@@ -19,6 +19,7 @@ interface PromptTextOptions extends BasePromptProps {
   placeholder?: string;
   mask?: string;
   allowEmpty?: boolean;
+  validate?: (value: string) => string | null;
 }
 
 interface PromptChecklistItem {
@@ -68,6 +69,7 @@ export async function promptText(options: PromptTextOptions): Promise<string | n
       placeholder={options.placeholder}
       mask={options.mask}
       allowEmpty={options.allowEmpty}
+      validate={options.validate}
       onResolve={resolvePrompt}
     />
   ));
@@ -145,17 +147,28 @@ function TextPrompt({
   placeholder,
   mask,
   allowEmpty,
+  validate,
   onResolve,
 }: PromptTextOptions & { onResolve: (value: string | null) => void }) {
   const [value, setValue] = useState(initial ?? "");
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trySubmit = (nextValue: string) => {
+    if (submitted) return;
+    if (!allowEmpty && !nextValue.trim()) return;
+    if (validate) {
+      const err = validate(nextValue);
+      if (err) { setError(err); return; }
+    }
+    setError(null);
+    setSubmitted(true);
+    onResolve(nextValue);
+  };
 
   useInput((input, key) => {
     if (key.escape) onResolve(null);
-    if (key.return && !submitted && (allowEmpty || value.trim())) {
-      setSubmitted(true);
-      onResolve(value);
-    }
+    if (key.return) trySubmit(value);
     if (input === "\u0003") process.exit(0);
   });
 
@@ -169,17 +182,13 @@ function TextPrompt({
         <Text>{t.ok("> ")}</Text>
         <TextInput
           value={value}
-          onChange={setValue}
-          onSubmit={(nextValue) => {
-            if (!submitted && (allowEmpty || nextValue.trim())) {
-              setSubmitted(true);
-              onResolve(nextValue);
-            }
-          }}
+          onChange={(next) => { setError(null); setValue(next); }}
+          onSubmit={trySubmit}
           placeholder={placeholder}
           mask={mask}
         />
       </Box>
+      {error && <Text>{"  " + t.err(error)}</Text>}
       <Text> </Text>
       <Text>{"  " + t.dim("Enter to save, Esc to cancel")}</Text>
     </Box>

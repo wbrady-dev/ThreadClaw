@@ -67,8 +67,8 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
   // Enforce minimum size: merge small chunks with the previous one
   chunks = mergeSmallChunks(chunks, chunkMinTokens);
 
-  // Add overlap: prepend last ~20% of previous chunk's text for context preservation
-  chunks = addOverlap(chunks, Math.floor(chunkTargetTokens * 0.2));
+  // Add overlap: prepend last N% of previous chunk's text for context preservation
+  chunks = addOverlap(chunks, Math.floor(chunkTargetTokens * config.extraction.chunkOverlapRatio));
 
   // Re-number positions
   for (let i = 0; i < chunks.length; i++) {

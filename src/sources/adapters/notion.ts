@@ -52,7 +52,7 @@ export class NotionAdapter extends PollingAdapterBase {
 
   async initClient(): Promise<void> {
     const apiKey = process.env.NOTION_API_KEY;
-    if (!apiKey) throw new Error("NOTION_API_KEY not set");
+    if (!apiKey) throw new Error("NOTION_API_KEY not set. Get an integration key at https://www.notion.so/my-integrations and add NOTION_API_KEY=<your-key> to your .env file.");
     this.client = new Client({ auth: apiKey });
   }
 

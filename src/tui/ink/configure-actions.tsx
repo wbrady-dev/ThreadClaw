@@ -25,6 +25,24 @@ import type { ConfigureAction } from "../screens/configure.js";
 import { promptChecklist, promptConfirm, promptMenu, promptText } from "./prompts.js";
 import { t, type MenuItem } from "./components.js";
 
+interface FieldDef {
+  key: string;
+  label: string;
+  fallback: string;
+  message: string;
+  type: "number" | "string" | "url";
+  requiresRestart?: boolean;
+}
+
+function validateField(value: string, type: FieldDef["type"]): string | null {
+  if (type === "number") {
+    if (isNaN(Number(value))) return "Value must be a number.";
+  } else if (type === "url") {
+    if (!/^https?:\/\//.test(value)) return "URL must start with http:// or https://";
+  }
+  return null;
+}
+
 const WHISPER_MODELS = [
   { label: "tiny (~40MB, fastest)", value: "tiny" },
   { label: "base (~150MB, recommended)", value: "base" },
@@ -33,28 +51,28 @@ const WHISPER_MODELS = [
   { label: "large (~3GB, best quality)", value: "large" },
 ];
 
-const GENERAL_FIELDS = [
-  { key: "RERANKER_URL", label: "Model Server URL", fallback: "http://127.0.0.1:8012", message: "Base URL for the local or remote model server." },
-  { key: "THREADCLAW_PORT", label: "ThreadClaw API Port", fallback: "18800", message: "HTTP port for the ThreadClaw API." },
-  { key: "QUERY_EXPANSION_URL", label: "Expansion LLM URL", fallback: "http://127.0.0.1:1234/v1", message: "Chat endpoint used for query expansion." },
-  { key: "THREADCLAW_DATA_DIR", label: "Data Directory", fallback: "./data", message: "Where ingested data and databases live." },
-  { key: "DEFAULT_COLLECTION", label: "Default Collection", fallback: "default", message: "Collection used when none is provided." },
-  { key: "QUERY_TOP_K", label: "Results Per Query", fallback: "10", message: "How many chunks to return before context compilation." },
-  { key: "QUERY_TOKEN_BUDGET", label: "Token Budget", fallback: "4000", message: "Max token budget for response context." },
-  { key: "CHUNK_MAX_TOKENS", label: "Max Chunk Size", fallback: "1024", message: "Hard upper bound for ingestion chunks." },
-  { key: "CHUNK_TARGET_TOKENS", label: "Target Chunk Size", fallback: "512", message: "Preferred chunk size for prose splitting." },
-  { key: "CHUNK_MIN_TOKENS", label: "Min Chunk Size", fallback: "100", message: "Chunks smaller than this get merged." },
-  { key: "WATCH_DEBOUNCE_MS", label: "Watch Debounce", fallback: "3000", message: "Delay before auto-ingesting changed files." },
+const GENERAL_FIELDS: FieldDef[] = [
+  { key: "RERANKER_URL", label: "Model Server URL", fallback: "http://127.0.0.1:8012", message: "Base URL for the local or remote model server.", type: "url", requiresRestart: true },
+  { key: "THREADCLAW_PORT", label: "ThreadClaw API Port", fallback: "18800", message: "HTTP port for the ThreadClaw API.", type: "number", requiresRestart: true },
+  { key: "QUERY_EXPANSION_URL", label: "Expansion LLM URL", fallback: "http://127.0.0.1:1234/v1", message: "Chat endpoint used for query expansion.", type: "url" },
+  { key: "THREADCLAW_DATA_DIR", label: "Data Directory", fallback: "./data", message: "Where ingested data and databases live.", type: "string", requiresRestart: true },
+  { key: "DEFAULT_COLLECTION", label: "Default Collection", fallback: "default", message: "Collection used when none is provided.", type: "string" },
+  { key: "QUERY_TOP_K", label: "Results Per Query", fallback: "10", message: "How many chunks to return before context compilation.", type: "number" },
+  { key: "QUERY_TOKEN_BUDGET", label: "Token Budget", fallback: "4000", message: "Max token budget for response context.", type: "number" },
+  { key: "CHUNK_MAX_TOKENS", label: "Max Chunk Size", fallback: "1024", message: "Hard upper bound for ingestion chunks.", type: "number" },
+  { key: "CHUNK_TARGET_TOKENS", label: "Target Chunk Size", fallback: "512", message: "Preferred chunk size for prose splitting.", type: "number" },
+  { key: "CHUNK_MIN_TOKENS", label: "Min Chunk Size", fallback: "100", message: "Chunks smaller than this get merged.", type: "number" },
+  { key: "WATCH_DEBOUNCE_MS", label: "Watch Debounce", fallback: "3000", message: "Delay before auto-ingesting changed files.", type: "number" },
 ];
 
-const SEARCH_FIELDS = [
-  { key: "RERANK_SCORE_THRESHOLD", label: "Rerank Threshold", fallback: "0.0", message: "Minimum rerank score to keep a result." },
-  { key: "RERANK_TOP_K", label: "Rerank Candidates", fallback: "20", message: "How many chunks go through the reranker." },
-  { key: "RERANK_SMART_SKIP", label: "Smart Skip", fallback: "true", message: "Auto-skip reranking when vector results are decisive." },
-  { key: "RERANK_DISABLED", label: "Reranking Disabled", fallback: "false", message: "Set true to disable reranking entirely." },
-  { key: "EMBEDDING_SIMILARITY_THRESHOLD", label: "Similarity Gate", fallback: "1.05", message: "Max L2 distance to consider a vector match." },
-  { key: "EMBEDDING_PREFIX_MODE", label: "Prefix Mode", fallback: "auto", message: "auto, always, or never for query:/passage: prefixes." },
-  { key: "EMBEDDING_BATCH_SIZE", label: "Embed Batch Size", fallback: "32", message: "Texts per embedding batch during ingestion." },
+const SEARCH_FIELDS: FieldDef[] = [
+  { key: "RERANK_SCORE_THRESHOLD", label: "Rerank Threshold", fallback: "0.0", message: "Minimum rerank score to keep a result.", type: "number" },
+  { key: "RERANK_TOP_K", label: "Rerank Candidates", fallback: "20", message: "How many chunks go through the reranker.", type: "number" },
+  { key: "RERANK_SMART_SKIP", label: "Smart Skip", fallback: "true", message: "Auto-skip reranking when vector results are decisive.", type: "string" },
+  { key: "RERANK_DISABLED", label: "Reranking Disabled", fallback: "false", message: "Set true to disable reranking entirely.", type: "string" },
+  { key: "EMBEDDING_SIMILARITY_THRESHOLD", label: "Similarity Gate", fallback: "1.05", message: "Max L2 distance to consider a vector match.", type: "number" },
+  { key: "EMBEDDING_PREFIX_MODE", label: "Prefix Mode", fallback: "auto", message: "auto, always, or never for query:/passage: prefixes.", type: "string" },
+  { key: "EMBEDDING_BATCH_SIZE", label: "Embed Batch Size", fallback: "32", message: "Texts per embedding batch during ingestion.", type: "number" },
 ];
 
 export async function runInkConfigureAction(action: ConfigureAction): Promise<void> {
@@ -67,17 +85,7 @@ export async function runInkConfigureAction(action: ConfigureAction): Promise<vo
   else if (action === "audio") await configureAudio();
   else if (action === "ner") await configureNer();
   else if (action === "evidence") await configureEvidence();
-  else if (action === "watch") {
-    // Legacy tree screen needs full stdin control — reset to non-raw mode
-    if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(false); } catch {}
-    }
-    process.stdin.removeAllListeners("data");
-    process.stdin.removeAllListeners("keypress");
-    process.stdout.write("\x1b[?25h"); // show cursor
-    const { configureWatchPaths: legacyWatchPaths } = await import("../screens/configure.js");
-    await legacyWatchPaths(getRootDir());
-  }
+  else if (action === "watch") await configureWatchPaths();
   else if (action === "general") await configureFieldGroup("Ports & Defaults", GENERAL_FIELDS);
 }
 
@@ -404,7 +412,7 @@ async function configureExpansion(): Promise<void> {
 
 async function configureFieldGroup(
   title: string,
-  fields: Array<{ key: string; label: string; fallback: string; message: string }>,
+  fields: FieldDef[],
 ): Promise<void> {
   const root = getRootDir();
   ensureEnvFile(root);
@@ -420,11 +428,28 @@ async function configureFieldGroup(
           value: field.key,
           description: field.message,
         })),
+        { label: "Reset all to defaults", value: "__reset__", color: t.warn },
         { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
     if (!action || action === "__back__") return;
+
+    if (action === "__reset__") {
+      const confirmed = await promptConfirm({
+        title: "Reset to Defaults",
+        message: "This will overwrite all fields in this group with their default values. Continue?",
+        confirmLabel: "Reset",
+        cancelLabel: "Cancel",
+      });
+      if (!confirmed) continue;
+      const updates: Record<string, string> = {};
+      for (const field of fields) updates[field.key] = field.fallback;
+      updateEnvValues(root, updates);
+      await showNotice(title, "All fields reset to defaults.");
+      continue;
+    }
+
     const field = fields.find((entry) => entry.key === action);
     if (!field) continue;
 
@@ -434,6 +459,7 @@ async function configureFieldGroup(
       label: field.label,
       initial: env[field.key] ?? field.fallback,
       allowEmpty: false,
+      validate: (v) => validateField(v, field.type),
     });
     if (newValue == null) continue;
 
@@ -445,6 +471,10 @@ async function configureFieldGroup(
       });
     } else {
       updateEnvValues(root, { [field.key]: newValue });
+    }
+
+    if (field.requiresRestart) {
+      await showNotice(title, t.warn("Restart services to apply this change."));
     }
   }
 }

@@ -10,6 +10,11 @@ export const deleteCommand = new Command("delete")
   .option("--source <path>", "Delete by source file path (partial match)")
   .option("--id <id>", "Delete by document ID")
   .option("--all-collection <name>", "Delete ALL documents in a collection")
+  .addHelpText("after", `
+Examples:
+  $ threadclaw delete --source report.pdf                   Delete by filename match
+  $ threadclaw delete --id abc123                           Delete by document ID
+  $ threadclaw delete --all-collection scratch              Wipe an entire collection`)
   .action(
     async (opts: {
       collection?: string;
@@ -29,7 +34,7 @@ export const deleteCommand = new Command("delete")
             | undefined;
 
           if (!coll) {
-            console.error(`Collection not found: ${opts.allCollection}`);
+            console.error(`Collection not found: ${opts.allCollection}. Run 'threadclaw collections list' to see available.`);
             process.exit(1);
           }
 
@@ -55,7 +60,7 @@ export const deleteCommand = new Command("delete")
             .get(opts.id) as { id: string; source_path: string } | undefined;
 
           if (!doc) {
-            console.error(`Document not found: ${opts.id}`);
+            console.error(`Document not found: ${opts.id}. Run 'threadclaw chunks <source>' to find IDs.`);
             process.exit(1);
           }
 

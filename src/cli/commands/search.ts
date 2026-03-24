@@ -7,6 +7,11 @@ export const searchCommand = new Command("search")
   .option("-c, --collection <name>", "Collection to search", "default")
   .option("-k, --top-k <number>", "Number of results", "10")
   .option("--json", "Output as JSON")
+  .addHelpText("after", `
+Examples:
+  $ threadclaw search "authentication tokens"             Basic keyword search
+  $ threadclaw search "error handling" -c backend -k 5    Search specific collection
+  $ threadclaw search "migration" --json                  Machine-readable output`)
   .action(
     async (
       terms: string,
@@ -38,7 +43,11 @@ export const searchCommand = new Command("search")
           );
         }
       } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${msg}`);
+        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
+          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
+        }
         process.exit(1);
       }
     },

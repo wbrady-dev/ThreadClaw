@@ -21,7 +21,7 @@ export async function parseWithDocling(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: filePath }),
-      signal: AbortSignal.timeout(120000), // 2 min timeout for large docs
+      signal: AbortSignal.timeout(config.extraction.doclingTimeoutMs),
     });
 
     if (!response.ok) {

@@ -125,6 +125,19 @@ These are built-in (not configurable) quality controls applied during extraction
 | `GDRIVE_ENABLED` | `false` | Google Drive sync |
 | `WATCH_PATHS` | `` | Auto-watch directories (path\|collection format) |
 
+## Advanced Configuration
+
+For additional settings beyond the core options above, see `.env.advanced.example`. It covers:
+
+- **Source adapters** -- Obsidian, Google Drive, OneDrive, Notion, Apple Notes (OAuth setup, sync intervals, folder filters, max file sizes)
+- **Evidence OS** -- Relations graph, memory engine extraction mode, awareness tuning, claim extraction, attempt tracking, decay intervals
+- **Memory engine tuning** -- Compaction interval/threshold, max context tokens, decay settings, summary model/provider
+- **Deep extraction** -- LLM-powered extraction model, provider, API key, base URL override
+- **Audio transcription** -- Whisper model selection
+- **Model server** -- Python model server URL, Docling device, trust_remote_code
+
+Copy only the settings you need from `.env.advanced.example` into your `.env` file.
+
 ## CLI Commands
 
 | Command | Description |

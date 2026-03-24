@@ -10,7 +10,7 @@ import { existsSync, readFileSync, statSync } from "fs";
 import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
-import chalk from "chalk";
+import { t } from "../../tui/theme.js";
 import { getApiPort, getModelPort } from "../../tui/platform.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,10 +23,10 @@ import { checkOpenClawCompat, checkNodeCompat, getOpenClawVersion } from "../../
 import { checkOpenClawIntegration } from "../../integration.js";
 import { sha256 } from "../../version.js";
 
-const ok = (msg: string) => console.log(`  ${chalk.green("✓")} ${msg}`);
-const warn = (msg: string) => console.log(`  ${chalk.yellow("⚠")} ${msg}`);
-const err = (msg: string) => console.log(`  ${chalk.red("✗")} ${msg}`);
-const dim = (msg: string) => console.log(`    ${chalk.dim(msg)}`);
+const ok = (msg: string) => console.log(`  ${t.ok("✓")} ${msg}`);
+const warn = (msg: string) => console.log(`  ${t.warn("⚠")} ${msg}`);
+const err = (msg: string) => console.log(`  ${t.err("✗")} ${msg}`);
+const dim = (msg: string) => console.log(`    ${t.dim(msg)}`);
 
 export const doctorCommand = new Command("doctor")
   .description("Diagnose ThreadClaw installation health")
@@ -40,9 +40,9 @@ export const doctorCommand = new Command("doctor")
         const rootDir = resolve(__dirname, "..", "..", "..");
         const memoryEnginePath = resolve(rootDir, "memory-engine");
         applyOpenClawIntegration(memoryEnginePath);
-        console.log(chalk.green("Integration applied successfully."));
+        console.log(t.ok("Integration applied successfully."));
       } catch (e) {
-        console.error(chalk.red(`Fix failed: ${e instanceof Error ? e.message : String(e)}`));
+        console.error(t.err(`Fix failed: ${e instanceof Error ? e.message : String(e)}`));
       }
       return;
     }
@@ -58,11 +58,11 @@ export const doctorCommand = new Command("doctor")
     const fail = (msg: string) => { err(msg); totalFail++; };
 
     console.log("");
-    console.log(chalk.bold("ThreadClaw Doctor"));
+    console.log(t.brand("ThreadClaw Doctor"));
     console.log("");
 
     // ── Version ──
-    console.log(chalk.dim("── Version ──"));
+    console.log(t.dim("── Version ──"));
     pass(`App: ${appVersion} (installed: ${manifest.appVersion})`);
 
     if (manifest.appVersion !== "0.0.0" && manifest.appVersion !== appVersion) {
@@ -72,7 +72,7 @@ export const doctorCommand = new Command("doctor")
     console.log("");
 
     // ── Data ──
-    console.log(chalk.dim("── Data ──"));
+    console.log(t.dim("── Data ──"));
 
     // Check new data locations
     const dbChecks = [
@@ -136,7 +136,7 @@ export const doctorCommand = new Command("doctor")
     console.log("");
 
     // ── OpenClaw Integration ──
-    console.log(chalk.dim("── OpenClaw Integration ──"));
+    console.log(t.dim("── OpenClaw Integration ──"));
     const integration = checkOpenClawIntegration();
 
     if (!integration.openclawFound) {
@@ -161,7 +161,7 @@ export const doctorCommand = new Command("doctor")
     console.log("");
 
     // ── Services ──
-    console.log(chalk.dim("── Services ──"));
+    console.log(t.dim("── Services ──"));
     for (const [name, port] of [["Model server", getModelPort()], ["RAG API", getApiPort()]] as const) {
       try {
         const res = await fetch(`http://127.0.0.1:${port}/health`, {
@@ -180,7 +180,7 @@ export const doctorCommand = new Command("doctor")
     console.log("");
 
     // ── Skills ──
-    console.log(chalk.dim("── Skills ──"));
+    console.log(t.dim("── Skills ──"));
     const ocConfigPath = resolve(homedir(), ".openclaw", "openclaw.json");
     let workspaceDir = resolve(homedir(), ".openclaw", "workspace");
     try {
@@ -220,7 +220,7 @@ export const doctorCommand = new Command("doctor")
     console.log("");
 
     // ── Compatibility ──
-    console.log(chalk.dim("── Compatibility ──"));
+    console.log(t.dim("── Compatibility ──"));
     const nodeCheck = checkNodeCompat();
     if (nodeCheck.ok) {
       pass(`Node.js: v${nodeCheck.version} (required: ${nodeCheck.required})`);
@@ -240,7 +240,7 @@ export const doctorCommand = new Command("doctor")
 
     // ── Manifest ──
     console.log("");
-    console.log(chalk.dim("── Manifest ──"));
+    console.log(t.dim("── Manifest ──"));
     if (existsSync(resolve(THREADCLAW_HOME, "manifest.json"))) {
       pass(`Manifest: ${resolve(THREADCLAW_HOME, "manifest.json")}`);
       if (manifest.features.managedIntegration) {
@@ -259,9 +259,9 @@ export const doctorCommand = new Command("doctor")
 
     // ── Summary ──
     console.log("");
-    console.log(chalk.dim("───────────────────────────────────────"));
-    console.log(`  ${chalk.green(String(totalPass))} passed, ${chalk.yellow(String(totalWarn))} warnings, ${chalk.red(String(totalFail))} failures`);
-    console.log(chalk.dim("───────────────────────────────────────"));
+    console.log(t.dim("───────────────────────────────────────"));
+    console.log(`  ${t.ok(String(totalPass))} passed, ${t.warn(String(totalWarn))} warnings, ${t.err(String(totalFail))} failures`);
+    console.log(t.dim("───────────────────────────────────────"));
     console.log("");
 
     if (totalFail > 0) {

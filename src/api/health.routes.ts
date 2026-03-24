@@ -8,7 +8,7 @@ import { getTokenCounts } from "../utils/token-tracker.js";
 import { isLocalRequest } from "./guards.js";
 
 export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () => Promise<void>) {
-  server.get("/health", async () => {
+  server.get("/health", async (request, reply) => {
     const checks: Record<string, { status: string; detail?: string }> = {};
 
     // Check embedding server
@@ -36,11 +36,12 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
     }
 
     const allOk = Object.values(checks).every((c) => c.status === "ok");
+    const status = allOk ? "healthy" : "degraded";
 
-    return {
-      status: allOk ? "healthy" : "degraded",
+    return reply.code(allOk ? 200 : 503).send({
+      status,
       services: checks,
-    };
+    });
   });
 
   server.post("/shutdown", async (request, reply) => {

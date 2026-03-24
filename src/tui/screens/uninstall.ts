@@ -276,7 +276,8 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
 
   // ── 6. Clean up model cache (ThreadClaw-specific models only) ──
   if (deleteData && (modelIds.embed || modelIds.rerank)) {
-    const hfHub = resolve(homedir(), ".cache", "huggingface", "hub");
+    const hfHub = process.env.HF_HUB_CACHE
+      ?? (process.env.HF_HOME ? resolve(process.env.HF_HOME, "hub") : resolve(homedir(), ".cache", "huggingface", "hub"));
     if (existsSync(hfHub)) {
       const modelDirs: string[] = [];
       for (const id of [modelIds.embed, modelIds.rerank]) {

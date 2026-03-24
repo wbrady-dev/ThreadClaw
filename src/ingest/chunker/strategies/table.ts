@@ -1,7 +1,8 @@
 import { estimateTokens } from "../../../utils/format.js";
+import { config } from "../../../config.js";
 import type { Chunk } from "../semantic.js";
 
-const ROWS_PER_CHUNK = 20;
+const ROWS_PER_CHUNK = config.extraction.chunkTableRows;
 
 /**
  * Table chunking strategy: group rows into chunks of ~20 rows.

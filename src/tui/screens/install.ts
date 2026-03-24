@@ -332,6 +332,39 @@ export async function runInstall(): Promise<void> {
     console.log(kvLine("Audio transcription", "Whisper (base)"));
     console.log(kvLine("NER", "spaCy (en_core_web_sm)"));
     console.log(kvLine("Evidence OS", "Quick Start"));
+
+    // Offer to set up watch paths for document folders
+    const docsFolder = resolve(homedir(), "Documents");
+    const docsFolderExists = existsSync(docsFolder);
+    console.log(section("Watch Paths"));
+    if (docsFolderExists) {
+      console.log(t.dim(`  Detected Documents folder: ${docsFolder}\n`));
+      const { watchDocs } = await prompts({
+        type: "confirm", name: "watchDocs",
+        message: "Watch your Documents folder for new files to index? (You can add more later)",
+        initial: true,
+      }, { onCancel });
+      if (!cancelled && watchDocs) {
+        process.env.THREADCLAW_INSTALL_WATCH_PATHS = `${docsFolder}|documents`;
+        console.log(t.ok(`  Will watch: ${docsFolder}\n`));
+      }
+    } else {
+      const { addWatch } = await prompts({
+        type: "confirm", name: "addWatch",
+        message: "Would you like ThreadClaw to watch any folders for documents? (You can add more later)",
+        initial: false,
+      }, { onCancel });
+      if (!cancelled && addWatch) {
+        const { customPath } = await prompts({
+          type: "text", name: "customPath",
+          message: "Folder path to watch",
+        }, { onCancel });
+        if (!cancelled && customPath && existsSync(customPath)) {
+          process.env.THREADCLAW_INSTALL_WATCH_PATHS = `${customPath}|documents`;
+          console.log(t.ok(`  Will watch: ${customPath}\n`));
+        }
+      }
+    }
   } else {
     ({ parser, enableOcr, enableAudio } = await promptDocumentSettings());
     if (cancelled) return;
@@ -555,14 +588,17 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
   const templateEnv: EnvMap = {
     THREADCLAW_PORT: "18800",
     THREADCLAW_DATA_DIR: "./data",
-    EMBEDDING_URL: "http://127.0.0.1:8012/v1",
+    EMBEDDING_URL: process.env.EMBEDDING_URL ?? "http://127.0.0.1:8012/v1",
     EMBEDDING_MODEL: embedChoice.id,
     EMBEDDING_DIMENSIONS: String(embedChoice.dims),
-    RERANKER_URL: "http://127.0.0.1:8012",
+    EMBEDDING_API_KEY: process.env.EMBEDDING_API_KEY ?? "",
+    RERANKER_URL: process.env.RERANKER_URL ?? "http://127.0.0.1:8012",
+    RERANKER_MODEL: process.env.RERANKER_MODEL ?? "",
+    RERANKER_API_KEY: process.env.RERANKER_API_KEY ?? "",
     QUERY_EXPANSION_ENABLED: "false",
     QUERY_EXPANSION_URL: "http://127.0.0.1:1234/v1",
     QUERY_EXPANSION_MODEL: "",
-    WATCH_PATHS: "",
+    WATCH_PATHS: process.env.THREADCLAW_INSTALL_WATCH_PATHS ?? "",
     WATCH_DEBOUNCE_MS: "3000",
     DEFAULT_COLLECTION: "default",
     CHUNK_MIN_TOKENS: "100",
@@ -646,12 +682,22 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
       const cmdDir = resolve(process.env.LOCALAPPDATA ?? resolve(homedir(), "AppData", "Local"), "ThreadClaw");
       mkdirSync(cmdDir, { recursive: true });
       writeFileSync(resolve(cmdDir, "threadclaw.cmd"), `@echo off\r\nnode "${binEntry}" %*\r\n`);
-      // Add to user PATH if not already there
-      const currentPath = process.env.PATH ?? "";
-      if (!currentPath.toLowerCase().includes("threadclaw")) {
+      // Add to user PATH if not already there — read from registry to avoid corrupting system PATH
+      if (!((process.env.PATH ?? "").toLowerCase().includes("threadclaw"))) {
         try {
-          execFileSync("setx", ["PATH", `${currentPath};${cmdDir}`], { stdio: "pipe", timeout: 10000 });
-        } catch {}
+          const regOutput = execFileSync("reg", ["query", "HKCU\\Environment", "/v", "PATH"], { stdio: "pipe", timeout: 10000 }).toString();
+          const match = regOutput.match(/PATH\s+REG_(?:EXPAND_)?SZ\s+(.*)/i);
+          const userPath = match ? match[1].trim() : "";
+          if (!userPath.toLowerCase().includes("threadclaw")) {
+            const newPath = userPath ? `${userPath};${cmdDir}` : cmdDir;
+            execFileSync("setx", ["PATH", newPath], { stdio: "pipe", timeout: 10000 });
+          }
+        } catch {
+          // User PATH key may not exist yet — create it with just our dir
+          try {
+            execFileSync("setx", ["PATH", cmdDir], { stdio: "pipe", timeout: 10000 });
+          } catch {}
+        }
       }
       sp.succeed("threadclaw command registered. Restart terminal to use.");
     } else {

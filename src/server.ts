@@ -109,6 +109,7 @@ export async function startServer() {
   };
 
   process.on("SIGINT", shutdown);
+  // NOTE: SIGTERM is not emitted on Windows — use the /shutdown HTTP endpoint instead.
   process.on("SIGTERM", shutdown);
 
   // Register all routes (pass shutdown callback for /shutdown endpoint)

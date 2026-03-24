@@ -5,7 +5,7 @@ import { EmbeddingError } from "../utils/errors.js";
 // Circuit breaker: when embedding server is unreachable, stop trying for a cooldown
 let circuitOpen = false;
 let circuitOpenedAt = 0;
-const CIRCUIT_COOLDOWN_MS = 30_000; // 30 seconds
+const CIRCUIT_COOLDOWN_MS = config.extraction.embeddingCircuitCooldownMs;
 
 function checkCircuit(): void {
   if (circuitOpen && Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
@@ -70,8 +70,8 @@ export async function embed(
 
   const body = JSON.stringify({ model: config.embedding.model, input });
 
-  // Retry with exponential backoff (3 attempts, 500ms -> 1s -> 2s)
-  const MAX_RETRIES = 3;
+  // Retry with exponential backoff
+  const MAX_RETRIES = config.extraction.embeddingMaxRetries;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -83,7 +83,7 @@ export async function embed(
 
     let response: Response;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+    const timeout = setTimeout(() => controller.abort(), config.extraction.embeddingTimeoutMs);
     try {
       response = await fetch(url, {
         method: "POST",
@@ -132,7 +132,7 @@ export async function embed(
 }
 
 // LRU cache for query embeddings — eliminates redundant model server calls
-const EMBED_CACHE_MAX = 200;
+const EMBED_CACHE_MAX = config.extraction.embeddingCacheMax;
 const queryEmbedCache = new Map<string, number[]>();
 
 function embedCacheKey(text: string): string {

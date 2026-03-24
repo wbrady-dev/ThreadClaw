@@ -57,6 +57,7 @@ export class LocalAdapter implements SourceAdapter {
         collection: c.collection,
         debounceMs: config.watch.debounceMs,
         ingestExisting: false,
+        fileTypes: cfg.fileTypes,
       }));
 
     if (watchConfigs.length === 0) {
@@ -65,6 +66,16 @@ export class LocalAdapter implements SourceAdapter {
     }
 
     this.watcher = new ThreadClawWatcher(watchConfigs);
+
+    // Surface watcher errors in TUI via status
+    this.watcher.onError = (err: Error) => {
+      this.status = {
+        ...this.status,
+        state: "error",
+        error: err.message || String(err),
+      };
+    };
+
     await this.watcher.start();
     this.status = {
       state: "watching",

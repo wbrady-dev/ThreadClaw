@@ -26,7 +26,7 @@ function forceCloseConnection(entry: ConnectionEntry): void {
   }
 }
 
-export function getLcmConnection(dbPath: string): DatabaseSync {
+export function getLcmConnection(dbPath: string, busyTimeoutMs = 5000): DatabaseSync {
   const existing = _connections.get(dbPath);
   if (existing) {
     if (isConnectionHealthy(existing.db)) {
@@ -48,8 +48,8 @@ export function getLcmConnection(dbPath: string): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL");
   // Enable foreign key enforcement
   db.exec("PRAGMA foreign_keys = ON");
-  // Retry on SQLITE_BUSY for up to 5 seconds (matches graph-connection.ts)
-  db.exec("PRAGMA busy_timeout = 5000");
+  // Retry on SQLITE_BUSY (configurable via THREADCLAW_MEMORY_BUSY_TIMEOUT_MS)
+  db.exec(`PRAGMA busy_timeout = ${Math.floor(busyTimeoutMs)}`);
 
   _connections.set(dbPath, { db, refs: 1 });
   return db;

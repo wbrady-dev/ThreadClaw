@@ -8,7 +8,7 @@
 import { Command } from "commander";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import chalk from "chalk";
+import { t } from "../../tui/theme.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,13 +27,13 @@ export const integrateCommand = new Command("integrate")
 
     if (opts.apply) {
       console.log("");
-      console.log(chalk.bold("ThreadClaw Integration — Apply"));
+      console.log(t.brand("ThreadClaw Integration — Apply"));
       console.log("");
 
       const { applied, changes } = applyOpenClawIntegration(memoryEnginePath);
       if (applied) {
         for (const c of changes) {
-          console.log(`  ${chalk.green("✓")} ${c}`);
+          console.log(`  ${t.ok("✓")} ${c}`);
         }
 
         // Update manifest hash
@@ -50,31 +50,31 @@ export const integrateCommand = new Command("integrate")
         }
 
         console.log("");
-        console.log(chalk.green("  Integration applied."));
+        console.log(t.ok("  Integration applied."));
       } else {
-        console.log(`  ${chalk.green("✓")} Integration already correct. No changes needed.`);
+        console.log(`  ${t.ok("✓")} Integration already correct. No changes needed.`);
       }
       console.log("");
     } else {
       // Default: check
       console.log("");
-      console.log(chalk.bold("ThreadClaw Integration — Check"));
+      console.log(t.brand("ThreadClaw Integration — Check"));
       console.log("");
 
       const status = checkOpenClawIntegration(memoryEnginePath);
 
       if (!status.openclawFound) {
-        console.log(`  ${chalk.yellow("⚠")} OpenClaw not detected`);
+        console.log(`  ${t.warn("⚠")} OpenClaw not detected`);
       } else if (status.ok) {
-        console.log(`  ${chalk.green("✓")} Integration OK — all managed fields correct`);
+        console.log(`  ${t.ok("✓")} Integration OK — all managed fields correct`);
       } else {
-        console.log(`  ${chalk.red("✗")} Integration drift detected:`);
+        console.log(`  ${t.err("✗")} Integration drift detected:`);
         for (const drift of status.drifts) {
-          const icon = drift.severity === "error" ? chalk.red("✗") : chalk.yellow("⚠");
+          const icon = drift.severity === "error" ? t.err("✗") : t.warn("⚠");
           console.log(`    ${icon} ${drift.field}: expected ${JSON.stringify(drift.expected)}, got ${JSON.stringify(drift.actual)}`);
         }
         console.log("");
-        console.log(chalk.dim("  Run 'threadclaw integrate --apply' to fix."));
+        console.log(t.dim("  Run 'threadclaw integrate --apply' to fix."));
       }
       console.log("");
     }

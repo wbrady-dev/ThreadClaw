@@ -31,10 +31,26 @@
 - `GET /diagnostics` -- Full RSMA health (JSON): memory stats, evidence counts, awareness metrics, compiler state
 
 ### Sources
-- Source adapter management endpoints for Obsidian, Notion, local directories
+
+- `GET /sources` -- List all configured source adapters with status (localhost only)
+  - Returns: `{ sources: [{ id, name, type, enabled, status, collections }] }`
+- `POST /sources/reload` -- Hot-reload source configuration (localhost only). Stops all adapters, re-reads `.env`, restarts enabled ones.
+  - Returns: `{ status: "ok", message: "Sources reloaded" }`
 
 ### Graph
-- Graph-related endpoints for evidence graph queries
+
+All graph endpoints are localhost-only (`isLocalRequest` guard).
+
+- `GET /graph/entities` -- List entities sorted by mention count (descending)
+  - Query params: `limit` (default 50, max 200), `offset` (default 0), `search` (optional, case-insensitive name filter)
+  - Returns: `{ entities: [{ id, name, display_name, entity_type, mention_count, first_seen_at, last_seen_at }], total, limit, offset }`
+- `GET /graph/entities/:id` -- Entity detail with up to 50 recent mentions
+  - Returns: `{ entity: { ... }, mentions: [{ id, source_ref, source_detail, context_terms, actor, created_at }] }`
+- `GET /graph/terms` -- Read the user-defined entity terms list (from `~/.threadclaw/relations-terms.json`)
+  - Returns: `{ terms: string[] }`
+- `PUT /graph/terms` -- Update the user-defined entity terms list
+  - Body: `{ terms: string[] }` (max 500 terms, each max 100 chars, alphanumeric/spaces/punctuation only)
+  - Returns: `{ terms: string[], count: number }`
 
 ### Reindex
 - `POST /reindex` -- Reindex all documents in a collection

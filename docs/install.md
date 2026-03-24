@@ -12,7 +12,7 @@
 ### Windows
 
 ```bash
-git clone https://github.com/openclaw/threadclaw.git
+git clone https://github.com/wbrady-dev/ThreadClaw.git
 cd threadclaw
 install.bat
 ```
@@ -20,7 +20,7 @@ install.bat
 ### Linux / macOS
 
 ```bash
-git clone https://github.com/openclaw/threadclaw.git
+git clone https://github.com/wbrady-dev/ThreadClaw.git
 cd threadclaw
 chmod +x install.sh
 ./install.sh
@@ -38,16 +38,6 @@ The installer will:
 3. Install dependencies and download models (recommended mode includes OCR via Tesseract, audio transcription via Whisper base, and NER via spaCy)
 4. Detect and connect Obsidian vaults
 5. Optionally integrate with OpenClaw
-
-## Storage Paths
-
-| Path | Purpose |
-|------|---------|
-| `~/.threadclaw/data/memory.db` | Conversation memory (memory engine) |
-| `~/.threadclaw/data/graph.db` | Evidence graph (entity awareness, claims, etc.) |
-| `~/.threadclaw/data/threadclaw.db` | Document store (RAG) |
-| `~/.threadclaw/relations-terms.json` | User-defined entity terms |
-| `~/.threadclaw/manifest.json` | Version tracking |
 
 ## Database Initialization
 
@@ -97,11 +87,13 @@ All ThreadClaw data is stored under `~/.threadclaw/`:
 
 | Path | Contents |
 |------|----------|
-| `~/.threadclaw/data/threadclaw.db` | Document store (RAG) |
-| `~/.threadclaw/data/memory.db` | Conversation memory |
-| `~/.threadclaw/data/graph.db` | Evidence graph |
+| `~/.threadclaw/data/threadclaw.db` | Document store (RAG): documents, chunks, vectors, metadata |
+| `~/.threadclaw/data/memory.db` | Conversation memory: messages, summaries, context items |
+| `~/.threadclaw/data/graph.db` | Evidence graph: entities, claims, decisions, loops, provenance |
+| `~/.threadclaw/relations-terms.json` | User-defined entity terms for graph extraction |
 | `~/.threadclaw/manifest.json` | Version tracking |
 | `~/.threadclaw/backups/` | Upgrade backups |
+| `~/.threadclaw/staging/` | Temporary files during source adapter ingestion |
 
 ## Troubleshooting
 

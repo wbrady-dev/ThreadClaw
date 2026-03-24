@@ -21,6 +21,8 @@ export const t = {
   value: chalk.white,
   path: chalk.underline.dim,
   code: chalk.italic.gray,
+  brandAccent: chalk.hex("#e72d19"),
+  tag: chalk.magenta,
 };
 
 export function banner(): string {

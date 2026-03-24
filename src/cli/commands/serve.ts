@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { spawn, execFileSync } from "child_process";
 import { resolve, dirname } from "path";
 import { existsSync } from "fs";
-import chalk from "chalk";
+import { t } from "../../tui/theme.js";
 import { config } from "../../config.js";
 import { getApiPort, getModelPort, getPythonCmd, findModelsScript } from "../../tui/platform.js";
 
@@ -17,18 +17,18 @@ export const serveCommand = new Command("serve")
     const serverScript = findModelsScript(root);
 
     console.log("");
-    console.log(chalk.bold.green("  ╔══════════════════════════════════╗"));
-    console.log(chalk.bold.green("  ║") + chalk.bold.white("  T H R E A D C L A W  S E R V E R ") + chalk.bold.green("║"));
-    console.log(chalk.bold.green("  ╚══════════════════════════════════╝"));
+    console.log(t.ok("  ╔══════════════════════════════════╗"));
+    console.log(t.ok("  ║") + t.brand("  T H R E A D C L A W  S E R V E R ") + t.ok("║"));
+    console.log(t.ok("  ╚══════════════════════════════════╝"));
     console.log("");
 
     // Find Python (prefers venv)
     const pythonCmd = getPythonCmd();
 
     const prefix = {
-      models: chalk.magenta("[models]  "),
-      tal: chalk.green("[threadclaw]"),
-      sys: chalk.dim("[system]  "),
+      models: t.tag("[models]  "),
+      tal: t.ok("[threadclaw]"),
+      sys: t.dim("[system]  "),
     };
 
     // Stop any existing services/processes on our ports
@@ -43,6 +43,7 @@ export const serveCommand = new Command("serve")
             if (line.includes(`:${port}`) && line.includes("LISTENING")) {
               const pid = line.trim().split(/\s+/).pop();
               if (pid && pid !== "0" && /^\d+$/.test(pid)) {
+                console.log(`${prefix.sys} ${t.warn(`Stopping existing process on port ${port} (PID ${pid})...`)}`);
                 try { execFileSync("taskkill", ["/PID", pid, "/F"], { stdio: "pipe" }); } catch {}
               }
             }
@@ -53,6 +54,7 @@ export const serveCommand = new Command("serve")
             for (const pid of out.split("\n")) {
               const trimmed = pid.trim();
               if (/^\d+$/.test(trimmed)) {
+                console.log(`${prefix.sys} ${t.warn(`Stopping existing process on port ${port} (PID ${trimmed})...`)}`);
                 try { process.kill(Number(trimmed), "SIGTERM"); } catch {}
               }
             }
@@ -82,7 +84,7 @@ export const serveCommand = new Command("serve")
 
     modelsProcess.stderr?.on("data", (data: Buffer) => {
       for (const line of data.toString().split("\n").filter((l: string) => l.trim())) {
-        console.log(`${prefix.models} ${chalk.dim(line)}`);
+        console.log(`${prefix.models} ${t.dim(line)}`);
       }
     });
 
@@ -91,7 +93,7 @@ export const serveCommand = new Command("serve")
     try {
       await waitForPort(getModelPort(), 120000);
     } catch {
-      console.error(`${prefix.sys} ${chalk.red("✗")} Model server failed to start within 120s`);
+      console.error(`${prefix.sys} ${t.err("✗")} Model server failed to start within 120s`);
       console.error(`${prefix.sys}   Check logs above for errors. Common causes:`);
       console.error(`${prefix.sys}   - Model not downloaded yet (first run takes longer)`);
       console.error(`${prefix.sys}   - Insufficient VRAM/RAM for the selected model`);
@@ -99,7 +101,7 @@ export const serveCommand = new Command("serve")
       modelsProcess.kill();
       process.exit(1);
     }
-    console.log(`${prefix.sys} ${chalk.green("●")} Model server ready on port ${getModelPort()}`);
+    console.log(`${prefix.sys} ${t.ok("●")} Model server ready on port ${getModelPort()}`);
     console.log("");
 
     // Start ThreadClaw
@@ -124,23 +126,23 @@ export const serveCommand = new Command("serve")
 
     talProcess.stderr?.on("data", (data: Buffer) => {
       for (const line of data.toString().split("\n").filter((l: string) => l.trim())) {
-        console.log(`${prefix.tal} ${chalk.dim(line)}`);
+        console.log(`${prefix.tal} ${t.dim(line)}`);
       }
     });
 
     try {
       await waitForPort(getApiPort(), 30000);
     } catch {
-      console.error(`${prefix.sys} ${chalk.red("✗")} ThreadClaw API failed to start within 30s`);
+      console.error(`${prefix.sys} ${t.err("✗")} ThreadClaw API failed to start within 30s`);
       console.error(`${prefix.sys}   Check logs above for errors.`);
       talProcess.kill();
       modelsProcess.kill();
       process.exit(1);
     }
-    console.log(`${prefix.sys} ${chalk.green("●")} ThreadClaw RAG API ready on port ${getApiPort()}`);
+    console.log(`${prefix.sys} ${t.ok("●")} ThreadClaw RAG API ready on port ${getApiPort()}`);
     console.log("");
-    console.log(`${prefix.sys} ${chalk.bold.green("All services running.")}`);
-    console.log(`${prefix.sys} ${chalk.dim("Press Ctrl+C to stop.")}`);
+    console.log(`${prefix.sys} ${t.ok("All services running.")}`);
+    console.log(`${prefix.sys} ${t.dim("Press Ctrl+C to stop.")}`);
     console.log("");
 
     // Graceful shutdown
@@ -161,11 +163,11 @@ export const serveCommand = new Command("serve")
     process.on("SIGTERM", cleanup);
 
     modelsProcess.on("exit", (code) => {
-      console.log(`${prefix.models} ${chalk.red("Process exited")} (code ${code})`);
+      console.log(`${prefix.models} ${t.err("Process exited")} (code ${code})`);
     });
 
     talProcess.on("exit", (code) => {
-      console.log(`${prefix.tal} ${chalk.red("Process exited")} (code ${code})`);
+      console.log(`${prefix.tal} ${t.err("Process exited")} (code ${code})`);
     });
 
     // Keep alive

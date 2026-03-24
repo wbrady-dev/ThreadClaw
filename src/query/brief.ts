@@ -1,4 +1,5 @@
 import { estimateTokens, extractFileName, splitSentences } from "../utils/format.js";
+import { config } from "../config.js";
 
 /**
  * Token-efficient sentence extraction for agent consumption.
@@ -113,8 +114,8 @@ export function extractBrief(
       // Score: chunk relevance normalized to [0, 1]
       const normalizedRelevance = (chunk.score > 0 ? chunk.score : 0) / maxScore;
 
-      // Final score: 70% retrieval relevance, 30% term match
-      const finalScore = (normalizedRelevance * 0.7 + termScore * 0.3) * posMultiplier * lengthMultiplier;
+      // Final score: weighted retrieval relevance + term match
+      const finalScore = (normalizedRelevance * config.brief.relevanceWeight + termScore * config.brief.termMatchWeight) * posMultiplier * lengthMultiplier;
 
       if (finalScore > 0) {
         allSentences.push({
@@ -147,7 +148,7 @@ export function extractBrief(
   let tokenCount = 0;
   const citationTokens = 10; // reserve for source line
   const sourceSentCount = new Map<number, number>(); // sourceIdx -> count
-  const maxPerSource = 3; // prevent one large document from dominating
+  const maxPerSource = config.brief.maxPerSource; // prevent one large document from dominating
 
   for (const sent of allSentences) {
     const count = sourceSentCount.get(sent.sourceIdx) ?? 0;

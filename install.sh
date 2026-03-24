@@ -3,6 +3,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+INSTALL_START=$(date +%s)
 
 echo ""
 echo "  ========================================"
@@ -25,7 +26,7 @@ fi
 echo "[OK] Node.js $(node --version)"
 
 # ── Pre-flight: internet connectivity ──
-if ! ping -c 1 -W 3 pypi.org >/dev/null 2>&1; then
+if ! curl -sf --connect-timeout 3 https://pypi.org/ >/dev/null 2>&1; then
   echo "[WARN] Cannot reach pypi.org — Python package downloads may fail."
 fi
 
@@ -45,11 +46,18 @@ else
 fi
 echo "[OK] $($PYTHON_CMD --version)"
 
+# Check Python version >= 3.10
+PYTHON_MINOR="$($PYTHON_CMD -c "import sys; print(sys.version_info.minor)")"
+if [ "$PYTHON_MINOR" -lt 10 ]; then
+  echo "[ERROR] Python 3.$PYTHON_MINOR detected. ThreadClaw requires Python 3.10+."
+  exit 1
+fi
+
 # ── Step 3: Node.js dependencies ──
 if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
   echo ""
   echo "[install] Installing Node.js dependencies..."
-  npm install
+  npm install --no-audit --no-fund
   echo "[OK] Node.js dependencies installed"
 else
   echo "[OK] Node.js dependencies already present"
@@ -109,9 +117,11 @@ fi
 # ── Step 6: spaCy NER model ──
 if ! "$VENV_PYTHON" -c "import spacy; spacy.load('en_core_web_sm')" 2>/dev/null; then
   echo "[install] Downloading spaCy NER model..."
-  "$VENV_PYTHON" -m spacy download en_core_web_sm 2>&1 | tail -1 || \
+  if "$VENV_PYTHON" -m spacy download en_core_web_sm 2>&1 | tail -1; then
+    echo "[OK] spaCy NER model installed"
+  else
     echo "[WARN] spaCy NER model failed. Entity extraction will use regex fallback."
-  echo "[OK] spaCy NER model installed"
+  fi
 else
   echo "[OK] spaCy NER model already present"
 fi
@@ -119,7 +129,7 @@ fi
 # ── Step 7: Memory-engine dependencies ──
 if [ ! -d "$SCRIPT_DIR/memory-engine/node_modules/@sinclair/typebox" ]; then
   echo "[install] Installing memory-engine dependencies..."
-  (cd "$SCRIPT_DIR/memory-engine" && npm install 2>&1 | tail -1) || \
+  (cd "$SCRIPT_DIR/memory-engine" && npm install --no-audit --no-fund 2>&1 | tail -1) || \
     echo "[WARN] Memory-engine install incomplete. Run: cd memory-engine && npm install"
   echo "[OK] Memory-engine dependencies installed"
 else
@@ -139,8 +149,12 @@ if [ $EXIT_CODE -eq 0 ]; then
   echo ""
   echo "[install] Registering threadclaw command..."
   mkdir -p "$HOME/.local/bin"
-  ln -sf "$SCRIPT_DIR/bin/threadclaw.mjs" "$HOME/.local/bin/threadclaw"
-  chmod +x "$HOME/.local/bin/threadclaw"
+  if [ -f "$SCRIPT_DIR/bin/threadclaw.mjs" ]; then
+    ln -sf "$SCRIPT_DIR/bin/threadclaw.mjs" "$HOME/.local/bin/threadclaw"
+    chmod +x "$HOME/.local/bin/threadclaw"
+  else
+    echo "[WARN] bin/threadclaw.mjs not found — skipping symlink creation"
+  fi
 
   if echo "$PATH" | grep -q ".local/bin"; then
     echo "[OK] threadclaw command registered"
@@ -158,5 +172,10 @@ if [ $EXIT_CODE -eq 0 ]; then
     echo "[WARN] Smoke test had issues. Run 'threadclaw doctor' for details."
   fi
 fi
+
+INSTALL_END=$(date +%s)
+ELAPSED=$(( INSTALL_END - INSTALL_START ))
+echo ""
+echo "[install] Completed in ${ELAPSED}s"
 
 exit $EXIT_CODE

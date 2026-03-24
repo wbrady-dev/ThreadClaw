@@ -3,7 +3,7 @@
 ## 1. Install
 
 ```bash
-git clone https://github.com/openclaw/threadclaw.git
+git clone https://github.com/wbrady-dev/ThreadClaw.git
 cd threadclaw && npm install
 ```
 
@@ -14,6 +14,21 @@ threadclaw serve    # HTTP API on port 18800
 # OR
 threadclaw          # Interactive TUI
 ```
+
+## Running Services
+
+`threadclaw serve` starts both the Python model server and the ThreadClaw RAG API in a single terminal:
+
+- **Model server** (embedding + reranking) on port **8012** (default)
+- **ThreadClaw API** on port **18800** (default, localhost only)
+
+The command automatically stops any existing processes on those ports before starting. Logs from both services are streamed to the terminal with `[models]` and `[threadclaw]` prefixes.
+
+**Stopping**: Press `Ctrl+C` for graceful shutdown. Both processes receive SIGTERM and are force-killed after 5 seconds if still running. You can also send `POST /shutdown` to the API for programmatic shutdown.
+
+**Background services**: On Windows, ThreadClaw can run as Task Scheduler tasks (no admin required). On Linux, use `systemd --user` units. On macOS, use launchd user agents. All platforms support `POST /shutdown` for graceful stop.
+
+**Health check**: `GET http://127.0.0.1:18800/health` (no auth required).
 
 ## 3. Ingest Documents
 

@@ -22,11 +22,13 @@ export interface WatchConfig {
   debounceMs?: number;
   /** Whether to ingest existing files on startup */
   ingestExisting?: boolean;
+  /** Optional extension filter (e.g., [".md", ".pdf"]). If set, only these are ingested. */
+  fileTypes?: string[];
 }
 
 const DEFAULT_DEBOUNCE = 2000;
-const MAX_CONCURRENT_INGESTS = 5;
-const MAX_QUEUE_SIZE = 1000;
+const MAX_CONCURRENT_INGESTS = config.watch.maxConcurrent;
+const MAX_QUEUE_SIZE = config.watch.maxQueue;
 const supportedExts = new Set(getSupportedExtensions());
 
 function log(msg: string): void {
@@ -45,6 +47,9 @@ export class ThreadClawWatcher {
   private watchers: ReturnType<typeof watch>[] = [];
   private configs: WatchConfig[];
   private processing = new Set<string>();
+
+  /** Optional callback invoked when the underlying watcher emits an error. */
+  onError?: (err: Error) => void;
 
   constructor(configs: WatchConfig[]) {
     this.configs = configs;
@@ -80,6 +85,9 @@ export class ThreadClawWatcher {
           "**/*.db",
           "**/*.db-journal",
           "**/*.db-wal",
+          ...(config.watch.excludePatterns
+            ? config.watch.excludePatterns.split(",").map((p) => p.trim()).filter(Boolean)
+            : []),
         ],
       });
 
@@ -89,6 +97,7 @@ export class ThreadClawWatcher {
 
       watcher.on("error", (err) => {
         logError(`Watcher error: ${err}`);
+        this.onError?.(err instanceof Error ? err : new Error(String(err)));
       });
 
       watcher.on("ready", () => {
@@ -107,6 +116,8 @@ export class ThreadClawWatcher {
   private handleFile(filePath: string, wc: WatchConfig): void {
     const ext = extname(filePath).toLowerCase();
     if (!supportedExts.has(ext)) return;
+    // If the watch config specifies allowed file types, enforce them
+    if (wc.fileTypes?.length && !wc.fileTypes.some((ft) => ext === (ft.startsWith(".") ? ft.toLowerCase() : `.${ft.toLowerCase()}`))) return;
 
     // Skip if already processing this file
     if (this.processing.has(filePath)) return;

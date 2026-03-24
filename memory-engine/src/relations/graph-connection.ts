@@ -44,7 +44,7 @@ function forceCloseConnection(entry: ConnectionEntry): void {
  * connection is not open") gracefully — typically by re-acquiring via
  * getGraphConnection().
  */
-export function getGraphConnection(dbPath: string): DatabaseSync {
+export function getGraphConnection(dbPath: string, busyTimeoutMs = 5000): DatabaseSync {
   const existing = _connections.get(dbPath);
   if (existing) {
     if (isConnectionHealthy(existing.db)) {
@@ -64,7 +64,7 @@ export function getGraphConnection(dbPath: string): DatabaseSync {
 
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(`PRAGMA busy_timeout = ${Math.floor(busyTimeoutMs)}`);
 
   _connections.set(dbPath, { db, refs: 1 });
   return db;

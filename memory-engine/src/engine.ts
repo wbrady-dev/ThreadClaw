@@ -60,7 +60,7 @@ const _RSMA_LOG_INTERVAL = 100;
 // ── NER Circuit Breaker ─────────────────────────────────────────────────────
 let _nerCircuitOpen = false;
 let _nerLastFailure = 0;
-const NER_CIRCUIT_RESET_MS = 30_000; // 30 seconds
+// NER_CIRCUIT_RESET_MS is now driven by config.nerCircuitResetMs (default 30_000)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -696,7 +696,7 @@ export class LcmContextEngine implements ContextEngine {
     this.deps = deps;
     this.config = deps.config;
 
-    const db = getLcmConnection(this.config.databasePath);
+    const db = getLcmConnection(this.config.databasePath, this.config.busyTimeoutMs);
     this.fts5Available = getLcmDbFeatures(db).fts5Available;
 
     this.conversationStore = new ConversationStore(db, { fts5Available: this.fts5Available });
@@ -724,7 +724,7 @@ export class LcmContextEngine implements ContextEngine {
       leafChunkTokens: this.config.leafChunkTokens,
       leafTargetTokens: this.config.leafTargetTokens,
       condensedTargetTokens: this.config.condensedTargetTokens,
-      maxRounds: 10,
+      maxRounds: this.config.maxRounds ?? 10,
       timezone: this.config.timezone,
     };
     // Initialize relations/evidence graph DB if enabled
@@ -1362,7 +1362,7 @@ export class LcmContextEngine implements ContextEngine {
 
       // NER enhancement — non-blocking, uses spaCy model server if available
       // Circuit breaker: skip if server was recently unreachable
-      if (_nerCircuitOpen && Date.now() - _nerLastFailure < NER_CIRCUIT_RESET_MS) {
+      if (_nerCircuitOpen && Date.now() - _nerLastFailure < (this.config.nerCircuitResetMs ?? 30_000)) {
         console.debug("[cc-mem] NER circuit open, skipping request");
       } else {
         try {

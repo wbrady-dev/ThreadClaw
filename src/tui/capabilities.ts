@@ -26,6 +26,7 @@ let windowsAnsiTried = false;
 function hasAnsiSupport(interactive: boolean): boolean {
   if (process.env.THREADCLAW_TUI_PLAIN === "true") return false;
   if (process.env.NO_COLOR) return false;
+  if (process.env.FORCE_COLOR) return true;
   if (process.stdout.isTTY !== true) return false;
 
   if (process.platform !== "win32") {

@@ -52,7 +52,7 @@ export function registerIngestRoutes(server: FastifyInstance) {
     };
 
     if (!filePath) {
-      return reply.status(400).send({ error: "path required" });
+      return reply.status(400).send({ error: "Request body must include a 'path' field with the absolute file path to ingest." });
     }
 
     const err = validateIngestPath(filePath);

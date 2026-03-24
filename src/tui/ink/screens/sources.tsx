@@ -174,8 +174,9 @@ function SourceRow({ source, collStats }: { source: SourceData; collStats: Colle
       {source.collections.map((collection) => {
         const count = collStats[collection.collection] ?? 0;
         const countLabel = count > 0 ? t.dim(` (${count})`) : "";
+        const pathLabel = collection.path ? t.dim(collection.path) + " → " : "";
         return (
-          <Text key={`${source.id}:${collection.collection}`}>{"      " + t.dim("->") + " " + t.dim(collection.collection) + countLabel}</Text>
+          <Text key={`${source.id}:${collection.collection}`}>{"      " + t.dim("->") + " " + pathLabel + t.dim(collection.collection) + countLabel}</Text>
         );
       })}
 

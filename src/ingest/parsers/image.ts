@@ -13,6 +13,7 @@
 import { basename } from "path";
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
+import { config } from "../../config.js";
 import type { ParsedDocument, DocMetadata } from "./index.js";
 
 let _tesseractAvailable: boolean | null = null;
@@ -50,8 +51,8 @@ export async function parseImage(filePath: string): Promise<ParsedDocument> {
   try {
     // Run Tesseract OCR — use execFileSync with args array to prevent shell injection
     const result = execFileSync(
-      "tesseract", [filePath, "stdout", "-l", "eng", "--psm", "3"],
-      { stdio: ["pipe", "pipe", "pipe"], timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+      "tesseract", [filePath, "stdout", "-l", config.extraction.ocrLanguage, "--psm", "3"],
+      { stdio: ["pipe", "pipe", "pipe"], timeout: config.extraction.ocrTimeoutMs, maxBuffer: 10 * 1024 * 1024 },
     ).toString().trim();
 
     if (!result || result.length < 3) {

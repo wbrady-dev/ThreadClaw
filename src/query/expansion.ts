@@ -39,10 +39,10 @@ async function chatComplete(messages: ChatMessage[]): Promise<string | null> {
       body: JSON.stringify({
         model: config.queryExpansion.model,
         messages,
-        temperature: 0.3,
-        max_tokens: 512,
+        temperature: config.queryExpansion.temperature,
+        max_tokens: config.queryExpansion.maxTokens,
       }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(config.queryExpansion.timeoutMs),
     });
 
     if (!response.ok) return null;

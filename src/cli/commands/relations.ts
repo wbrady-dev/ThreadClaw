@@ -21,7 +21,7 @@ relationsCommand
     const start = Date.now();
     console.log("Relations backfill: extracting entities from existing chunks...");
 
-    if (!config.relations) { console.error("Relations not configured"); process.exit(1); }
+    if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
     const db = getDb(config.dataDir + "/threadclaw.db");
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
@@ -87,7 +87,7 @@ relationsCommand
   .command("stats")
   .description("Show entity graph statistics")
   .action(async () => {
-    if (!config.relations) { console.error("Relations not configured"); process.exit(1); }
+    if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
 
@@ -119,7 +119,7 @@ relationsCommand
   .option("--event-days <n>", "Days of evidence events to keep hot", "60")
   .option("--dry-run", "Show what would be archived without doing it")
   .action(async (opts: { claimDays: string; decisionDays: string; eventDays: string; dryRun?: boolean }) => {
-    if (!config.relations) { console.error("Relations not configured"); process.exit(1); }
+    if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
     const archivePath = resolve(homedir(), ".threadclaw", "data", "archive.db");

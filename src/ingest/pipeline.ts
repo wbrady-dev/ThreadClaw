@@ -93,7 +93,7 @@ async function ingestFileInner(
   const collection = ensureCollection(db, collectionName);
 
   // File size guard — prevent OOM on very large files
-  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+  const MAX_FILE_SIZE = config.extraction.ingestMaxFileSizeMb * 1024 * 1024;
   const fileStats = await stat(absPath).catch(() => null);
   const fileMtime = fileStats?.mtime.toISOString() ?? null;
 

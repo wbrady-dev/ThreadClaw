@@ -28,7 +28,7 @@ export async function rerank(
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000); // 30s timeout
+    const timeout = setTimeout(() => controller.abort(), config.reranker.timeoutMs);
 
     const response = await fetch(url, {
       method: "POST",
@@ -37,6 +37,7 @@ export async function rerank(
         query,
         documents,
         top_k: topK ?? documents.length,
+        ...(config.reranker.model ? { model: config.reranker.model } : {}),
       }),
       signal: controller.signal,
     });

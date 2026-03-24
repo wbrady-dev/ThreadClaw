@@ -133,6 +133,8 @@ export const config = {
 
   reranker: {
     url: env("RERANKER_URL", "http://127.0.0.1:8012"),
+    model: env("RERANKER_MODEL", ""),
+    timeoutMs: envInt("RERANK_TIMEOUT_MS", 30_000),
     get scoreThreshold() { return hotConfig.rerankScoreThreshold; },
     get disabled() { return hotConfig.rerankDisabled; },
     get topK() { return hotConfig.rerankTopK; },
@@ -143,11 +145,47 @@ export const config = {
     get enabled() { return hotConfig.queryExpansionEnabled; },
     url: env("QUERY_EXPANSION_URL", "http://127.0.0.1:1234/v1"),
     model: env("QUERY_EXPANSION_MODEL", ""),
+    temperature: envFloat("QUERY_EXPANSION_TEMPERATURE", 0.3),
+    maxTokens: envInt("QUERY_EXPANSION_MAX_TOKENS", 512),
+    timeoutMs: envInt("QUERY_EXPANSION_TIMEOUT_MS", 15000),
+  },
+
+  // ── Query Pipeline ──
+  query: {
+    cacheMaxEntries: envInt("QUERY_CACHE_MAX_ENTRIES", 50),
+    cacheTtlMs: envInt("QUERY_CACHE_TTL_MS", 300000),
+    hybridRrfK: envInt("HYBRID_RRF_K", 60),
+    hybridVectorWeight: envFloat("HYBRID_VECTOR_WEIGHT", 1.0),
+    hybridBm25Weight: envFloat("HYBRID_BM25_WEIGHT", 1.0),
+    maxLength: envInt("QUERY_MAX_LENGTH", 2000),
+    retrieveMultiplier: envInt("QUERY_RETRIEVE_MULTIPLIER", 2),
+    lowConfidenceThreshold: envFloat("QUERY_LOW_CONFIDENCE_THRESHOLD", 0.3),
+    rerankTimeoutMs: envInt("RERANK_TIMEOUT_MS", 30000),
+  },
+
+  // ── Extraction Pipeline ──
+  extraction: {
+    ingestMaxFileSizeMb: envInt("INGEST_MAX_FILE_SIZE_MB", 100),
+    dedupSimilarityThreshold: envFloat("DEDUP_SIMILARITY_THRESHOLD", 0.95),
+    dedupMaxPairwise: envInt("DEDUP_MAX_PAIRWISE", 500),
+    chunkOverlapRatio: envFloat("CHUNK_OVERLAP_RATIO", 0.2),
+    chunkTableRows: envInt("CHUNK_TABLE_ROWS", 20),
+    embeddingMaxConcurrent: envInt("EMBEDDING_MAX_CONCURRENT", 2),
+    embeddingMaxRetries: envInt("EMBEDDING_MAX_RETRIES", 3),
+    embeddingTimeoutMs: envInt("EMBEDDING_TIMEOUT_MS", 30000),
+    embeddingCircuitCooldownMs: envInt("EMBEDDING_CIRCUIT_COOLDOWN_MS", 30000),
+    embeddingCacheMax: envInt("EMBEDDING_CACHE_MAX", 200),
+    ocrLanguage: env("OCR_LANGUAGE", "eng"),
+    ocrTimeoutMs: envInt("OCR_TIMEOUT_MS", 30000),
+    doclingTimeoutMs: envInt("DOCLING_TIMEOUT_MS", 120000),
   },
 
   watch: {
     paths: env("WATCH_PATHS", ""),
     debounceMs: envInt("WATCH_DEBOUNCE_MS", 3000),
+    excludePatterns: env("WATCH_EXCLUDE_PATTERNS", ""),
+    maxConcurrent: envInt("WATCH_MAX_CONCURRENT", 5),
+    maxQueue: envInt("WATCH_MAX_QUEUE", 1000),
   },
 
   defaults: {
@@ -166,6 +204,12 @@ export const config = {
       env("THREADCLAW_MEMORY_RELATIONS_GRAPH_DB_PATH",
         resolve(homedir(), ".threadclaw", "data", "graph.db")),
     ),
+  },
+
+  brief: {
+    maxPerSource: envInt("BRIEF_MAX_PER_SOURCE", 3),
+    relevanceWeight: envFloat("BRIEF_RELEVANCE_WEIGHT", 0.7),
+    termMatchWeight: envFloat("BRIEF_TERM_MATCH_WEIGHT", 0.3),
   },
 
   audio: {

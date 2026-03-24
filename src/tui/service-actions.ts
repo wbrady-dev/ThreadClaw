@@ -63,7 +63,11 @@ export async function performServiceAction(
         isPortReachable(getModelPort(), 1000),
       ]);
       if (apiFinal || modelsFinal) {
-        return { success: false, message: "Could not stop services. Close the terminal that started them, or reboot. Future starts will use Task Scheduler (stoppable from any terminal)." };
+        const stuckPorts = [apiFinal && getApiPort(), modelsFinal && getModelPort()].filter(Boolean).join(", ");
+        const killHint = process.platform === "win32"
+          ? `Open Task Manager and end processes on port(s) ${stuckPorts}, or run: taskkill /F /PID <pid>`
+          : `Run: kill -9 $(lsof -ti :${stuckPorts})`;
+        return { success: false, message: `Could not stop services on port(s) ${stuckPorts}. ${killHint}. If started from another terminal, close that terminal first.` };
       }
     }
 

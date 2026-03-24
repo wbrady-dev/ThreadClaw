@@ -6,6 +6,13 @@ import { readServiceLogTail } from "../../service-logs.js";
 import { checkAutoStartupAsync, isPortReachable } from "../../runtime-status.js";
 import { subscribeTasks } from "../../tasks.js";
 
+/** Color-code a log line based on severity keywords. */
+function colorLogLine(line: string): string {
+  if (/error/i.test(line)) return t.err(line);
+  if (/warn(ing)?/i.test(line)) return t.warn(line);
+  return t.dim(line);
+}
+
 // Module-level cache — intentionally per-screen (not shared) so each screen
 // controls its own poll interval and re-mount doesn't flash stale data.
 let cachedServicesSvc: ServiceStatus = { models: { running: false }, threadclaw: { running: false } };
@@ -56,8 +63,8 @@ export function ServicesScreen({
   const [modelLogLines, setModelLogLines] = useState<string[]>([]);
   const [apiLogLines, setApiLogLines] = useState<string[]>([]);
   useEffect(() => {
-    try { setModelLogLines(readServiceLogTail("models", 3)); } catch {}
-    try { setApiLogLines(readServiceLogTail("threadclaw", 3)); } catch {}
+    try { setModelLogLines(readServiceLogTail("models", 8)); } catch {}
+    try { setApiLogLines(readServiceLogTail("threadclaw", 8)); } catch {}
   }, [tick]);
 
   const gameModeOn = !services.models.running && !services.threadclaw.running;
@@ -77,6 +84,8 @@ export function ServicesScreen({
     label: autoStart ? "Disable auto-start" : "Enable auto-start",
     value: autoStart ? "services-auto-off" : "services-auto-on",
   });
+  items.push({ label: "View Full Logs", value: "services-view-logs", description: "Show last 50 log lines" });
+  items.push({ label: "Refresh", value: "refresh" });
   items.push({ label: "Back", value: "__back__", color: t.dim });
 
   return (
@@ -89,14 +98,14 @@ export function ServicesScreen({
 
       <Section title="Recent Model Logs" />
       {modelLogLines.length > 0 ? modelLogLines.map((line, index) => (
-        <Text key={`models:${index}`}>{"  " + t.dim(line)}</Text>
+        <Text key={`models:${index}`}>{"  " + colorLogLine(line)}</Text>
       )) : (
         <Text>{"  " + t.dim("No model log output yet")}</Text>
       )}
 
       <Section title="Recent API Logs" />
       {apiLogLines.length > 0 ? apiLogLines.map((line, index) => (
-        <Text key={`api:${index}`}>{"  " + t.dim(line)}</Text>
+        <Text key={`api:${index}`}>{"  " + colorLogLine(line)}</Text>
       )) : (
         <Text>{"  " + t.dim("No API log output yet")}</Text>
       )}
@@ -106,6 +115,7 @@ export function ServicesScreen({
         items={items}
         onSelect={(value) => {
           if (value === "__back__") onBack();
+          else if (value === "refresh") setTick((v) => v + 1);
           else onAction(value);
         }}
       />

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, renameSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, statSync, copyFileSync } from "fs";
 import { resolve } from "path";
 
 export type EnvMap = Record<string, string>;
@@ -10,7 +10,17 @@ export function getEnvPath(root: string): string {
 export function ensureEnvFile(root: string): string {
   const envPath = getEnvPath(root);
   if (!existsSync(envPath)) {
-    writeFileSync(envPath, "# ThreadClaw Configuration\n");
+    writeFileSync(
+      envPath,
+      [
+        "# ThreadClaw Configuration",
+        "#",
+        "# WATCH_PATHS — directories to watch for automatic ingestion.",
+        "# Format: path|collection,path2|collection2",
+        "# Example: C:\\Users\\me\\notes|notes,C:\\Users\\me\\docs|documents",
+        "",
+      ].join("\n"),
+    );
   }
   return envPath;
 }
@@ -49,8 +59,25 @@ export function writeEnvMap(root: string, values: EnvMap): void {
   renameSync(tmpPath, envPath);
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+function backupEnvIfNeeded(envPath: string): void {
+  const bakPath = envPath + ".bak";
+  try {
+    if (!existsSync(bakPath)) {
+      copyFileSync(envPath, bakPath);
+      return;
+    }
+    const age = Date.now() - statSync(bakPath).mtimeMs;
+    if (age > ONE_HOUR_MS) {
+      copyFileSync(envPath, bakPath);
+    }
+  } catch {}
+}
+
 export function updateEnvValues(root: string, updates: EnvMap): void {
   const envPath = ensureEnvFile(root);
+  backupEnvIfNeeded(envPath);
   let content = readFileSync(envPath, "utf-8");
 
   for (const [key, value] of Object.entries(updates)) {
