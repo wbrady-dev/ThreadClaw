@@ -12,7 +12,11 @@ async function launchTui(): Promise<void> {
   const hasConfig = Boolean(readConfig());
   const hasEnv = existsSync(resolve(getRootDir(), ".env"));
   const hasComplete = existsSync(resolve(getRootDir(), ".install-complete"));
-  const installed = hasConfig && hasEnv && hasComplete;
+  // If config + .env exist but marker is missing, this is a pre-existing install — auto-create marker
+  if (hasConfig && hasEnv && !hasComplete) {
+    try { writeFileSync(resolve(getRootDir(), ".install-complete"), new Date().toISOString()); } catch {}
+  }
+  const installed = hasConfig && hasEnv;
 
   if (!installed && capabilities.rich) {
     const { runInkInstall } = await import("./ink/install-actions.js");
@@ -20,7 +24,7 @@ async function launchTui(): Promise<void> {
     if (!completed) return;
   }
 
-  if (!readConfig() || !existsSync(resolve(getRootDir(), ".env")) || !existsSync(resolve(getRootDir(), ".install-complete"))) {
+  if (!readConfig() || !existsSync(resolve(getRootDir(), ".env"))) {
     const { runInstall } = await import("./screens/install.js");
     await runInstall();
     if (!readConfig() || !existsSync(resolve(getRootDir(), ".env"))) {
