@@ -607,6 +607,11 @@ export function removeWindowsServices(): { success: boolean } {
 
 // ── Linux: systemd service installer ──
 
+/** Escape a string for safe interpolation into systemd unit files (C-style escaping). */
+function escapeSystemdArg(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$');
+}
+
 export function installLinuxServices(root: string): { success: boolean; error?: string } {
   const pythonCmd = getPythonCmd();
   const nodeCmd = getNodeCmd();
@@ -618,18 +623,19 @@ export function installLinuxServices(root: string): { success: boolean; error?: 
   mkdirSync(userUnitDir, { recursive: true });
 
   const modelsScript = findModelsScript(root);
+  const esc = escapeSystemdArg;
   const modelsUnit = `[Unit]
 Description=ThreadClaw Models (Embed + Rerank)
 After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory=${dirname(modelsScript)}
-ExecStart="${pythonCmd}" "${modelsScript}"
+WorkingDirectory=${esc(dirname(modelsScript))}
+ExecStart="${esc(pythonCmd)}" "${esc(modelsScript)}"
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:${resolve(logsDir, "models.log")}
-StandardError=append:${resolve(logsDir, "models.log")}
+StandardOutput=append:${esc(resolve(logsDir, "models.log"))}
+StandardError=append:${esc(resolve(logsDir, "models.log"))}
 
 [Install]
 WantedBy=default.target
@@ -642,12 +648,12 @@ Requires=threadclaw-models.service
 
 [Service]
 Type=simple
-WorkingDirectory=${root}
-ExecStart="${nodeCmd}" ${entryArgs.map(a => `"${a}"`).join(" ")}
+WorkingDirectory=${esc(root)}
+ExecStart="${esc(nodeCmd)}" ${entryArgs.map(a => `"${esc(a)}"`).join(" ")}
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:${resolve(logsDir, "threadclaw.log")}
-StandardError=append:${resolve(logsDir, "threadclaw.log")}
+StandardOutput=append:${esc(resolve(logsDir, "threadclaw.log"))}
+StandardError=append:${esc(resolve(logsDir, "threadclaw.log"))}
 
 [Install]
 WantedBy=default.target

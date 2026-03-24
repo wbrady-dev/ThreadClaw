@@ -34,13 +34,17 @@ function envBool(key: string, fallback: boolean): boolean {
   return v === "true" || v === "1";
 }
 
+function clamp(min: number, max: number, value: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 // ── Hot-reloadable settings (feature flags + thresholds) ──
 
 const hotConfig = {
   // Reranker tuning
-  rerankScoreThreshold: envFloat("RERANK_SCORE_THRESHOLD", 0.0),
+  rerankScoreThreshold: clamp(0, 1, envFloat("RERANK_SCORE_THRESHOLD", 0.0)),
   rerankDisabled: envBool("RERANK_DISABLED", false),
-  rerankTopK: envInt("RERANK_TOP_K", 20),
+  rerankTopK: clamp(1, 200, envInt("RERANK_TOP_K", 20)),
   rerankSmartSkip: envBool("RERANK_SMART_SKIP", true),
   // Embedding tuning
   similarityThreshold: envFloat("EMBEDDING_SIMILARITY_THRESHOLD", 1.05),
@@ -48,7 +52,7 @@ const hotConfig = {
     const mode = env("EMBEDDING_PREFIX_MODE", "auto");
     return (["auto", "always", "never"] as const).includes(mode as any) ? mode as "auto" | "always" | "never" : "auto";
   })(),
-  batchSize: envInt("EMBEDDING_BATCH_SIZE", 32),
+  batchSize: clamp(1, 1000, envInt("EMBEDDING_BATCH_SIZE", 32)),
   // Feature flags
   audioTranscriptionEnabled: envBool("AUDIO_TRANSCRIPTION_ENABLED", false),
   whisperModel: env("WHISPER_MODEL", "base"),
@@ -78,24 +82,31 @@ function reloadHotConfig(): void {
       return Number.isFinite(n) ? n : fallback;
     };
 
-    hotConfig.rerankScoreThreshold = getFloat("RERANK_SCORE_THRESHOLD", 0.0);
+    hotConfig.rerankScoreThreshold = clamp(0, 1, getFloat("RERANK_SCORE_THRESHOLD", 0.0));
     hotConfig.rerankDisabled = getBool("RERANK_DISABLED", false);
-    hotConfig.rerankTopK = getInt("RERANK_TOP_K", 20);
+    hotConfig.rerankTopK = clamp(1, 200, getInt("RERANK_TOP_K", 20));
     hotConfig.rerankSmartSkip = getBool("RERANK_SMART_SKIP", true);
     hotConfig.similarityThreshold = getFloat("EMBEDDING_SIMILARITY_THRESHOLD", 1.05);
     const prefixRaw = get("EMBEDDING_PREFIX_MODE", "auto");
     hotConfig.prefixMode = (["auto", "always", "never"] as const).includes(prefixRaw as any)
       ? prefixRaw as "auto" | "always" | "never"
       : "auto";
-    hotConfig.batchSize = getInt("EMBEDDING_BATCH_SIZE", 32);
+    hotConfig.batchSize = clamp(1, 1000, getInt("EMBEDDING_BATCH_SIZE", 32));
     hotConfig.audioTranscriptionEnabled = getBool("AUDIO_TRANSCRIPTION_ENABLED", false);
     hotConfig.whisperModel = get("WHISPER_MODEL", "base");
     hotConfig.relationsEnabled = getBool("THREADCLAW_RELATIONS_ENABLED", false);
     hotConfig.queryExpansionEnabled = getBool("QUERY_EXPANSION_ENABLED", false);
 
-    // Sync changed keys back to process.env so downstream code that reads process.env directly stays consistent
+    // Sync ONLY hot-reloadable keys back to process.env — never overwrite ports, paths, API keys, etc.
+    const HOT_RELOAD_KEYS = new Set([
+      "RERANK_SCORE_THRESHOLD", "RERANK_DISABLED", "RERANK_TOP_K", "RERANK_SMART_SKIP",
+      "EMBEDDING_SIMILARITY_THRESHOLD", "EMBEDDING_PREFIX_MODE", "EMBEDDING_BATCH_SIZE",
+      "AUDIO_TRANSCRIPTION_ENABLED", "WHISPER_MODEL",
+      "THREADCLAW_RELATIONS_ENABLED", "THREADCLAW_MEMORY_RELATIONS_ENABLED",
+      "QUERY_EXPANSION_ENABLED",
+    ]);
     for (const [key, value] of Object.entries(parsed)) {
-      if (value !== undefined) {
+      if (value !== undefined && HOT_RELOAD_KEYS.has(key)) {
         process.env[key] = value;
       }
     }
@@ -160,7 +171,6 @@ export const config = {
     maxLength: envInt("QUERY_MAX_LENGTH", 2000),
     retrieveMultiplier: envInt("QUERY_RETRIEVE_MULTIPLIER", 2),
     lowConfidenceThreshold: envFloat("QUERY_LOW_CONFIDENCE_THRESHOLD", 0.3),
-    rerankTimeoutMs: envInt("RERANK_TIMEOUT_MS", 30000),
   },
 
   // ── Extraction Pipeline ──
@@ -193,8 +203,8 @@ export const config = {
     chunkMinTokens: envInt("CHUNK_MIN_TOKENS", 100),
     chunkMaxTokens: envInt("CHUNK_MAX_TOKENS", 1024),
     chunkTargetTokens: envInt("CHUNK_TARGET_TOKENS", 512),
-    queryTopK: envInt("QUERY_TOP_K", 10),
-    queryTokenBudget: envInt("QUERY_TOKEN_BUDGET", 4000),
+    queryTopK: clamp(1, 500, envInt("QUERY_TOP_K", 10)),
+    queryTokenBudget: clamp(100, 100000, envInt("QUERY_TOKEN_BUDGET", 4000)),
   },
 
   relations: {
