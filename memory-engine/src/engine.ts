@@ -733,7 +733,7 @@ export class LcmContextEngine implements ContextEngine {
     }
     if (this.config.relationsEnabled) {
       try {
-        const graphDbConn = getGraphConnection(this.config.relationsGraphDbPath);
+        const graphDbConn = getGraphConnection(this.config.relationsGraphDbPath, this.config.graphBusyTimeoutMs);
         runGraphMigrations(graphDbConn, this.config.relationsGraphDbPath);
         this.graphDb = graphDbConn;
       } catch (err) {
@@ -770,7 +770,7 @@ export class LcmContextEngine implements ContextEngine {
     if (this.migrated) {
       return;
     }
-    const db = getLcmConnection(this.config.databasePath);
+    const db = getLcmConnection(this.config.databasePath, this.config.busyTimeoutMs);
     runLcmMigrations(db, { fts5Available: this.fts5Available });
 
     // RSMA: backfill provenance_links from legacy join tables (idempotent, synchronous)
@@ -2016,6 +2016,8 @@ export class LcmContextEngine implements ContextEngine {
               staleDays: this.config.relationsStaleDays,
               minMentions: this.config.relationsMinMentions,
               docSurfacing: this.config.relationsAwarenessDocSurfacing,
+              cacheMaxSize: this.config.relationsAwarenessCacheMaxSize,
+              cacheTtlMs: this.config.relationsAwarenessCacheTtlMs,
             },
           );
           if (awarenessNote) {
@@ -2033,6 +2035,16 @@ export class LcmContextEngine implements ContextEngine {
           const compiled = compileContextCapsules(this.graphDb, {
             tier: this.config.relationsContextTier,
             scopeId: 1, // global scope
+            autoArchiveIntervalMs: this.config.relationsAutoArchiveIntervalMs,
+            autoArchiveEventThreshold: this.config.relationsAutoArchiveEventThreshold,
+            decayDays: this.config.relationsDecayIntervalDays,
+            runbookStaleDays: this.config.relationsRunbookStaleDays,
+            decay: {
+              toolSuccessMultiplier: this.config.relationsDecayToolSuccessMultiplier,
+              stalenessMultiplier: this.config.relationsDecayStalenessMultiplier,
+              toolSuccessFloor: this.config.relationsDecayToolSuccessFloor,
+              stalenessFloor: this.config.relationsDecayStalenessFloor,
+            },
           });
           if (compiled) {
             result.systemPromptAddition =

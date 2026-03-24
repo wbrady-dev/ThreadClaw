@@ -31,6 +31,10 @@ export interface AwarenessConfig {
   /** Number of recent messages to scan for entity mentions (default 3). */
   messageLookback?: number;
   knowledgeApiUrl?: string;
+  /** Max entities in awareness cache (default 5000). */
+  cacheMaxSize?: number;
+  /** Awareness cache TTL in ms (default 30000). */
+  cacheTtlMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,14 +47,18 @@ interface EntityCacheEntry {
   mention_count: number;
 }
 
-const CACHE_MAX_SIZE = 5000;
-const CACHE_TTL_MS = 30_000;
+const DEFAULT_CACHE_MAX_SIZE = 5000;
+const DEFAULT_CACHE_TTL_MS = 30_000;
 
 let entityCache: EntityCacheEntry[] = [];
 let cacheBuiltAt = 0;
 
-function rebuildEntityCache(db: GraphDb): EntityCacheEntry[] {
-  if (Date.now() - cacheBuiltAt < CACHE_TTL_MS && entityCache.length > 0) {
+function rebuildEntityCache(
+  db: GraphDb,
+  cacheMaxSize = DEFAULT_CACHE_MAX_SIZE,
+  cacheTtlMs = DEFAULT_CACHE_TTL_MS,
+): EntityCacheEntry[] {
+  if (Date.now() - cacheBuiltAt < cacheTtlMs && entityCache.length > 0) {
     return entityCache;
   }
   try {
@@ -63,7 +71,7 @@ function rebuildEntityCache(db: GraphDb): EntityCacheEntry[] {
       WHERE kind = 'entity' AND status = 'active'
       ORDER BY COALESCE(json_extract(structured_json, '$.mentionCount'), 1) DESC
       LIMIT ?
-    `).all(CACHE_MAX_SIZE) as Array<{
+    `).all(cacheMaxSize) as Array<{
       composite_id: string;
       content: string;
       name: string | null;
@@ -365,7 +373,7 @@ export function buildAwarenessNote(
     }
 
     // Find known entities in current turn
-    const cache = rebuildEntityCache(db);
+    const cache = rebuildEntityCache(db, config.cacheMaxSize, config.cacheTtlMs);
     const matchedEntities = extractKeyTerms(text, cache);
     const matchedIds = matchedEntities
       .filter((e) => e.mention_count >= config.minMentions)

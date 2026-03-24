@@ -4,11 +4,11 @@
  * Phase 3: All queries now target the unified memory_objects table.
  *
  * Anti-runbooks (procedure with isNegative=true): If no new failure evidence
- *   in decayDays (default 90), reduce confidence by 0.8x. If confidence < 0.2,
- *   mark 'under_review'.
+ *   in decayDays (default 90), reduce confidence by toolSuccessMultiplier/stalenessMultiplier.
+ *   If confidence < floor, mark 'under_review'.
  *
  * Runbooks (procedure with isNegative=false/null): If failure_rate > 0.5,
- *   demote confidence. If no usage in 180 days, mark 'stale'.
+ *   demote confidence. If no usage in staleDays, mark 'stale'.
  *
  * Loops: Mark as 'stale' when they exceed their max_age_hours policy.
  */
@@ -16,21 +16,38 @@
 import type { GraphDb } from "./types.js";
 import { logEvidence } from "./evidence-log.js";
 
+export interface DecayConfig {
+  toolSuccessMultiplier?: number;   // default 0.7
+  stalenessMultiplier?: number;     // default 0.8
+  toolSuccessFloor?: number;        // default 0.3
+  stalenessFloor?: number;          // default 0.2
+}
+
 /**
  * Apply decay to anti-runbooks (procedure kind, isNegative=true) that
  * haven't seen new failure evidence recently.
  */
-export function decayAntiRunbooks(db: GraphDb, scopeId: number, decayDays = 90): number {
+export function decayAntiRunbooks(
+  db: GraphDb,
+  scopeId: number,
+  decayDays = 90,
+  opts?: DecayConfig,
+): number {
+  const toolSuccessMultiplier = opts?.toolSuccessMultiplier ?? 0.7;
+  const stalenessMultiplier = opts?.stalenessMultiplier ?? 0.8;
+  const toolSuccessFloor = opts?.toolSuccessFloor ?? 0.3;
+  const stalenessFloor = opts?.stalenessFloor ?? 0.2;
+
   // First: decay anti-runbooks whose tool has recent successes (tool-success decay)
   const toolDecayed = db.prepare(`
     UPDATE memory_objects
-    SET confidence = confidence * 0.7,
+    SET confidence = confidence * ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE scope_id = ?
       AND kind = 'procedure'
       AND json_extract(structured_json, '$.isNegative') = 1
       AND status = 'active'
-      AND confidence > 0.3
+      AND confidence > ?
       AND json_extract(structured_json, '$.toolName') IN (
         SELECT DISTINCT json_extract(mo2.structured_json, '$.toolName')
         FROM memory_objects mo2
@@ -38,20 +55,20 @@ export function decayAntiRunbooks(db: GraphDb, scopeId: number, decayDays = 90):
         AND json_extract(mo2.structured_json, '$.status') = 'success'
         AND mo2.created_at > datetime('now', ?)
       )
-  `).run(scopeId, scopeId, `-${decayDays} days`);
+  `).run(toolSuccessMultiplier, scopeId, toolSuccessFloor, scopeId, `-${decayDays} days`);
 
   // Second: staleness decay — exclude rows already decayed by tool-success above
   const decayed = db.prepare(`
     UPDATE memory_objects
-    SET confidence = confidence * 0.8,
+    SET confidence = confidence * ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE scope_id = ?
       AND kind = 'procedure'
       AND json_extract(structured_json, '$.isNegative') = 1
       AND status = 'active'
-      AND confidence > 0.2
+      AND confidence > ?
       AND updated_at < datetime('now', ?)
-  `).run(scopeId, `-${decayDays} days`);
+  `).run(stalenessMultiplier, scopeId, stalenessFloor, `-${decayDays} days`);
 
   // Mark very low confidence for review
   const reviewed = db.prepare(`
@@ -61,9 +78,9 @@ export function decayAntiRunbooks(db: GraphDb, scopeId: number, decayDays = 90):
     WHERE scope_id = ?
       AND kind = 'procedure'
       AND json_extract(structured_json, '$.isNegative') = 1
-      AND confidence <= 0.2
+      AND confidence <= ?
       AND status = 'active'
-  `).run(scopeId);
+  `).run(scopeId, stalenessFloor);
 
   if (Number(decayed.changes) > 0 || Number(reviewed.changes) > 0) {
     logEvidence(db, {
@@ -172,9 +189,15 @@ export function decayLoops(db: GraphDb, scopeId: number): number {
 /**
  * Apply all decay rules for a scope. Call lazily before queries.
  */
-export function applyDecay(db: GraphDb, scopeId: number, decayDays = 90, staleDays = 180): void {
+export function applyDecay(
+  db: GraphDb,
+  scopeId: number,
+  decayDays = 90,
+  staleDays = 180,
+  opts?: DecayConfig,
+): void {
   try {
-    decayAntiRunbooks(db, scopeId, decayDays);
+    decayAntiRunbooks(db, scopeId, decayDays, opts);
     decayRunbooks(db, scopeId, staleDays);
     decayLoops(db, scopeId);
   } catch {

@@ -16,7 +16,7 @@ import { getOpenLoops, type LoopRow } from "./loop-store.js";
 import { getRecentDeltas, type DeltaRow } from "./delta-store.js";
 import { getActiveInvariants, type InvariantRow } from "./invariant-store.js";
 import { getAntiRunbooks, type AntiRunbookRow } from "./anti-runbook-store.js";
-import { applyDecay } from "./decay.js";
+import { applyDecay, type DecayConfig } from "./decay.js";
 import { runArchive } from "./archive.js";
 import { resolve } from "path";
 import { homedir } from "os";
@@ -36,13 +36,18 @@ const BUDGET_TIERS: Record<string, number> = {
 // Auto-archive — lazy trigger, runs at most once per hour
 // ---------------------------------------------------------------------------
 
-const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const AUTO_ARCHIVE_EVENT_THRESHOLD = 5000;        // trigger when evidence_log exceeds this
+// Defaults — overridden by ContextCompilerConfig.autoArchiveIntervalMs / autoArchiveEventThreshold
+const DEFAULT_AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_AUTO_ARCHIVE_EVENT_THRESHOLD = 5000;        // trigger when evidence_log exceeds this
 let _lastAutoArchiveCheck = 0;
 
-function maybeAutoArchive(db: GraphDb): void {
+function maybeAutoArchive(
+  db: GraphDb,
+  intervalMs = DEFAULT_AUTO_ARCHIVE_INTERVAL_MS,
+  eventThreshold = DEFAULT_AUTO_ARCHIVE_EVENT_THRESHOLD,
+): void {
   const now = Date.now();
-  if (now - _lastAutoArchiveCheck < AUTO_ARCHIVE_INTERVAL_MS) return;
+  if (now - _lastAutoArchiveCheck < intervalMs) return;
   _lastAutoArchiveCheck = now;
 
   try {
@@ -50,7 +55,7 @@ function maybeAutoArchive(db: GraphDb): void {
       "SELECT COUNT(*) as cnt FROM evidence_log",
     ).get() as { cnt: number }).cnt;
 
-    if (eventCount < AUTO_ARCHIVE_EVENT_THRESHOLD) return;
+    if (eventCount < eventThreshold) return;
 
     const archivePath = resolve(homedir(), ".threadclaw", "data", "archive.db");
     runArchive(db, archivePath);
@@ -225,6 +230,16 @@ export interface ContextCompilerConfig {
   maxLoops?: number;
   maxDeltas?: number;
   maxInvariants?: number;
+  /** Override auto-archive check interval in ms (default 3600000). */
+  autoArchiveIntervalMs?: number;
+  /** Override evidence_log event threshold for auto-archive (default 5000). */
+  autoArchiveEventThreshold?: number;
+  /** Decay interval days for anti-runbooks (default 90). */
+  decayDays?: number;
+  /** Stale days for runbooks (default 180). */
+  runbookStaleDays?: number;
+  /** Decay multiplier/floor overrides. */
+  decay?: DecayConfig;
 }
 
 export interface CompilerResult {
@@ -256,10 +271,10 @@ export function compileContextCapsules(
 
   // Apply lazy decay + auto-archive before gathering candidates (at most once per 5 minutes)
   if (Date.now() - _lastDecayRun > 300_000) {
-    applyDecay(db, scopeId);
+    applyDecay(db, scopeId, config.decayDays, config.runbookStaleDays, config.decay);
     _lastDecayRun = Date.now();
   }
-  maybeAutoArchive(db);
+  maybeAutoArchive(db, config.autoArchiveIntervalMs, config.autoArchiveEventThreshold);
 
   // Gather candidates from all evidence types
   const candidates: CapsuleCandidate[] = [];

@@ -59,16 +59,23 @@ export async function extractClaimsDeep(
 
   const { provider, model } = resolveDeepModel(deps, config);
 
+  const maxInputChars = config.relationsDeepExtractionMaxInputChars ?? 4000;
+  const maxLlmTokens = config.relationsDeepExtractionMaxTokens ?? 1000;
+  const maxFieldLength = config.relationsDeepExtractionMaxFieldLength ?? 500;
+  const maxItems = config.relationsDeepExtractionMaxItems ?? 50;
+  const defaultTrust = config.relationsDeepExtractionDefaultTrust ?? 0.6;
+  const defaultAuthority = config.relationsDeepExtractionDefaultAuthority ?? 0.6;
+
   try {
     const result = await deps.complete({
       model,
       provider,
       system: CLAIM_EXTRACTION_SYSTEM,
       messages: [
-        { role: "user", content: text.slice(0, 4000) },
+        { role: "user", content: text.slice(0, maxInputChars) },
       ],
       temperature: 0.1,
-      maxTokens: 1000,
+      maxTokens: maxLlmTokens,
     });
 
     const content = typeof result.content === "string"
@@ -81,14 +88,11 @@ export async function extractClaimsDeep(
     const parsed = parseJsonArray(content);
     if (!parsed) return [];
 
-    const MAX_FIELD_LENGTH = 500;
-    const MAX_ITEMS = 50;
-
     const results: ClaimExtractionResult[] = [];
-    for (const item of parsed.slice(0, MAX_ITEMS)) {
-      const subject = String(item.subject ?? "").toLowerCase().trim().slice(0, MAX_FIELD_LENGTH);
-      const predicate = String(item.predicate ?? "").toLowerCase().trim().slice(0, MAX_FIELD_LENGTH);
-      const objectText = String(item.object ?? "").trim().slice(0, MAX_FIELD_LENGTH);
+    for (const item of parsed.slice(0, maxItems)) {
+      const subject = String(item.subject ?? "").toLowerCase().trim().slice(0, maxFieldLength);
+      const predicate = String(item.predicate ?? "").toLowerCase().trim().slice(0, maxFieldLength);
+      const objectText = String(item.object ?? "").trim().slice(0, maxFieldLength);
       const confidence = typeof item.confidence === "number" ? Math.min(1, Math.max(0, item.confidence)) : 0.5;
 
       if (!subject || !predicate || !objectText) continue;
@@ -100,8 +104,8 @@ export async function extractClaimsDeep(
           objectText,
           valueType: "text" as const,
           confidence,
-          trustScore: 0.6,
-          sourceAuthority: 0.6,
+          trustScore: defaultTrust,
+          sourceAuthority: defaultAuthority,
           canonicalKey: buildCanonicalKey(subject, predicate),
         },
         evidence: {
@@ -152,6 +156,9 @@ export async function extractRelationsDeep(
 
   const { provider, model } = resolveDeepModel(deps, config);
 
+  const relMaxInputChars = config.relationsDeepExtractionMaxInputChars ?? 4000;
+  const relMaxTokens = config.relationsDeepExtractionMaxTokens ?? 1000;
+
   try {
     const result = await deps.complete({
       model,
@@ -160,11 +167,11 @@ export async function extractRelationsDeep(
       messages: [
         {
           role: "user",
-          content: `Known entities: ${entityNames.join(", ")}\n\nText:\n${text.slice(0, 4000)}`,
+          content: `Known entities: ${entityNames.join(", ")}\n\nText:\n${text.slice(0, relMaxInputChars)}`,
         },
       ],
       temperature: 0.1,
-      maxTokens: 1000,
+      maxTokens: relMaxTokens,
     });
 
     const content = typeof result.content === "string"
