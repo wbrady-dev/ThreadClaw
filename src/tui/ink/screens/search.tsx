@@ -104,7 +104,24 @@ function SearchScreen({ onBack }: SearchScreenProps) {
       setResults(mapped);
       setView(mapped.length > 0 ? "results" : "input");
       if (mapped.length === 0) {
-        setError("No results found.");
+        // Check if the knowledge base is empty (0 documents indexed)
+        try {
+          const statsRes = await fetch(`${getApiBaseUrl()}/stats`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (statsRes.ok) {
+            const stats = (await statsRes.json()) as { documents?: number };
+            if (typeof stats.documents === "number" && stats.documents === 0) {
+              setError("Knowledge base is empty. Add documents from Sources first, then start services.");
+            } else {
+              setError("No results found.");
+            }
+          } else {
+            setError("No results found.");
+          }
+        } catch {
+          setError("No results found.");
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
