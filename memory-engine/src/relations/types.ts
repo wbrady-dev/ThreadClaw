@@ -231,23 +231,10 @@ export interface UpsertInvariantInput {
 }
 
 // ---------------------------------------------------------------------------
-// Source trust hierarchy
-//
-// BUG 16 NOTE: There is a DUAL copy of SOURCE_TRUST in ontology/types.ts.
-// The ontology/types.ts version is CANONICAL and includes additional source
-// kinds (user_explicit, extraction, inference, message). This copy is kept
-// for backward compatibility with legacy relations code. New code should
-// import from ontology/types.ts.
+// Source trust hierarchy — re-exported from canonical RSMA ontology.
 // ---------------------------------------------------------------------------
 
-export const SOURCE_TRUST: Record<string, number> = {
-  tool_result: 1.0,
-  user_explicit: 0.9,
-  recent_document: 0.7,
-  old_document: 0.4,
-  summary: 0.3,
-  inferred: 0.2,
-};
+export { SOURCE_TRUST } from "../ontology/types.js";
 
 // ---------------------------------------------------------------------------
 // Claim extraction result

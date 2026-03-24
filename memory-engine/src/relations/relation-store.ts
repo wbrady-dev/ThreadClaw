@@ -123,20 +123,9 @@ function batchResolveEntityNames(db: GraphDb, ids: number[]): Map<number, string
       }
     } catch { /* fall through */ }
 
-    // Fill in any missing from legacy entities table (renamed to _legacy_entities in v18)
+    // Fill in any missing with their numeric ID as fallback
     const missing = batch.filter((id) => !names.has(id));
-    if (missing.length > 0) {
-      const missingPlaceholders = missing.map(() => "?").join(",");
-      for (const tbl of ["_legacy_entities", "entities"]) {
-        try {
-          const rows = db.prepare(
-            `SELECT id, display_name FROM ${tbl} WHERE id IN (${missingPlaceholders})`,
-          ).all(...missing) as Array<{ id: number; display_name: string }>;
-          for (const r of rows) names.set(r.id, r.display_name);
-          break; // Found the table, stop trying
-        } catch { /* non-fatal — table may not exist */ }
-      }
-    }
+    for (const id of missing) names.set(id, String(id));
   }
   return names;
 }

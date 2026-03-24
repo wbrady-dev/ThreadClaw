@@ -210,8 +210,8 @@ export function extractClaimsFromDocumentKV(
           objectText,
           valueType: "text",
           confidence: 0.7,
-          trustScore: SOURCE_TRUST.recent_document,
-          sourceAuthority: SOURCE_TRUST.recent_document,
+          trustScore: SOURCE_TRUST.document,
+          sourceAuthority: SOURCE_TRUST.document,
           canonicalKey: buildCanonicalKey(heading, predicate),
         },
         evidence: {
@@ -265,8 +265,8 @@ export function extractClaimsFromFrontmatter(
         objectText: value,
         valueType: "text",
         confidence: 0.7,
-        trustScore: SOURCE_TRUST.recent_document,
-        sourceAuthority: SOURCE_TRUST.recent_document,
+        trustScore: SOURCE_TRUST.document,
+        sourceAuthority: SOURCE_TRUST.document,
         canonicalKey: buildCanonicalKey("document", key),
       },
       evidence: {

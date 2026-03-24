@@ -1,9 +1,10 @@
 /**
- * Evidence graph database schema — migration v1.
+ * RSMA graph database schema.
  *
- * Creates infrastructure tables (evidence_log, scope_sequences, state_scopes,
- * branch_scopes, promotion_policies) and Horizon 1 tables (entities,
- * entity_mentions). All tables live in `threadclaw-graph.db`.
+ * One True Ontology: memory_objects + provenance_links.
+ * Fresh installs create the RSMA schema directly. Existing databases
+ * run the legacy v1→v20 migration chain for backward compatibility.
+ * All tables live in `threadclaw-graph.db`.
  */
 
 import { chmodSync } from "fs";
@@ -458,9 +459,201 @@ function markMigrationApplied(db: GraphDb, version: number): void {
   db.prepare("INSERT INTO _evidence_migrations (version) VALUES (?)").run(version);
 }
 
+// ---------------------------------------------------------------------------
+// Fresh-install DDL — One True Ontology (no legacy tables)
+// ---------------------------------------------------------------------------
+
+const FRESH_INSTALL_SQL = `
+-- ============================================================
+-- INFRASTRUCTURE
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS evidence_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id INTEGER,
+    branch_id INTEGER,
+    object_type TEXT NOT NULL,
+    object_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    actor TEXT,
+    run_id TEXT,
+    idempotency_key TEXT UNIQUE,
+    payload_json TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    scope_seq INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_log_scope ON evidence_log(scope_id, scope_seq);
+CREATE INDEX IF NOT EXISTS idx_evidence_log_object ON evidence_log(object_type, object_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_evidence_log_actor ON evidence_log(actor, created_at);
+CREATE INDEX IF NOT EXISTS idx_evidence_log_run ON evidence_log(run_id, created_at);
+
+CREATE TABLE IF NOT EXISTS scope_sequences (
+    scope_id INTEGER PRIMARY KEY,
+    next_seq INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS state_scopes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_type TEXT NOT NULL,
+    scope_key TEXT NOT NULL,
+    display_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    UNIQUE(scope_type, scope_key)
+);
+CREATE INDEX IF NOT EXISTS idx_state_scopes_type_key ON state_scopes(scope_type, scope_key);
+
+INSERT OR IGNORE INTO state_scopes (id, scope_type, scope_key, display_name)
+VALUES (1, 'system', 'global', 'Global');
+INSERT OR IGNORE INTO scope_sequences (scope_id, next_seq)
+VALUES (1, 1);
+
+CREATE TABLE IF NOT EXISTS branch_scopes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id INTEGER NOT NULL REFERENCES state_scopes(id) ON DELETE CASCADE,
+    branch_type TEXT NOT NULL,
+    branch_key TEXT NOT NULL,
+    parent_branch_id INTEGER REFERENCES branch_scopes(id),
+    created_by_actor TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    promoted_at TEXT,
+    UNIQUE(scope_id, branch_type, branch_key)
+);
+CREATE INDEX IF NOT EXISTS idx_branch_scopes_scope_status ON branch_scopes(scope_id, status);
+
+CREATE TABLE IF NOT EXISTS promotion_policies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    object_type TEXT NOT NULL,
+    min_confidence REAL DEFAULT 0.6,
+    requires_user_confirm INTEGER DEFAULT 0,
+    auto_promote_above_confidence REAL,
+    requires_evidence_count INTEGER DEFAULT 1,
+    max_age_hours INTEGER,
+    policy_text TEXT,
+    UNIQUE(object_type)
+);
+INSERT OR IGNORE INTO promotion_policies (object_type, min_confidence, requires_user_confirm, auto_promote_above_confidence, requires_evidence_count, max_age_hours, policy_text) VALUES
+    ('entity',       0.3, 0, NULL, 1, NULL, 'Entities promote freely after MIN_MENTIONS threshold'),
+    ('mention',      0.0, 0, NULL, 1, NULL, 'Mentions always write directly to shared scope'),
+    ('claim',        0.6, 0, NULL, 2, 168,  'Claims need confidence >= 0.6 and 2+ evidence rows. Expire after 7 days'),
+    ('decision',     0.5, 1, 0.7,  1, NULL, 'Decisions need user confirm, OR auto-promote at confidence >= 0.7'),
+    ('loop',         0.3, 0, NULL, 1, 72,   'Open loops promote at low confidence. Expire if stale after 3 days'),
+    ('attempt',      0.0, 0, NULL, 1, NULL, 'Attempts always write directly (factual records)'),
+    ('procedure',    0.5, 0, NULL, 2, NULL, 'Procedures need 2+ evidence. No auto-expire'),
+    ('invariant',    0.7, 1, 0.9,  1, NULL, 'Invariants need user confirm, OR auto-promote at confidence >= 0.9'),
+    ('capability',   0.0, 0, NULL, 1, NULL, 'Capabilities always write directly (observed state)');
+
+-- ============================================================
+-- RSMA: Unified memory_objects + provenance_links
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS memory_objects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    composite_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    canonical_key TEXT,
+    content TEXT NOT NULL,
+    structured_json TEXT,
+    scope_id INTEGER NOT NULL DEFAULT 1,
+    branch_id INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    trust_score REAL NOT NULL DEFAULT 0.5,
+    influence_weight TEXT DEFAULT 'standard',
+    superseded_by INTEGER,
+    source_kind TEXT,
+    source_id TEXT,
+    source_detail TEXT,
+    source_authority REAL DEFAULT 0.5,
+    first_observed_at TEXT,
+    last_observed_at TEXT,
+    observed_at TEXT,
+    extraction_method TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mo_composite ON memory_objects(composite_id);
+CREATE INDEX IF NOT EXISTS idx_mo_kind_status ON memory_objects(kind, status, scope_id);
+CREATE INDEX IF NOT EXISTS idx_mo_canonical ON memory_objects(canonical_key, scope_id);
+CREATE INDEX IF NOT EXISTS idx_mo_scope_branch ON memory_objects(scope_id, branch_id, kind);
+CREATE INDEX IF NOT EXISTS idx_mo_source ON memory_objects(source_kind, source_id);
+CREATE INDEX IF NOT EXISTS idx_mo_updated ON memory_objects(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS provenance_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id TEXT NOT NULL,
+    predicate TEXT NOT NULL CHECK(predicate IN ('derived_from', 'supports', 'contradicts', 'supersedes', 'mentioned_in', 'relates_to', 'resolved_by')),
+    object_id TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 1.0 CHECK(confidence >= 0.0 AND confidence <= 1.0),
+    detail TEXT,
+    scope_id INTEGER DEFAULT 1,
+    metadata TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    UNIQUE(subject_id, predicate, object_id)
+);
+CREATE INDEX IF NOT EXISTS idx_prov_subject ON provenance_links(subject_id);
+CREATE INDEX IF NOT EXISTS idx_prov_object ON provenance_links(object_id);
+CREATE INDEX IF NOT EXISTS idx_prov_predicate ON provenance_links(predicate);
+CREATE INDEX IF NOT EXISTS idx_prov_created_at ON provenance_links(created_at);
+CREATE INDEX IF NOT EXISTS idx_prov_scope ON provenance_links(scope_id);
+CREATE INDEX IF NOT EXISTS idx_prov_pred_subj ON provenance_links(predicate, subject_id);
+CREATE INDEX IF NOT EXISTS idx_prov_pred_obj ON provenance_links(predicate, object_id);
+
+-- Leases
+CREATE TABLE IF NOT EXISTS work_leases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id INTEGER NOT NULL REFERENCES state_scopes(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL,
+    resource_key TEXT NOT NULL,
+    lease_until TEXT NOT NULL,
+    acquired_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    UNIQUE(scope_id, resource_key)
+);
+CREATE INDEX IF NOT EXISTS idx_leases_scope ON work_leases(scope_id, agent_id);
+CREATE INDEX IF NOT EXISTS idx_leases_expiry ON work_leases(lease_until);
+
+-- State deltas
+CREATE TABLE IF NOT EXISTS state_deltas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id INTEGER NOT NULL REFERENCES state_scopes(id) ON DELETE CASCADE,
+    branch_id INTEGER NOT NULL DEFAULT 0,
+    delta_type TEXT NOT NULL,
+    entity_key TEXT NOT NULL,
+    summary TEXT,
+    old_value TEXT,
+    new_value TEXT,
+    confidence REAL,
+    source_type TEXT,
+    source_id TEXT,
+    source_detail TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    seq INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_scope ON state_deltas(scope_id, branch_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_entity ON state_deltas(entity_key);
+
+-- Capabilities
+CREATE TABLE IF NOT EXISTS capabilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope_id INTEGER NOT NULL REFERENCES state_scopes(id) ON DELETE CASCADE,
+    capability_type TEXT NOT NULL,
+    capability_key TEXT NOT NULL,
+    display_name TEXT,
+    status TEXT NOT NULL DEFAULT 'available',
+    summary TEXT,
+    metadata_json TEXT,
+    last_checked_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+    UNIQUE(scope_id, capability_type, capability_key)
+);
+CREATE INDEX IF NOT EXISTS idx_capabilities_scope ON capabilities(scope_id, capability_type, status);
+`;
+
 /**
  * Run all pending graph database migrations.
  * Idempotent — safe to call on every startup.
+ *
+ * Fresh installs: creates RSMA schema directly (no legacy tables).
+ * Existing databases: runs the full v1→v20 migration chain for compatibility.
  */
 export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
   // Ensure _evidence_migrations exists first (chicken-and-egg for v1)
@@ -471,6 +664,25 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     )
   `);
 
+  // ── Fast path: fresh database — create RSMA schema directly ──
+  const anyApplied = db.prepare(
+    "SELECT COUNT(*) AS cnt FROM _evidence_migrations",
+  ).get() as { cnt: number };
+
+  if (anyApplied.cnt === 0) {
+    db.exec(FRESH_INSTALL_SQL);
+    // Mark all migration versions as applied so the legacy chain never runs
+    for (let v = 1; v <= 20; v++) {
+      markMigrationApplied(db, v);
+    }
+    // File permissions
+    if (dbPath && process.platform !== "win32") {
+      try { chmodSync(dbPath, 0o600); } catch { /* non-fatal */ }
+    }
+    return;
+  }
+
+  // ── Upgrade path: existing database — run legacy migration chain ──
   if (!isMigrationApplied(db, 1)) {
     db.exec(MIGRATION_V1_SQL);
     markMigrationApplied(db, 1);
