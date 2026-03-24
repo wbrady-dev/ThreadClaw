@@ -53,9 +53,11 @@ export async function launchInkTui(): Promise<void> {
     }
 
     if (action === "configure") {
-      const subAction = await showInkScreen("configure");
-      if (subAction && subAction.startsWith("configure-")) {
+      // Loop: stay in configure until user selects Back/Escape
+      let subAction = await showInkScreen("configure");
+      while (subAction && subAction.startsWith("configure-")) {
         await runConfigureScreenAction(subAction);
+        subAction = await showInkScreen("configure");
       }
       continue;
     }
