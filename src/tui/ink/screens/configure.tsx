@@ -69,7 +69,7 @@ export function ConfigureScreen({
 
     // ── Back ──
     { label: "", value: "__sep_blank5__" },
-    { label: "  Back", value: "__back__", color: t.dim },
+    { label: "Back", value: "__back__", color: t.dim },
   ];
 
   return (

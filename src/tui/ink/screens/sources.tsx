@@ -158,7 +158,9 @@ function SourceRow({ source, collStats }: { source: SourceData; collStats: Colle
     statusText += t.dim(` - synced ${formatAge(source.status.lastSync)}`);
   }
   if (source.status.nextSync && state !== "syncing" && state !== "watching") {
-    statusText += t.dim(` - next ${formatFuture(source.status.nextSync)}`);
+    const deltaMs = new Date(source.status.nextSync).getTime() - Date.now();
+    const nextLabel = deltaMs <= 0 ? "soon" : deltaMs < 60_000 ? `in ${Math.round(deltaMs / 1000)}s` : deltaMs < 3_600_000 ? `in ${Math.round(deltaMs / 60_000)}m` : `in ${Math.round(deltaMs / 3_600_000)}h`;
+    statusText += t.dim(` - next ${nextLabel}`);
   }
 
   let docCount = 0;
@@ -187,11 +189,3 @@ function SourceRow({ source, collStats }: { source: SourceData; collStats: Colle
   );
 }
 
-function formatFuture(date: string | undefined): string {
-  if (!date) return "";
-  const deltaMs = new Date(date).getTime() - Date.now();
-  if (deltaMs <= 0) return "soon";
-  if (deltaMs < 60_000) return `in ${Math.round(deltaMs / 1000)}s`;
-  if (deltaMs < 3_600_000) return `in ${Math.round(deltaMs / 60_000)}m`;
-  return `in ${Math.round(deltaMs / 3_600_000)}h`;
-}

@@ -84,7 +84,6 @@ export function ServicesScreen({
     label: autoStart ? "Disable auto-start" : "Enable auto-start",
     value: autoStart ? "services-auto-off" : "services-auto-on",
   });
-  items.push({ label: "View Full Logs", value: "services-view-logs", description: "Show last 50 log lines" });
   items.push({ label: "Refresh", value: "refresh" });
   items.push({ label: "Back", value: "__back__", color: t.dim });
 

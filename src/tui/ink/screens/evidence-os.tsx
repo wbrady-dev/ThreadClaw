@@ -212,7 +212,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
           <Text>{"  " + t.dim("Start services to view Evidence OS data")}</Text>
           {error && <Text>{"  " + t.err(error)}</Text>}
           <Separator />
-          <Menu items={[{ label: "\u2190 Back", value: "__back__" }]} onSelect={onBack} />
+          <Menu items={[{ label: "Back", value: "__back__", color: t.dim }]} onSelect={onBack} />
         </Box>
       );
     }
@@ -225,7 +225,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
           <Text>{"  " + t.dim("Enable in Configure \u2192 Evidence OS, or set THREADCLAW_RELATIONS_ENABLED=true in .env")}</Text>
           {error && <Text>{"  " + t.err(error)}</Text>}
           <Separator />
-          <Menu items={[{ label: "\u2190 Back", value: "__back__" }]} onSelect={onBack} />
+          <Menu items={[{ label: "Back", value: "__back__", color: t.dim }]} onSelect={onBack} />
         </Box>
       );
     }
@@ -257,7 +257,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
     }
 
     items.push({ label: "Terms List", value: "terms", description: `${terms.length} terms` });
-    items.push({ label: "\u2190 Back", value: "__back__" });
+    items.push({ label: "Back", value: "__back__", color: t.dim });
 
     return (
       <Box flexDirection="column">
@@ -317,7 +317,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
     if (mentionPage < totalMentionPages - 1) {
       items.push({ label: "Next page \u2192", value: "__next_mention_page__" });
     }
-    items.push({ label: "\u2190 Back", value: "__back__" });
+    items.push({ label: "Back", value: "__back__", color: t.dim });
 
     return (
       <Box flexDirection="column">
@@ -414,7 +414,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         description: "select to remove",
       });
     }
-    items.push({ label: "\u2190 Back", value: "__back__" });
+    items.push({ label: "Back", value: "__back__", color: t.dim });
 
     return (
       <Box flexDirection="column">

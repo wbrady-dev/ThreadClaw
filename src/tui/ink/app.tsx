@@ -676,7 +676,9 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       try {
         const ocPath = resolve(root, "..", "..", "openclaw.json");
         if (existsSync(ocPath)) {
-          const ocModel = JSON.parse(readFileSync(ocPath, "utf-8"))?.agents?.defaults?.model?.primary;
+          let ocData: any = null;
+          try { ocData = JSON.parse(readFileSync(ocPath, "utf-8")); } catch {}
+          const ocModel = ocData?.agents?.defaults?.model?.primary;
           deepExtractLabel = ocModel ? t.value(ocModel.split("/").pop()) + t.dim(" (via OpenClaw)") : t.dim("summary model fallback");
         }
       } catch {}
@@ -750,7 +752,6 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Models ── */}
       <Text>{t.title("  Models")}</Text>
-      <Text>{t.dim("  Local AI models powering search and extraction")}</Text>
       <Text>{"  " + t.dim("Embed: ") + t.value(embedName)}</Text>
       <Text>{"  " + t.dim("Rerank: ") + t.value(rerankName)}</Text>
       <Text>{"  " + t.dim("Deep Extract: ") + deepExtractLabel}</Text>
@@ -761,7 +762,6 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Document Intelligence ── */}
       <Text>{t.title("  Document Intelligence")}</Text>
-      <Text>{t.dim("  Parsing and processing capabilities")}</Text>
       {(process.stdout.columns || 120) < 100 ? (
         <>
           <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
@@ -775,7 +775,6 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Knowledge Base ── */}
       <Text>{t.title("  Knowledge Base")}</Text>
-      <Text>{t.dim("  Your indexed documents and sources")}</Text>
       <Text>{"  " + t.dim("Sources: ") + (sourceIcons.length > 0 ? sourceIcons.join(t.dim("  |  ")) : t.dim("none configured"))}</Text>
       <Text>{"  " + t.dim("Watch Paths: ") + (watchCount > 0 ? t.ok(`${watchCount} paths`) : t.dim("none"))}</Text>
       {stats ? (
@@ -791,7 +790,6 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Evidence OS ── */}
       <Text>{t.title("  Evidence OS")}</Text>
-      <Text>{t.dim("  Knowledge graph and entity tracking")}</Text>
       <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
       {relationsEnabled && (() => {
         const gs = stats?.graphStats;

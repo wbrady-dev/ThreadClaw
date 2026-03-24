@@ -89,7 +89,7 @@ function firstSelectable(items: MenuItem[]): number {
   for (let i = 0; i < items.length; i++) {
     if (!isSeparator(items[i])) return i;
   }
-  return 0;
+  return -1;
 }
 
 export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; onSelect: (value: string) => void; isRoot?: boolean }) {
@@ -98,7 +98,7 @@ export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; o
   useInput((input, key) => {
     if (key.upArrow || input === "k") setSelected((prev) => nextSelectable(items, prev, -1));
     else if (key.downArrow || input === "j") setSelected((prev) => nextSelectable(items, prev, 1));
-    else if (key.return) { if (!isSeparator(items[selected])) onSelect(items[selected].value); }
+    else if (key.return) { if (selected >= 0 && !isSeparator(items[selected])) onSelect(items[selected].value); }
     else if (input === "q") {
       if (isRoot) {
         onSelect("__confirm_exit__");
@@ -107,7 +107,14 @@ export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; o
       }
     }
     else if (key.escape) onSelect("__back__");
-    else if (input === "\u0003") process.exit(0);
+    else if (input === "\u0003") {
+      if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+      process.stdin.removeAllListeners("data");
+      process.stdin.removeAllListeners("keypress");
+      process.stdin.pause();
+      process.stdout.write("\x1b[?25h");
+      process.exit(0);
+    }
   });
 
   return (
@@ -117,7 +124,7 @@ export function Menu({ items, onSelect, isRoot = false }: { items: MenuItem[]; o
         if (sep) {
           return <Text key={item.value}>{"  " + (item.color ?? t.dim)(item.label)}</Text>;
         }
-        const isSelected = index === selected;
+        const isSelected = selected >= 0 && index === selected;
         const prefix = isSelected ? t.selected(">") : " ";
         const color = item.color ?? (isSelected ? t.selected : t.value);
         const description = isSelected && item.description ? t.dim(` - ${item.description}`) : "";

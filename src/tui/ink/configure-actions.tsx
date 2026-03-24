@@ -270,7 +270,7 @@ export async function configureMemoryAndSummary(): Promise<void> {
           { label: `  Context Tier        ${t.dim(tier)}`, value: "context-tier", description: "How much graph context per prompt (lite/standard/premium)" },
         ] : []),
         { label: "", value: "__sep_blank3__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
@@ -698,7 +698,7 @@ async function configureExpansion(): Promise<void> {
         { label: `  Max Tokens            ${t.dim(maxTokens)}`, value: "edit-max-tokens", description: "Maximum tokens in expansion response" },
         { label: `  Timeout (ms)          ${t.dim(timeout)}`, value: "edit-timeout", description: "Request timeout in milliseconds" },
         { label: "", value: "__sep_blank3__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
@@ -884,7 +884,7 @@ async function configureParser(): Promise<void> {
         { label: `  Docling Status      ${statusLabel}`, value: "__sep_status__" },
         { label: `  Install Docling`, value: "install", description: "Download and install the Docling package" },
         { label: "", value: "__sep_blank__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
@@ -947,7 +947,7 @@ async function configureOcr(): Promise<void> {
         { label: `  OCR Language        ${t.dim(ocrLang)}`, value: "language", description: "Tesseract language code (e.g. eng, deu, fra)" },
         { label: `  Install Tesseract`, value: "install", description: "Download and install Tesseract OCR" },
         { label: "", value: "__sep_blank__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
@@ -1071,7 +1071,7 @@ async function configureNer(): Promise<void> {
         { label: `  Model               ${t.dim("en_core_web_sm")}`, value: "__sep_model__" },
         { label: `  Install / Update`, value: "install", description: "Download spaCy en_core_web_sm (~12 MB)" },
         { label: "", value: "__sep_blank__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
@@ -1146,7 +1146,7 @@ async function configureEvidence(): Promise<void> {
         { label: `  Extraction Tuning`, value: "extraction-tuning", description: "Min mentions, stale days, decay interval" },
         { label: `  Awareness Tuning`, value: "awareness-tuning", description: "Max notes, max tokens, doc surfacing" },
         { label: "", value: "__sep_blank3__" },
-        { label: "  Back", value: "__back__", color: t.dim },
+        { label: "Back", value: "__back__", color: t.dim },
       ],
     });
 
