@@ -291,7 +291,7 @@ async function queryDatabase(client: Client, databaseId: string): Promise<any[]>
   let cursor: string | undefined;
 
   do {
-    const res = await client.databases.query({
+    const res = await (client.databases as any).query({
       database_id: databaseId,
       page_size: 100,
       start_cursor: cursor,
