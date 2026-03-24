@@ -31,7 +31,9 @@ describe("H4 Schema", () => {
     const tables = (db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     ).all() as Array<{ name: string }>).map((r) => r.name);
-    expect(tables).toContain("_legacy_runbook_evidence");
+    // Fresh install stores runbook evidence in provenance_links, not a legacy table
+    expect(tables).toContain("provenance_links");
+    expect(tables).toContain("memory_objects");
   });
 
   it("migration v5 is idempotent", () => {

@@ -27,9 +27,10 @@ describe("H3 Schema", () => {
     const tables = (db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     ).all() as Array<{ name: string }>).map((r) => r.name);
-    expect(tables).toContain("_legacy_attempts");
-    expect(tables).toContain("_legacy_runbooks");
-    expect(tables).toContain("_legacy_anti_runbooks");
+    // Fresh install creates RSMA schema directly — attempts/runbooks/anti-runbooks
+    // are stored in memory_objects, not in dedicated legacy tables
+    expect(tables).toContain("memory_objects");
+    expect(tables).toContain("provenance_links");
   });
 
   it("migration v3 is idempotent", () => {

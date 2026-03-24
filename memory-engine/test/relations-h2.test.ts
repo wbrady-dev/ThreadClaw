@@ -41,15 +41,11 @@ describe("H2 Schema", () => {
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     ).all() as Array<{ name: string }>).map((r) => r.name);
 
-    // Legacy tables renamed to _legacy_* in v18; memory_objects is the unified table
+    // Fresh install creates RSMA schema directly (no legacy tables)
     expect(tables).toContain("memory_objects");
-    expect(tables).toContain("_legacy_claims");
-    expect(tables).toContain("_legacy_claim_evidence");
-    expect(tables).toContain("_legacy_decisions");
-    expect(tables).toContain("_legacy_open_loops");
+    expect(tables).toContain("provenance_links");
     expect(tables).toContain("state_deltas");
     expect(tables).toContain("capabilities");
-    expect(tables).toContain("_legacy_invariants");
   });
 
   it("migration v2 is idempotent", () => {

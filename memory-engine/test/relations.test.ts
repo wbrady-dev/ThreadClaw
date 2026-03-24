@@ -40,7 +40,7 @@ describe("Relations: Schema", () => {
     const db = createInMemoryDb();
     runGraphMigrations(db);
 
-    // Check tables exist
+    // Check tables exist (fresh install creates RSMA schema directly)
     const tables = (db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
     ).all() as Array<{ name: string }>).map((r) => r.name);
@@ -50,8 +50,8 @@ describe("Relations: Schema", () => {
     expect(tables).toContain("state_scopes");
     expect(tables).toContain("branch_scopes");
     expect(tables).toContain("promotion_policies");
-    expect(tables).toContain("_legacy_entities");
-    expect(tables).toContain("_legacy_entity_mentions");
+    expect(tables).toContain("memory_objects");
+    expect(tables).toContain("provenance_links");
     expect(tables).toContain("_evidence_migrations");
   });
 
@@ -83,7 +83,10 @@ describe("Relations: Schema", () => {
     expect(types).toContain("claim");
     expect(types).toContain("decision");
     expect(types).toContain("invariant");
-    expect(types.length).toBe(10);
+    expect(types).toContain("procedure");
+    expect(types).toContain("runbook");
+    expect(types).toContain("anti_runbook");
+    expect(types.length).toBe(11);
   });
 });
 

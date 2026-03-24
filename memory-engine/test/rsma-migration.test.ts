@@ -23,9 +23,109 @@ function linkCount(db: GraphDb): number {
   return (db.prepare("SELECT COUNT(*) as cnt FROM provenance_links").get() as { cnt: number }).cnt;
 }
 
+/**
+ * Create legacy tables that the migration code expects to read from.
+ * On a fresh install the fast-path skips these, so tests that exercise
+ * the historical backfill must create them explicitly.
+ */
+function createLegacyTables(db: GraphDb): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _legacy_entities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      entity_type TEXT,
+      mention_count INTEGER DEFAULT 1,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      UNIQUE(name)
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_entity_mentions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity_id INTEGER NOT NULL,
+      scope_id INTEGER,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_detail TEXT,
+      context_terms TEXT,
+      actor TEXT DEFAULT 'system',
+      run_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_claims (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope_id INTEGER NOT NULL,
+      branch_id INTEGER NOT NULL DEFAULT 0,
+      subject TEXT NOT NULL,
+      predicate TEXT NOT NULL,
+      object_text TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      confidence REAL NOT NULL DEFAULT 0.5,
+      trust_score REAL NOT NULL DEFAULT 0.5,
+      source_authority REAL NOT NULL DEFAULT 0.5,
+      canonical_key TEXT,
+      first_seen_at TEXT,
+      last_seen_at TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_claim_evidence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      claim_id INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_detail TEXT,
+      evidence_role TEXT NOT NULL DEFAULT 'support',
+      confidence_delta REAL
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_entity_relations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope_id INTEGER NOT NULL,
+      subject_entity_id INTEGER NOT NULL,
+      predicate TEXT NOT NULL,
+      object_entity_id INTEGER NOT NULL,
+      confidence REAL DEFAULT 1.0,
+      source_type TEXT,
+      source_id TEXT,
+      created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_runbooks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope_id INTEGER NOT NULL,
+      runbook_key TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      pattern TEXT,
+      success_count INTEGER DEFAULT 0,
+      failure_count INTEGER DEFAULT 0,
+      confidence REAL DEFAULT 0.5,
+      status TEXT DEFAULT 'active',
+      created_at TEXT,
+      updated_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope_id INTEGER NOT NULL,
+      branch_id INTEGER NOT NULL DEFAULT 0,
+      tool_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+    );
+    CREATE TABLE IF NOT EXISTS _legacy_runbook_evidence (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      runbook_id INTEGER NOT NULL,
+      attempt_id INTEGER,
+      source_type TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      evidence_role TEXT,
+      recorded_at TEXT
+    );
+  `);
+}
+
 beforeEach(() => {
   db = createDb();
   runGraphMigrations(db);
+  createLegacyTables(db);
 });
 
 describe("RSMA Migration: isMigrationNeeded", () => {
@@ -66,9 +166,10 @@ describe("RSMA Migration: claim_evidence", () => {
     const stats = migrateToProvenanceLinks(db);
     expect(stats.claimEvidence).toBe(1);
 
-    const link = db.prepare("SELECT * FROM provenance_links WHERE subject_id = 'claim:1'").get() as Record<string, unknown>;
+    // Migration puts source as subject, claim as object
+    const link = db.prepare("SELECT * FROM provenance_links WHERE object_id = 'claim:1'").get() as Record<string, unknown>;
     expect(link.predicate).toBe("supports");
-    expect(link.object_id).toBe("message:10");
+    expect(link.subject_id).toBe("message:10");
   });
 
   it("migrates contradicting evidence to contradicts links", () => {
@@ -76,7 +177,8 @@ describe("RSMA Migration: claim_evidence", () => {
     db.prepare(`INSERT INTO _legacy_claim_evidence (claim_id, source_type, source_id, evidence_role) VALUES (1, 'message', '11', 'contradict')`).run();
 
     const stats = migrateToProvenanceLinks(db);
-    const link = db.prepare("SELECT * FROM provenance_links WHERE subject_id = 'claim:1'").get() as Record<string, unknown>;
+    // Migration puts source as subject, claim as object
+    const link = db.prepare("SELECT * FROM provenance_links WHERE object_id = 'claim:1'").get() as Record<string, unknown>;
     expect(link.predicate).toBe("contradicts");
   });
 });

@@ -275,7 +275,7 @@ export function inferRunbookFromAttempts(
   const successes = db.prepare(`
     SELECT id, structured_json FROM memory_objects
     WHERE scope_id = ? AND kind = 'attempt' AND status = 'active'
-      AND structured_json LIKE ? ESCAPE '\'
+      AND structured_json LIKE ? ESCAPE '\\'
       AND structured_json LIKE '%"status":"success"%'
     ORDER BY created_at DESC LIMIT ?
   `).all(scopeId, `%"toolName":"${escapeLikeValue(toolName)}"%`, minSuccesses) as Array<{ id: number; structured_json: string | null }>;
