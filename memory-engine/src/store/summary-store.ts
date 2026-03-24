@@ -637,14 +637,6 @@ export class SummaryStore {
       return;
     }
 
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
-       FROM context_items WHERE conversation_id = ?`,
-      )
-      .get(conversationId) as unknown as MaxOrdinalRow;
-    const baseOrdinal = row.max_ordinal + 1;
-
     const stmt = this.db.prepare(
       `INSERT INTO context_items (conversation_id, ordinal, item_type, message_id)
        VALUES (?, ?, 'message', ?)`,
@@ -655,6 +647,14 @@ export class SummaryStore {
       if (!msg.includes("transaction")) throw err;
     }
     try {
+      // Read MAX(ordinal) INSIDE the transaction to prevent race conditions
+      const row = this.db
+        .prepare(
+          `SELECT COALESCE(MAX(ordinal), -1) AS max_ordinal
+         FROM context_items WHERE conversation_id = ?`,
+        )
+        .get(conversationId) as unknown as MaxOrdinalRow;
+      const baseOrdinal = row.max_ordinal + 1;
       for (let idx = 0; idx < messageIds.length; idx++) {
         stmt.run(conversationId, baseOrdinal + idx, messageIds[idx]);
       }

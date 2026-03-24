@@ -1362,6 +1362,15 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     markMigrationApplied(db, 21);
   }
 
+  // Migration v22: Seed 'procedure' promotion policy for upgraded databases
+  if (!isMigrationApplied(db, 22)) {
+    db.exec(`
+      INSERT OR IGNORE INTO promotion_policies (object_type, min_confidence, requires_user_confirm, auto_promote_above_confidence, requires_evidence_count, max_age_hours, policy_text)
+      VALUES ('procedure', 0.5, 0, NULL, 2, NULL, 'Procedures need 2+ evidence. No auto-expire')
+    `);
+    markMigrationApplied(db, 22);
+  }
+
   // File permissions: chmod 600 on Unix/macOS, skip on Windows
   if (dbPath && process.platform !== "win32") {
     try {
