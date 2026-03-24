@@ -17,12 +17,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, createW
 import { resolve, join, extname } from "path";
 import { homedir } from "os";
 import { createServer } from "http";
-import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
-import { config } from "../../config.js";
-import { getDb } from "../../storage/index.js";
-import { deleteDocument } from "../../storage/collections.js";
-import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";
+import { PollingAdapterBase, type RemoteItem } from "./polling-base.js";
+import type { SourceConfig } from "../types.js";
 
 // ── Constants ──
 const CREDENTIALS_DIR = resolve(homedir(), ".threadclaw", "credentials");
@@ -54,14 +51,6 @@ const EXPORT_MIME_MAP = new Map<string, { mimeType: string; ext: string }>([
   ["application/vnd.google-apps.presentation", { mimeType: "text/plain", ext: ".txt" }],
 ]);
 
-/** Sync manifest entry */
-interface ManifestEntry {
-  fileId: string;
-  name: string;
-  modifiedTime: string;
-  size: number;
-}
-
 /** Saved OAuth tokens */
 interface SavedTokens {
   access_token: string;
@@ -71,19 +60,19 @@ interface SavedTokens {
   client_secret: string;
 }
 
-export class GDriveAdapter implements SourceAdapter {
-  id = "gdrive";
-  name = "Google Drive";
-  type = "polling" as const;
-
-  private status: SourceStatus = { state: "idle", docCount: 0 };
-  private syncTimer: NodeJS.Timeout | null = null;
-  private manifest = new Map<string, ManifestEntry>();
-  private cfg: SourceConfig | null = null;
+export class GDriveAdapter extends PollingAdapterBase {
   private drive: drive_v3.Drive | null = null;
-  private unavailableReason = "";
 
-  async isAvailable(): Promise<boolean> {
+  constructor() {
+    super({
+      id: "gdrive",
+      name: "Google Drive",
+      stagingDir: STAGING_DIR,
+      defaultSyncInterval: 300,
+    });
+  }
+
+  async checkAvailability(): Promise<boolean> {
     // Check if credentials exist (user has completed OAuth)
     if (existsSync(CREDENTIALS_FILE)) {
       try {
@@ -105,8 +94,12 @@ export class GDriveAdapter implements SourceAdapter {
     return false;
   }
 
-  availabilityReason(): string {
-    return this.unavailableReason;
+  async initClient(): Promise<void> {
+    this.drive = await initDriveClient();
+  }
+
+  protected onStop(): void {
+    this.drive = null;
   }
 
   defaultConfig(): SourceConfig {
@@ -118,62 +111,10 @@ export class GDriveAdapter implements SourceAdapter {
     };
   }
 
-  getStatus(): SourceStatus {
-    return { ...this.status };
-  }
+  async listRemoteItems(): Promise<RemoteItem[]> {
+    if (!this.drive || !this.cfg) return [];
 
-  async start(cfg: SourceConfig): Promise<void> {
-    this.cfg = cfg;
-
-    if (!cfg.enabled || cfg.collections.length === 0) {
-      this.status = { state: "disabled", docCount: 0 };
-      return;
-    }
-
-    logger.warn("Google Drive manifest is in-memory — full re-sync will occur on restart");
-
-    // Initialize Drive client
-    try {
-      this.drive = await initDriveClient();
-    } catch (err) {
-      this.status = { state: "error", docCount: 0, error: `Auth failed: ${err}` };
-      return;
-    }
-
-    mkdirSync(STAGING_DIR, { recursive: true });
-
-    // Initial sync
-    try {
-      await this.sync();
-    } catch (err) {
-      logger.error({ source: "gdrive", error: String(err) }, "Initial Drive sync failed");
-      this.status = { state: "error", docCount: 0, error: `Initial sync failed: ${err}` };
-    }
-
-    // Start polling
-    const intervalMs = (cfg.syncInterval || 300) * 1000;
-    this.syncTimer = setInterval(() => {
-      this.sync().catch((err) => {
-        logger.error({ source: "gdrive", error: String(err) }, "Drive sync failed");
-        this.status = { ...this.status, state: "error", error: String(err) };
-      });
-    }, intervalMs);
-  }
-
-  async stop(): Promise<void> {
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer);
-      this.syncTimer = null;
-    }
-    this.drive = null;
-    this.status = { state: "idle", docCount: 0 };
-  }
-
-  async detectChanges(): Promise<ChangeSet> {
-    if (!this.cfg || !this.drive) return { added: [], modified: [], removed: [] };
-
-    const changes: ChangeSet = { added: [], modified: [], removed: [] };
-    const allCurrentIds = new Set<string>();
+    const items: RemoteItem[] = [];
 
     for (let ci = 0; ci < this.cfg.collections.length; ci++) {
       const collCfg = this.cfg.collections[ci];
@@ -206,155 +147,37 @@ export class GDriveAdapter implements SourceAdapter {
         const fileSize = parseInt(file.size ?? "0", 10);
         if (fileSize > (this.cfg.maxFileSize ?? 52_428_800)) continue;
 
-        allCurrentIds.add(file.id);
-        const existing = this.manifest.get(file.id);
-        const modifiedTime = file.modifiedTime ?? "";
-
-        if (!existing) {
-          changes.added.push({
-            sourceId: file.id,
-            localPath: "",
-            collection,
-            tags: ["gdrive", folderName.toLowerCase().replace(/\s+/g, "-")],
-            remoteTimestamp: modifiedTime,
-          });
-        } else if (existing.modifiedTime !== modifiedTime) {
-          changes.modified.push({
-            sourceId: file.id,
-            localPath: "",
-            collection,
-            tags: ["gdrive", folderName.toLowerCase().replace(/\s+/g, "-")],
-            remoteTimestamp: modifiedTime,
-          });
-        }
-      }
-    }
-
-    // Detect removals AFTER iterating all folders to avoid cross-collection false positives
-    for (const [fileId] of this.manifest) {
-      if (!allCurrentIds.has(fileId)) {
-        changes.removed.push(fileId);
-      }
-    }
-
-    return changes;
-  }
-
-  async downloadToStaging(changes: ChangeSet): Promise<StagedFile[]> {
-    if (!this.drive) return [];
-    const staged: StagedFile[] = [];
-    const toDownload = [...changes.added, ...changes.modified];
-
-    for (const file of toDownload) {
-      try {
-        const localPath = await downloadFile(this.drive, file.sourceId, STAGING_DIR);
-        staged.push({ ...file, localPath });
-      } catch (err) {
-        logger.error({ fileId: file.sourceId, error: String(err) }, "Failed to download Drive file");
-      }
-    }
-
-    return staged;
-  }
-
-  cleanup(staged: StagedFile[]): void {
-    for (const file of staged) {
-      try {
-        if (file.localPath && existsSync(file.localPath)) unlinkSync(file.localPath);
-      } catch {}
-    }
-  }
-
-  /** Run a full sync cycle */
-  private async sync(): Promise<void> {
-    if (!this.drive) return;
-
-    this.status = { ...this.status, state: "syncing" };
-
-    const changes = await this.detectChanges();
-    const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
-
-    if (totalChanges === 0) {
-      logger.info({ source: "gdrive" }, "Drive sync: no changes");
-      this.status = {
-        ...this.status,
-        state: "idle",
-        lastSync: new Date(),
-        nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 300) * 1000),
-      };
-      return;
-    }
-
-    logger.info(
-      { source: "gdrive", added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
-      "Drive sync: changes detected",
-    );
-
-    // Process removals — delete staging files, DB docs, and remove from manifest
-    for (const fileId of changes.removed) {
-      const entry = this.manifest.get(fileId);
-      if (entry) {
-        // Try both possible staging paths: binary files use fileId, native docs use file name
-        const binaryPath = join(STAGING_DIR, `${fileId}${extname(entry.name) || ".bin"}`);
-        const nativePath = join(STAGING_DIR, entry.name);
-        for (const p of [binaryPath, nativePath]) {
-          try { if (existsSync(p)) unlinkSync(p); } catch {}
-        }
-
-        // Clean up DB documents/chunks/vectors to prevent orphans.
-        // Use LIKE with staging dir prefix + fileId OR file name to match
-        // regardless of which download path was used during ingestion.
-        try {
-          const db = getDb(resolve(config.dataDir, "threadclaw.db"));
-          const stagingPrefix = STAGING_DIR.replace(/\\/g, "/");
-          const docs = db.prepare(
-            "SELECT id FROM documents WHERE source_path LIKE ? OR source_path LIKE ?",
-          ).all(`%${fileId}%`, `%${stagingPrefix}/${entry.name}%`) as { id: string }[];
-          for (const doc of docs) {
-            deleteDocument(db, doc.id);
-            logger.info({ source: "gdrive", fileId, docId: doc.id }, "Deleted orphaned document from DB");
-          }
-        } catch (dbErr) {
-          logger.error({ source: "gdrive", fileId, error: String(dbErr) }, "Failed to clean up DB on removal");
-        }
-
-        this.manifest.delete(fileId);
-      }
-      logger.info({ source: "gdrive", fileId }, "Drive file removed");
-    }
-
-    const staged = await this.downloadToStaging(changes);
-
-    let ingested = 0;
-    for (const file of staged) {
-      try {
-        await ingestFile(file.localPath, {
-          collection: file.collection,
-          tags: file.tags,
+        items.push({
+          id: file.id,
+          name: file.name,
+          lastModified: file.modifiedTime ?? "",
+          collection,
+          tags: ["gdrive", folderName.toLowerCase().replace(/\s+/g, "-")],
         });
-        ingested++;
-
-        this.manifest.set(file.sourceId, {
-          fileId: file.sourceId,
-          name: file.localPath.split(/[/\\]/).pop() ?? file.sourceId,
-          modifiedTime: file.remoteTimestamp ?? new Date().toISOString(),
-          size: 0,
-        });
-      } catch (err) {
-        logger.error({ file: file.localPath, error: String(err) }, "Failed to ingest Drive file");
       }
     }
 
-    this.cleanup(staged);
+    return items;
+  }
 
-    this.status = {
-      state: "idle",
-      lastSync: new Date(),
-      nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 300) * 1000),
-      docCount: this.manifest.size,
+  async downloadItem(item: RemoteItem): Promise<string> {
+    if (!this.drive) throw new Error("Drive client not initialized");
+    return downloadFile(this.drive, item.id, STAGING_DIR);
+  }
+
+  protected getStagingPathsForRemoval(id: string, name: string): string[] {
+    // Binary files use fileId, native docs use file name
+    const binaryPath = join(STAGING_DIR, `${id}${extname(name) || ".bin"}`);
+    const nativePath = join(STAGING_DIR, name);
+    return [binaryPath, nativePath];
+  }
+
+  protected getRemovalDbQuery(id: string, name: string): { sql: string; params: string[] } {
+    const stagingPrefix = STAGING_DIR.replace(/\\/g, "/");
+    return {
+      sql: "SELECT id FROM documents WHERE source_path LIKE ? OR source_path LIKE ?",
+      params: [`%${id}%`, `%${stagingPrefix}/${name}%`],
     };
-
-    logger.info({ source: "gdrive", ingested, total: this.manifest.size }, "Drive sync complete");
   }
 }
 
@@ -604,5 +427,3 @@ export async function listDriveFolders(): Promise<{ id: string; name: string }[]
     return [];
   }
 }
-
-

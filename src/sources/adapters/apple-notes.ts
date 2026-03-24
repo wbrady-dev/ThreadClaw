@@ -11,23 +11,14 @@
  * Read-only: ThreadClaw never writes to Apple Notes.
  */
 import { execFileSync } from "child_process";
-import { writeFileSync, mkdirSync, unlinkSync, existsSync } from "fs";
+import { writeFileSync } from "fs";
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
-import { config } from "../../config.js";
-import { getDb } from "../../storage/index.js";
-import { deleteDocument } from "../../storage/collections.js";
-import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";
+import { PollingAdapterBase, type RemoteItem } from "./polling-base.js";
+import type { SourceConfig } from "../types.js";
 
 const STAGING_DIR = resolve(homedir(), ".threadclaw", "staging", "apple-notes");
-
-interface ManifestEntry {
-  noteId: string;
-  name: string;
-  modificationDate: string;
-}
 
 interface AppleNote {
   id: string;
@@ -37,18 +28,17 @@ interface AppleNote {
   body: string;
 }
 
-export class AppleNotesAdapter implements SourceAdapter {
-  id = "apple-notes";
-  name = "Apple Notes";
-  type = "polling" as const;
+export class AppleNotesAdapter extends PollingAdapterBase {
+  constructor() {
+    super({
+      id: "apple-notes",
+      name: "Apple Notes",
+      stagingDir: STAGING_DIR,
+      defaultSyncInterval: 600,
+    });
+  }
 
-  private status: SourceStatus = { state: "idle", docCount: 0 };
-  private syncTimer: NodeJS.Timeout | null = null;
-  private manifest = new Map<string, ManifestEntry>();
-  private cfg: SourceConfig | null = null;
-  private unavailableReason = "";
-
-  async isAvailable(): Promise<boolean> {
+  async checkAvailability(): Promise<boolean> {
     if (process.platform !== "darwin") {
       this.unavailableReason = "Apple Notes is only available on macOS";
       return false;
@@ -67,8 +57,11 @@ export class AppleNotesAdapter implements SourceAdapter {
     }
   }
 
-  availabilityReason(): string {
-    return this.unavailableReason;
+  async initClient(): Promise<void> {
+    if (process.platform !== "darwin") {
+      throw new Error("macOS only");
+    }
+    // No persistent client needed — AppleScript calls are stateless
   }
 
   defaultConfig(): SourceConfig {
@@ -79,58 +72,10 @@ export class AppleNotesAdapter implements SourceAdapter {
     };
   }
 
-  getStatus(): SourceStatus {
-    return { ...this.status };
-  }
+  async listRemoteItems(): Promise<RemoteItem[]> {
+    if (!this.cfg) return [];
 
-  async start(cfg: SourceConfig): Promise<void> {
-    this.cfg = cfg;
-
-    if (!cfg.enabled || cfg.collections.length === 0) {
-      this.status = { state: "disabled", docCount: 0 };
-      return;
-    }
-
-    logger.warn("Apple Notes manifest is in-memory — full re-sync will occur on restart");
-
-    if (process.platform !== "darwin") {
-      this.status = { state: "unavailable", docCount: 0, error: "macOS only" };
-      return;
-    }
-
-    mkdirSync(STAGING_DIR, { recursive: true });
-
-    // Initial sync
-    try {
-      await this.sync();
-    } catch (err) {
-      logger.error({ source: "apple-notes", error: String(err) }, "Initial Apple Notes sync failed");
-      this.status = { state: "error", docCount: 0, error: `Initial sync failed: ${err}` };
-    }
-
-    // Start polling
-    const intervalMs = (cfg.syncInterval || 600) * 1000;
-    this.syncTimer = setInterval(() => {
-      this.sync().catch((err) => {
-        logger.error({ source: "apple-notes", error: String(err) }, "Apple Notes sync failed");
-        this.status = { ...this.status, state: "error", error: String(err) };
-      });
-    }, intervalMs);
-  }
-
-  async stop(): Promise<void> {
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer);
-      this.syncTimer = null;
-    }
-    this.status = { state: "idle", docCount: 0 };
-  }
-
-  async detectChanges(): Promise<ChangeSet> {
-    if (!this.cfg) return { added: [], modified: [], removed: [] };
-
-    const changes: ChangeSet = { added: [], modified: [], removed: [] };
-    const allCurrentIds = new Set<string>();
+    const items: RemoteItem[] = [];
 
     for (const collCfg of this.cfg.collections) {
       const folderName = collCfg.path;
@@ -145,139 +90,36 @@ export class AppleNotesAdapter implements SourceAdapter {
       }
 
       for (const note of notes) {
-        allCurrentIds.add(note.id);
-        const existing = this.manifest.get(note.id);
-        if (!existing) {
-          changes.added.push({
-            sourceId: note.id,
-            localPath: "",
-            collection,
-            tags: ["apple-notes", folderName.toLowerCase().replace(/\s+/g, "-")],
-            remoteTimestamp: note.modificationDate,
-          });
-        } else if (existing.modificationDate !== note.modificationDate) {
-          changes.modified.push({
-            sourceId: note.id,
-            localPath: "",
-            collection,
-            tags: ["apple-notes", folderName.toLowerCase().replace(/\s+/g, "-")],
-            remoteTimestamp: note.modificationDate,
-          });
-        }
-      }
-    }
-
-    // Detect removals AFTER iterating all folders to avoid cross-collection false positives
-    for (const [noteId] of this.manifest) {
-      if (!allCurrentIds.has(noteId)) {
-        changes.removed.push(noteId);
-      }
-    }
-
-    return changes;
-  }
-
-  async downloadToStaging(changes: ChangeSet): Promise<StagedFile[]> {
-    const staged: StagedFile[] = [];
-    const toProcess = [...changes.added, ...changes.modified];
-
-    for (const file of toProcess) {
-      try {
-        const body = getNoteBody(file.sourceId);
-        const outPath = join(STAGING_DIR, `${sanitizeFilename(file.sourceId)}.html`);
-        writeFileSync(outPath, body, "utf-8");
-        staged.push({ ...file, localPath: outPath });
-      } catch (err) {
-        logger.error({ noteId: file.sourceId, error: String(err) }, "Failed to export Apple Note");
-      }
-    }
-
-    return staged;
-  }
-
-  cleanup(staged: StagedFile[]): void {
-    for (const file of staged) {
-      try {
-        if (file.localPath && existsSync(file.localPath)) unlinkSync(file.localPath);
-      } catch {}
-    }
-  }
-
-  /** Run a full sync cycle */
-  private async sync(): Promise<void> {
-    this.status = { ...this.status, state: "syncing" };
-
-    const changes = await this.detectChanges();
-    const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
-
-    if (totalChanges === 0) {
-      logger.info({ source: "apple-notes" }, "Apple Notes sync: no changes");
-      this.status = {
-        ...this.status,
-        state: "idle",
-        lastSync: new Date(),
-        nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 600) * 1000),
-      };
-      return;
-    }
-
-    logger.info(
-      { source: "apple-notes", added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
-      "Apple Notes sync: changes detected",
-    );
-
-    // Process removals — delete staging files, DB docs, and remove from manifest
-    for (const noteId of changes.removed) {
-      const stagingPath = join(STAGING_DIR, `${sanitizeFilename(noteId)}.html`);
-      try { if (existsSync(stagingPath)) unlinkSync(stagingPath); } catch {}
-
-      // Clean up DB documents/chunks/vectors to prevent orphans
-      try {
-        const db = getDb(resolve(config.dataDir, "threadclaw.db"));
-        const doc = db.prepare("SELECT id FROM documents WHERE source_path = ?").get(stagingPath) as { id: string } | undefined;
-        if (doc) {
-          deleteDocument(db, doc.id);
-          logger.info({ source: "apple-notes", noteId, docId: doc.id }, "Deleted orphaned document from DB");
-        }
-      } catch (dbErr) {
-        logger.error({ source: "apple-notes", noteId, error: String(dbErr) }, "Failed to clean up DB on removal");
-      }
-
-      this.manifest.delete(noteId);
-      logger.info({ source: "apple-notes", noteId }, "Apple Note removed");
-    }
-
-    const staged = await this.downloadToStaging(changes);
-
-    let ingested = 0;
-    for (const file of staged) {
-      try {
-        await ingestFile(file.localPath, {
-          collection: file.collection,
-          tags: file.tags,
+        items.push({
+          id: note.id,
+          name: note.name,
+          lastModified: note.modificationDate,
+          collection,
+          tags: ["apple-notes", folderName.toLowerCase().replace(/\s+/g, "-")],
         });
-        ingested++;
-
-        this.manifest.set(file.sourceId, {
-          noteId: file.sourceId,
-          name: file.sourceId,
-          modificationDate: file.remoteTimestamp ?? new Date().toISOString(),
-        });
-      } catch (err) {
-        logger.error({ file: file.localPath, error: String(err) }, "Failed to ingest Apple Note");
       }
     }
 
-    this.cleanup(staged);
+    return items;
+  }
 
-    this.status = {
-      state: "idle",
-      lastSync: new Date(),
-      nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 600) * 1000),
-      docCount: this.manifest.size,
+  async downloadItem(item: RemoteItem): Promise<string> {
+    const body = getNoteBody(item.id);
+    const outPath = join(STAGING_DIR, `${sanitizeFilename(item.id)}.html`);
+    writeFileSync(outPath, body, "utf-8");
+    return outPath;
+  }
+
+  protected getStagingPathsForRemoval(id: string, _name: string): string[] {
+    return [join(STAGING_DIR, `${sanitizeFilename(id)}.html`)];
+  }
+
+  protected getRemovalDbQuery(id: string, _name: string): { sql: string; params: string[] } {
+    const stagingPath = join(STAGING_DIR, `${sanitizeFilename(id)}.html`);
+    return {
+      sql: "SELECT id FROM documents WHERE source_path = ?",
+      params: [stagingPath],
     };
-
-    logger.info({ source: "apple-notes", ingested, total: this.manifest.size }, "Apple Notes sync complete");
   }
 }
 

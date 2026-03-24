@@ -11,38 +11,28 @@
  * Read-only: ThreadClaw never writes to Notion.
  */
 import { Client } from "@notionhq/client";
-import { writeFileSync, mkdirSync, unlinkSync, existsSync } from "fs";
+import { writeFileSync } from "fs";
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { ingestFile } from "../../ingest/pipeline.js";
 import { logger } from "../../utils/logger.js";
-import { config } from "../../config.js";
-import { getDb } from "../../storage/index.js";
-import { deleteDocument } from "../../storage/collections.js";
-import type { SourceAdapter, SourceConfig, SourceStatus, ChangeSet, StagedFile } from "../types.js";
+import { PollingAdapterBase, type RemoteItem } from "./polling-base.js";
+import type { SourceConfig } from "../types.js";
 
 const STAGING_DIR = resolve(homedir(), ".threadclaw", "staging", "notion");
 
-/** Sync manifest — tracks last_edited_time per page */
-interface ManifestEntry {
-  pageId: string;
-  title: string;
-  lastEdited: string;
-}
-
-export class NotionAdapter implements SourceAdapter {
-  id = "notion";
-  name = "Notion";
-  type = "polling" as const;
-
-  private status: SourceStatus = { state: "idle", docCount: 0 };
-  private syncTimer: NodeJS.Timeout | null = null;
-  private manifest = new Map<string, ManifestEntry>();
-  private cfg: SourceConfig | null = null;
+export class NotionAdapter extends PollingAdapterBase {
   private client: Client | null = null;
-  private unavailableReason = "";
 
-  async isAvailable(): Promise<boolean> {
+  constructor() {
+    super({
+      id: "notion",
+      name: "Notion",
+      stagingDir: STAGING_DIR,
+      defaultSyncInterval: 600,
+    });
+  }
+
+  async checkAvailability(): Promise<boolean> {
     const apiKey = process.env.NOTION_API_KEY;
     if (!apiKey) {
       this.unavailableReason = "NOTION_API_KEY not set. Get one at notion.so/my-integrations";
@@ -60,8 +50,14 @@ export class NotionAdapter implements SourceAdapter {
     }
   }
 
-  availabilityReason(): string {
-    return this.unavailableReason;
+  async initClient(): Promise<void> {
+    const apiKey = process.env.NOTION_API_KEY;
+    if (!apiKey) throw new Error("NOTION_API_KEY not set");
+    this.client = new Client({ auth: apiKey });
+  }
+
+  protected onStop(): void {
+    this.client = null;
   }
 
   defaultConfig(): SourceConfig {
@@ -72,61 +68,10 @@ export class NotionAdapter implements SourceAdapter {
     };
   }
 
-  getStatus(): SourceStatus {
-    return { ...this.status };
-  }
+  async listRemoteItems(): Promise<RemoteItem[]> {
+    if (!this.client || !this.cfg) return [];
 
-  async start(cfg: SourceConfig): Promise<void> {
-    this.cfg = cfg;
-
-    if (!cfg.enabled || cfg.collections.length === 0) {
-      this.status = { state: "disabled", docCount: 0 };
-      return;
-    }
-
-    logger.warn("Notion manifest is in-memory — full re-sync will occur on restart");
-
-    const apiKey = process.env.NOTION_API_KEY;
-    if (!apiKey) {
-      this.status = { state: "error", docCount: 0, error: "NOTION_API_KEY not set" };
-      return;
-    }
-
-    this.client = new Client({ auth: apiKey });
-    mkdirSync(STAGING_DIR, { recursive: true });
-
-    // Initial sync
-    try {
-      await this.sync();
-    } catch (err) {
-      logger.error({ source: "notion", error: String(err) }, "Initial Notion sync failed");
-      this.status = { state: "error", docCount: 0, error: `Initial sync failed: ${err}` };
-    }
-
-    // Start polling
-    const intervalMs = (cfg.syncInterval || 600) * 1000;
-    this.syncTimer = setInterval(() => {
-      this.sync().catch((err) => {
-        logger.error({ source: "notion", error: String(err) }, "Notion sync failed");
-        this.status = { ...this.status, state: "error", error: String(err) };
-      });
-    }, intervalMs);
-  }
-
-  async stop(): Promise<void> {
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer);
-      this.syncTimer = null;
-    }
-    this.client = null;
-    this.status = { state: "idle", docCount: 0 };
-  }
-
-  async detectChanges(): Promise<ChangeSet> {
-    if (!this.cfg || !this.client) return { added: [], modified: [], removed: [] };
-
-    const changes: ChangeSet = { added: [], modified: [], removed: [] };
-    const allCurrentIds = new Set<string>();
+    const items: RemoteItem[] = [];
 
     for (const collCfg of this.cfg.collections) {
       const dbId = collCfg.path; // database ID
@@ -139,145 +84,40 @@ export class NotionAdapter implements SourceAdapter {
           const pageId = page.id;
           const lastEdited = (page as any).last_edited_time ?? "";
 
-          allCurrentIds.add(pageId);
-          const existing = this.manifest.get(pageId);
-          if (!existing) {
-            changes.added.push({
-              sourceId: pageId,
-              localPath: "",
-              collection,
-              tags: ["notion"],
-              remoteTimestamp: lastEdited,
-            });
-          } else if (existing.lastEdited !== lastEdited) {
-            changes.modified.push({
-              sourceId: pageId,
-              localPath: "",
-              collection,
-              tags: ["notion"],
-              remoteTimestamp: lastEdited,
-            });
-          }
+          items.push({
+            id: pageId,
+            name: pageId,
+            lastModified: lastEdited,
+            collection,
+            tags: ["notion"],
+          });
         }
       } catch (err) {
         logger.error({ database: dbId, error: String(err) }, "Failed to query Notion database");
       }
     }
 
-    // Detect removals AFTER iterating all databases to avoid cross-collection false positives
-    for (const [pageId] of this.manifest) {
-      if (!allCurrentIds.has(pageId)) {
-        changes.removed.push(pageId);
-      }
-    }
-
-    return changes;
+    return items;
   }
 
-  async downloadToStaging(changes: ChangeSet): Promise<StagedFile[]> {
-    if (!this.client) return [];
-    const staged: StagedFile[] = [];
-    const toProcess = [...changes.added, ...changes.modified];
-
-    for (const file of toProcess) {
-      try {
-        const markdown = await exportPageAsMarkdown(this.client, file.sourceId);
-        const outPath = join(STAGING_DIR, `${file.sourceId}.md`);
-        writeFileSync(outPath, markdown, "utf-8");
-        staged.push({ ...file, localPath: outPath });
-      } catch (err) {
-        logger.error({ pageId: file.sourceId, error: String(err) }, "Failed to export Notion page");
-      }
-    }
-
-    return staged;
+  async downloadItem(item: RemoteItem): Promise<string> {
+    if (!this.client) throw new Error("Notion client not initialized");
+    const markdown = await exportPageAsMarkdown(this.client, item.id);
+    const outPath = join(STAGING_DIR, `${item.id}.md`);
+    writeFileSync(outPath, markdown, "utf-8");
+    return outPath;
   }
 
-  cleanup(staged: StagedFile[]): void {
-    for (const file of staged) {
-      try {
-        if (file.localPath && existsSync(file.localPath)) unlinkSync(file.localPath);
-      } catch {}
-    }
+  protected getStagingPathsForRemoval(id: string, _name: string): string[] {
+    return [join(STAGING_DIR, `${id}.md`)];
   }
 
-  /** Run a full sync cycle */
-  private async sync(): Promise<void> {
-    if (!this.client) return;
-
-    this.status = { ...this.status, state: "syncing" };
-
-    const changes = await this.detectChanges();
-    const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
-
-    if (totalChanges === 0) {
-      logger.info({ source: "notion" }, "Notion sync: no changes");
-      this.status = {
-        ...this.status,
-        state: "idle",
-        lastSync: new Date(),
-        nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 600) * 1000),
-      };
-      return;
-    }
-
-    logger.info(
-      { source: "notion", added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
-      "Notion sync: changes detected",
-    );
-
-    // Process removals — delete staging files, DB docs, and remove from manifest
-    for (const pageId of changes.removed) {
-      const stagingPath = join(STAGING_DIR, `${pageId}.md`);
-      try { if (existsSync(stagingPath)) unlinkSync(stagingPath); } catch {}
-
-      // Clean up DB documents/chunks/vectors to prevent orphans
-      try {
-        const db = getDb(resolve(config.dataDir, "threadclaw.db"));
-        const doc = db.prepare("SELECT id FROM documents WHERE source_path = ?").get(stagingPath) as { id: string } | undefined;
-        if (doc) {
-          deleteDocument(db, doc.id);
-          logger.info({ source: "notion", pageId, docId: doc.id }, "Deleted orphaned document from DB");
-        }
-      } catch (dbErr) {
-        logger.error({ source: "notion", pageId, error: String(dbErr) }, "Failed to clean up DB on removal");
-      }
-
-      this.manifest.delete(pageId);
-      logger.info({ source: "notion", pageId }, "Notion page removed");
-    }
-
-    const staged = await this.downloadToStaging(changes);
-
-    let ingested = 0;
-    for (const file of staged) {
-      try {
-        await ingestFile(file.localPath, {
-          collection: file.collection,
-          tags: file.tags,
-        });
-        ingested++;
-
-        this.manifest.set(file.sourceId, {
-          pageId: file.sourceId,
-          title: file.localPath.split(/[/\\]/).pop() ?? file.sourceId,
-          lastEdited: file.remoteTimestamp ?? new Date().toISOString(),
-        });
-      } catch (err) {
-        logger.error({ file: file.localPath, error: String(err) }, "Failed to ingest Notion page");
-      }
-    }
-
-    this.cleanup(staged);
-
-    this.status = {
-      state: "idle",
-      lastSync: new Date(),
-      nextSync: new Date(Date.now() + (this.cfg?.syncInterval ?? 600) * 1000),
-      docCount: this.manifest.size,
+  protected getRemovalDbQuery(id: string, _name: string): { sql: string; params: string[] } {
+    const stagingPath = join(STAGING_DIR, `${id}.md`);
+    return {
+      sql: "SELECT id FROM documents WHERE source_path = ?",
+      params: [stagingPath],
     };
-
-    logger.info({ source: "notion", ingested, total: this.manifest.size }, "Notion sync complete");
   }
 }
 
