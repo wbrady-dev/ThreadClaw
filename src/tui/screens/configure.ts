@@ -1843,7 +1843,7 @@ function evidenceCheckboxMenu(
       process.stdin.removeListener("data", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       process.stdin.pause();
-      process.stdout.write("\x1b[?25h");
+      ansi("\x1b[?25h");
     };
 
     process.stdin.on("data", onKey);

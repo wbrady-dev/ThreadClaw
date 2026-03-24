@@ -747,7 +747,14 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Document Intelligence ── */}
       <Text>{t.title("  Document Intelligence")}</Text>
-      <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+      {(process.stdout.columns || 120) < 100 ? (
+        <>
+          <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○"))}</Text>
+          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+        </>
+      ) : (
+        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("●") : t.err("○")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("●") : t.err("○")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+      )}
 
       {/* ── Knowledge Base ── */}
       <Text>{t.title("  Knowledge Base")}</Text>
@@ -765,15 +772,26 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {/* ── Evidence OS ── */}
       <Text>{t.title("  Evidence OS")}</Text>
       <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("●") : t.err("○")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("●") : t.err("○"))}</Text>
-      {relationsEnabled && (
-        <>
-          <Text>{"  " + t.dim("Entities:  ") + t.value(String(stats?.graphStats?.entities ?? 0).padEnd(12)) + t.dim("Relations: ") + t.value(String(stats?.graphStats?.relations ?? 0))}</Text>
-          <Text>{"  " + t.dim("Mentions:  ") + t.value(String(stats?.graphStats?.mentions ?? 0).padEnd(12)) + t.dim("Claims:    ") + t.value(String(stats?.graphStats?.claims ?? 0))}</Text>
-          <Text>{"  " + t.dim("Evidence:  ") + t.value(String(stats?.graphStats?.evidenceEvents ?? 0).padEnd(12)) + t.dim("Decisions: ") + t.value(String(stats?.graphStats?.decisions ?? 0))}</Text>
-          <Text>{"  " + t.dim("Attempts:  ") + t.value(String(stats?.graphStats?.attempts ?? 0).padEnd(12)) + t.dim("Loops:     ") + t.value(String(stats?.graphStats?.loops ?? 0))}</Text>
-        </>
+      {relationsEnabled && (() => {
+        const gs = stats?.graphStats;
+        const allZero = !gs || ((gs.entities ?? 0) === 0 && (gs.relations ?? 0) === 0 && (gs.mentions ?? 0) === 0 && (gs.claims ?? 0) === 0 && (gs.evidenceEvents ?? 0) === 0 && (gs.decisions ?? 0) === 0 && (gs.attempts ?? 0) === 0 && (gs.loops ?? 0) === 0);
+        if (allZero) {
+          return <Text>{"  " + t.dim("No evidence data yet — ingest documents to populate")}</Text>;
+        }
+        return (
+          <>
+            <Text>{"  " + t.dim("Entities:  ") + t.value(String(gs.entities ?? 0).padEnd(12)) + t.dim("Relations: ") + t.value(String(gs.relations ?? 0))}</Text>
+            <Text>{"  " + t.dim("Mentions:  ") + t.value(String(gs.mentions ?? 0).padEnd(12)) + t.dim("Claims:    ") + t.value(String(gs.claims ?? 0))}</Text>
+            <Text>{"  " + t.dim("Evidence:  ") + t.value(String(gs.evidenceEvents ?? 0).padEnd(12)) + t.dim("Decisions: ") + t.value(String(gs.decisions ?? 0))}</Text>
+            <Text>{"  " + t.dim("Attempts:  ") + t.value(String(gs.attempts ?? 0).padEnd(12)) + t.dim("Loops:     ") + t.value(String(gs.loops ?? 0))}</Text>
+          </>
+        );
+      })()}
+
+      {/* ── Onboarding CTA ── */}
+      {!anyRunning && sourceIcons.length === 0 && docCount === 0 && (
+        <Text>{t.warn("  → Get started: select 'Sources' to add a folder, then 'Start Services'")}</Text>
       )}
-      <Text>{" "}</Text>
 
       {/* ── Activity / Service Action ── */}
       {(recentTasks.length > 0 || svcAction) && (
