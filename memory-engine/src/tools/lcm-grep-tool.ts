@@ -97,7 +97,7 @@ export function createLcmGrepTool(input: {
       const pattern = (p.pattern as string).trim();
       const mode = (p.mode as "regex" | "full_text") ?? "regex";
       const scope = (p.scope as "messages" | "summaries" | "both") ?? "both";
-      const limit = typeof p.limit === "number" ? Math.trunc(p.limit) : 50;
+      const limit = typeof p.limit === "number" ? Math.max(1, Math.min(200, Math.trunc(p.limit))) : 50;
       let since: Date | undefined;
       let before: Date | undefined;
       try {

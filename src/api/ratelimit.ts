@@ -45,7 +45,8 @@ export function registerRateLimit(server: FastifyInstance): void {
 
   server.addHook("preHandler", async (req: FastifyRequest, reply: FastifyReply) => {
     // Skip health checks — monitoring tools should not be rate limited
-    if (req.url === "/health") return;
+    const path = req.url.split("?")[0];
+    if (path === "/health") return;
 
     const ip = getClientIp(req);
     const now = Date.now();

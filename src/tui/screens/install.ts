@@ -183,8 +183,11 @@ export async function runInstall(): Promise<void> {
     const nodeMajor = parseInt(nodeVersion.replace(/^v/, ""), 10);
     if (!Number.isFinite(nodeMajor) || nodeMajor < 22) throw new Error(`Node.js ${nodeVersion} found, but v22+ is required.`);
     const pythonVersion = execFileSync(python, ["--version"], { stdio: "pipe" }).toString().trim();
-    const pythonMajor = parseInt(pythonVersion.replace(/Python\s*/i, ""), 10);
-    if (!Number.isFinite(pythonMajor) || pythonMajor < 3) throw new Error(`${pythonVersion} found, but Python 3+ is required.`);
+    const pythonParts = pythonVersion.replace(/Python\s*/i, "").split(".");
+    const pythonMajor = parseInt(pythonParts[0], 10);
+    const pythonMinor = parseInt(pythonParts[1], 10);
+    if (!Number.isFinite(pythonMajor) || pythonMajor < 3 || (pythonMajor === 3 && (!Number.isFinite(pythonMinor) || pythonMinor < 10)))
+      throw new Error(`${pythonVersion} found, but Python 3.10+ is required.`);
   } catch (error) {
     sp.fail(error instanceof Error ? error.message : String(error));
     return;

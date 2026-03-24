@@ -273,6 +273,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
                 await deleteCollection(selectedCollection);
                 setConfirmAction(null);
                 setSelectedCollection(null);
+                setPage(0);
                 setLevel("collections");
               } else {
                 setConfirmAction(null);

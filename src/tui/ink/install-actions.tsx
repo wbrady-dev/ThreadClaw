@@ -362,8 +362,11 @@ function validatePrerequisites(python: string): string | null {
     if (!Number.isFinite(nodeMajor) || nodeMajor < 22) return `Node.js ${nodeVersion} found, but v22+ is required.`;
 
     const pythonVersion = execFileSync(python, ["--version"], { stdio: "pipe" }).toString().trim();
-    const pythonMajor = parseInt(pythonVersion.replace(/Python\s*/i, ""), 10);
-    if (!Number.isFinite(pythonMajor) || pythonMajor < 3) return `${pythonVersion} found, but Python 3+ is required.`;
+    const pythonParts = pythonVersion.replace(/Python\s*/i, "").split(".");
+    const pythonMajor = parseInt(pythonParts[0], 10);
+    const pythonMinor = parseInt(pythonParts[1], 10);
+    if (!Number.isFinite(pythonMajor) || pythonMajor < 3 || (pythonMajor === 3 && (!Number.isFinite(pythonMinor) || pythonMinor < 10)))
+      return `${pythonVersion} found, but Python 3.10+ is required.`;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
