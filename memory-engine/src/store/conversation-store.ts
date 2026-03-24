@@ -350,7 +350,7 @@ export class ConversationStore {
     let ownTx = false;
     try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+      if (!msg.includes("transaction") && !msg.includes("database is locked") && !msg.includes("SQLITE_BUSY")) throw err;
     }
     try {
       for (const input of inputs) {
@@ -506,7 +506,7 @@ export class ConversationStore {
     let ownTx = false;
     try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+      if (!msg.includes("transaction") && !msg.includes("database is locked") && !msg.includes("SQLITE_BUSY")) throw err;
     }
     try {
       for (const part of parts) {
@@ -589,7 +589,7 @@ export class ConversationStore {
     let ownTx = false;
     try { this.db.exec("BEGIN IMMEDIATE"); ownTx = true; } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("transaction")) { /* already in transaction */ } else throw err;
+      if (!msg.includes("transaction") && !msg.includes("database is locked") && !msg.includes("SQLITE_BUSY")) throw err;
     }
     try {
       for (const messageId of messageIds) {

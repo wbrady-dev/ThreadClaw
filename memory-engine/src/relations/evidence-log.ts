@@ -87,15 +87,8 @@ export function nextScopeSeq(db: GraphDb, scopeId: number): number {
     INSERT INTO scope_sequences (scope_id, next_seq) VALUES (?, 2)
     ON CONFLICT(scope_id) DO UPDATE SET next_seq = next_seq + 1
     RETURNING next_seq - 1 AS seq
-  `).get(scopeId) as { seq: number } | undefined;
+  `).get(scopeId) as { seq: number };
 
-  // Fallback for SQLite builds without RETURNING support (< 3.35.0)
-  if (!row) {
-    const fallback = db.prepare(
-      "SELECT next_seq - 1 AS seq FROM scope_sequences WHERE scope_id = ?",
-    ).get(scopeId) as { seq: number };
-    return fallback.seq;
-  }
   return row.seq;
 }
 

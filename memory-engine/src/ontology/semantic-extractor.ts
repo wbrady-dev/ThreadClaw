@@ -336,7 +336,7 @@ export function isJunkClaim(event: { subject?: string; predicate?: string; value
   if (pred === "sent" || pred === "sender" || pred === "sent_by") return true;
 
   // Skip claims with generic predicates that produce low-value knowledge
-  const genericPredicates = new Set(["states", "user_i", "user_my"]);
+  const genericPredicates = new Set(["states"]);
   if (genericPredicates.has(pred)) return true;
 
   return false;

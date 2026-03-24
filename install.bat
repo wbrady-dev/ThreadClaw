@@ -5,14 +5,8 @@ title ThreadClaw - Installer
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 
-:: ── Fix 1: Auto-cd out of System32 ──
-:: If running from System32 or similar system directory, cd somewhere sensible
+:: Auto-cd out of System32 (case-insensitive /i covers all variants)
 if /i "%SCRIPT_DIR%"=="%WINDIR%\System32" (
-    echo [NOTE] Detected System32 directory. Changing to Desktop...
-    cd /d "%USERPROFILE%\Desktop"
-    set "SCRIPT_DIR=%USERPROFILE%\Desktop"
-)
-if /i "%SCRIPT_DIR%"=="%WINDIR%\system32" (
     echo [NOTE] Detected System32 directory. Changing to Desktop...
     cd /d "%USERPROFILE%\Desktop"
     set "SCRIPT_DIR=%USERPROFILE%\Desktop"
@@ -44,7 +38,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: ── Fix 7: Robust Node version parsing ──
 :: Parse major version from "vXX.Y.Z" output
 for /f "tokens=1 delims=." %%v in ('node --version') do set "NODE_VER=%%v"
 set "NODE_MAJOR=%NODE_VER:v=%"
@@ -88,7 +81,6 @@ if errorlevel 1 (
 )
 for /f "tokens=*" %%v in ('python --version') do echo [OK] %%v
 
-:: ── Fix 4: Microsoft Store Python detection ──
 :: Verify venv module actually works (Microsoft Store Python often lacks it)
 python -m venv --help >nul 2>&1
 if errorlevel 1 (

@@ -12,7 +12,7 @@
 
 ### Ingestion
 - `POST /ingest` -- Ingest a file (localhost only)
-- `POST /ingest/batch` -- Batch ingest (localhost only)
+- `POST /ingest/text` -- Batch ingest (localhost only)
 
 ### Collections
 - `GET /collections` -- List collections (localhost only)

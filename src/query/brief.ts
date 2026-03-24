@@ -85,7 +85,7 @@ export function extractBrief(
     const sentences = splitSentences(text);
     if (sentences.length === 0) continue;
 
-    const source = extractFileName(chunk.sourcePath ?? "Unknown");
+    const source = extractFileName(chunk.sourcePath ?? "unknown");
     sources.add(chunk.collectionName ? `${source} (${chunk.collectionName})` : source);
 
     for (let si = 0; si < sentences.length; si++) {
@@ -132,7 +132,7 @@ export function extractBrief(
   if (allSentences.length === 0) {
     // No scored sentences — return first sentence of top chunk as fallback
     const fallback = splitSentences(chunks[0].text)[0] ?? chunks[0].text.slice(0, 200);
-    const src = extractFileName(chunks[0].sourcePath ?? "Unknown");
+    const src = extractFileName(chunks[0].sourcePath ?? "unknown");
     return {
       text: `${fallback}\n[Source: ${src}]`,
       sources: [src],

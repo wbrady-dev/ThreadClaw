@@ -102,9 +102,6 @@ const CcDecisionsSchema = Type.Object({
   scope_id: Type.Optional(
     Type.Number({ description: "Scope ID (default: 1 = global)" }),
   ),
-  include_superseded: Type.Optional(
-    Type.Boolean({ description: "Include superseded decisions in output" }),
-  ),
 });
 
 export function createCcDecisionsTool(input: {

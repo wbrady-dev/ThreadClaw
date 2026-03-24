@@ -356,7 +356,6 @@ export async function runGDriveOAuth(clientId: string, clientSecret: string): Pr
 
     // Restrict permissions on Unix
     if (process.platform !== "win32") {
-      const { chmodSync } = await import("fs");
       chmodSync(CREDENTIALS_FILE, 0o600);
     }
 

@@ -168,7 +168,7 @@ All notable changes to ThreadClaw are documented here.
 
 ### Initial Release — RSMA Architecture
 - **10 RSMA layers**: RAG + DAG + KG + AL + SL + DE + AOM + BSG + EEL + CCL
-- **22 agent tools**: cc_grep, cc_recall, cc_describe, cc_expand, cc_conflicts, cc_state, cc_claims, cc_decisions, cc_delta, cc_capabilities, cc_invariants, cc_loops, cc_attempts, cc_antirunbooks, cc_branch, cc_promote, cc_runbooks, cc_timeline, cc_relate, cc_ask, cc_diagnostics, cc_memory
+- **22 agent tools** (later consolidated to 12 tools in v0.3.0): cc_grep, cc_recall, cc_describe, cc_expand, cc_conflicts, cc_state, cc_claims, cc_decisions, cc_delta, cc_capabilities, cc_invariants, cc_loops, cc_attempts, cc_antirunbooks, cc_branch, cc_promote, cc_runbooks, cc_timeline, cc_relate, cc_ask, cc_diagnostics, cc_memory
 - **Query pipeline**: validate → cache → expand → retrieve → gate → rerank → dedup → highlight → brief/titles/full
 - **Ingestion pipeline**: 24 file formats, semantic chunking, embedding, dedup, atomic storage
 - **6 source adapters**: Local (chokidar), Obsidian, Google Drive, Notion, OneDrive, Apple Notes

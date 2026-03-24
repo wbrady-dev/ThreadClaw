@@ -44,7 +44,7 @@ export function packContext(
   // Group by source
   const bySource = new Map<string, PackedChunk[]>();
   for (const chunk of chunks) {
-    const src = chunk.sourcePath ?? "Unknown";
+    const src = chunk.sourcePath ?? "unknown";
     if (!bySource.has(src)) bySource.set(src, []);
     bySource.get(src)!.push(chunk);
   }
@@ -140,7 +140,7 @@ export function packTitles(chunks: { sourcePath: string | null; collectionName: 
 } {
   const bySource = new Map<string, { collection: string; count: number }>();
   for (const chunk of chunks) {
-    const src = chunk.sourcePath ?? "Unknown";
+    const src = chunk.sourcePath ?? "unknown";
     const coll = chunk.collectionName ?? "default";
     if (bySource.has(src)) {
       bySource.get(src)!.count++;

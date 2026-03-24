@@ -179,7 +179,7 @@ export async function understandMessage(
         const obj = makeObject("loop", l.text, {
           structured: {
             loopType: l.loopType,
-            sourceType: l.sourceType,
+            text: l.text,
           },
           sourceKind,
           sourceId,
@@ -201,7 +201,6 @@ export async function understandMessage(
       const obj = makeObject("entity", e.name, {
         structured: {
           name: e.name.toLowerCase().trim(),
-          strategy: e.strategy,
           entityType: e.entityType,
         },
         sourceKind: "extraction",
