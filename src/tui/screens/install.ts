@@ -842,7 +842,9 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
         const { getGraphDb, closeGraphDb } = await import("../../storage/graph-sqlite.js");
         const graphDb = getGraphDb(graphDbPath);
         try {
-          const { runGraphMigrations } = await import("../../../memory-engine/src/relations/schema.js");
+          // Dynamic path prevents TypeScript from tracing into memory-engine (outside rootDir)
+          const schemaPath = resolve(root, "memory-engine", "src", "relations", "schema.js");
+          const { runGraphMigrations } = await import(schemaPath);
           runGraphMigrations(graphDb, graphDbPath);
         } catch {
           // Graph migrations run via memory-engine which may not be importable here

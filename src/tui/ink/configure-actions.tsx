@@ -917,6 +917,7 @@ async function configureOcr(): Promise<void> {
       const newLang = await promptText({
         title: "OCR Language",
         message: "Enter Tesseract language code (e.g. eng, deu, fra, jpn):",
+        label: "Language code",
         initial: ocrLang,
         allowEmpty: false,
       });
