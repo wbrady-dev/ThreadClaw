@@ -113,12 +113,6 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Or launch the interactive TUI installer:
-
-```bash
-npm install && npx tsx src/tui/index.ts
-```
-
 The installer will:
 1. Check prerequisites (Node.js 22+, Python 3.10+, GPU, disk space)
 2. Let you choose a model tier (Lite ~2GB, Standard ~4GB, Premium ~12GB VRAM)
@@ -126,7 +120,7 @@ The installer will:
 4. Detect and connect Obsidian vaults
 5. Optionally integrate with OpenClaw
 
-After install, run `threadclaw` to launch the TUI.
+After install, open a **new terminal** and run `threadclaw` to launch the TUI.
 
 ## Model Tiers
 
