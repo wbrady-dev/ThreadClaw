@@ -1,7 +1,6 @@
 import { Command } from "commander";
-import { resolve } from "path";
 import { config } from "../../config.js";
-import { getDb, runMigrations, deleteVectors } from "../../storage/index.js";
+import { getDb, getInitializedDb, deleteVectors } from "../../storage/index.js";
 
 import { escapeLike } from "../../utils/sql.js";
 
@@ -19,9 +18,7 @@ export const deleteCommand = new Command("delete")
       allCollection?: string;
     }) => {
       try {
-        const dbPath = resolve(config.dataDir, "threadclaw.db");
-        const db = getDb(dbPath);
-        runMigrations(db);
+        const db = getInitializedDb();
 
         if (opts.allCollection) {
           // Delete entire collection

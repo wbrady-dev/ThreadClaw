@@ -1,7 +1,5 @@
 import { Command } from "commander";
-import { resolve } from "path";
-import { config } from "../../config.js";
-import { getDb, runMigrations } from "../../storage/index.js";
+import { getInitializedDb } from "../../storage/index.js";
 
 /** Escape LIKE special chars. Set keepPercent=true for patterns that use % as intentional wildcards. */
 import { escapeLike } from "../../utils/sql.js";
@@ -17,9 +15,7 @@ export const chunksCommand = new Command("chunks")
       opts: { collection?: string; full: boolean },
     ) => {
       try {
-        const dbPath = resolve(config.dataDir, "threadclaw.db");
-        const db = getDb(dbPath);
-        runMigrations(db);
+        const db = getInitializedDb();
 
         const escaped = escapeLike(source);
         const searchTerm = source.replace(/[\\/]/g, "%");

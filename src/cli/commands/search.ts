@@ -13,9 +13,12 @@ export const searchCommand = new Command("search")
       opts: { collection: string; topK: string; json: boolean },
     ) => {
       try {
+        let topK = opts.topK != null ? parseInt(opts.topK, 10) : 10;
+        if (!Number.isFinite(topK) || topK < 0) topK = 10;
+
         const result = await query(terms, {
           collection: opts.collection,
-          topK: parseInt(opts.topK, 10),
+          topK,
           useReranker: false,
           useBm25: false,
           expand: false,

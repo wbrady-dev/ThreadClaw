@@ -1,7 +1,5 @@
 import { Command } from "commander";
-import { resolve } from "path";
-import { config } from "../../config.js";
-import { getDb, runMigrations } from "../../storage/index.js";
+import { getInitializedDb } from "../../storage/index.js";
 import {
   listCollections,
   createCollection,
@@ -9,11 +7,10 @@ import {
   getCollectionStats,
 } from "../../storage/collections.js";
 
-let _db: ReturnType<typeof getDb> | null = null;
+let _db: ReturnType<typeof getInitializedDb> | null = null;
 function db() {
   if (!_db) {
-    _db = getDb(resolve(config.dataDir, "threadclaw.db"));
-    runMigrations(_db);
+    _db = getInitializedDb();
   }
   return _db;
 }

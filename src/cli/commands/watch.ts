@@ -45,7 +45,7 @@ export const watchCommand = new Command("watch")
           paths: resolvedPaths,
           collection: opts.collection,
           tags,
-          debounceMs: parseInt(opts.debounce, 10),
+          debounceMs: parseInt(opts.debounce, 10) || 300,
           ingestExisting: opts.existing,
         },
       ]);

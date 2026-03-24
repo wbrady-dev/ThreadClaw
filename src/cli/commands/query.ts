@@ -35,13 +35,18 @@ export const queryCommand = new Command("query")
         const brief = opts.brief && !opts.full;
         const titlesOnly = opts.titles && !opts.full && !opts.brief;
 
+        let topK = opts.topK != null ? parseInt(opts.topK, 10) : 3;
+        if (!Number.isFinite(topK) || topK < 0) topK = 3;
+        let tokenBudget = opts.budget != null ? parseInt(opts.budget, 10) : 1500;
+        if (!Number.isFinite(tokenBudget) || tokenBudget < 0) tokenBudget = 1500;
+
         const result = await query(question, {
           collection: opts.collection,
-          topK: parseInt(opts.topK, 10) || 3,
+          topK,
           useReranker: opts.rerank,
           useBm25: opts.bm25,
           expand: opts.expand || undefined,
-          tokenBudget: parseInt(opts.budget, 10) || 1500,
+          tokenBudget,
           brief,
           titlesOnly,
         });

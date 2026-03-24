@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { resolve } from "path";
 import { existsSync, statSync } from "fs";
 import { config } from "../../config.js";
-import { getDb, runMigrations, listCollections } from "../../storage/index.js";
+import { getInitializedDb, listCollections } from "../../storage/index.js";
 import { getCollectionStats } from "../../storage/collections.js";
 import { getGraphDb, closeGraphDb } from "../../storage/graph-sqlite.js";
 
@@ -38,8 +38,7 @@ export const statusCommand = new Command("status")
 
     // Collections
     try {
-      const db = getDb(dbPath);
-      runMigrations(db);
+      const db = getInitializedDb();
       const collections = listCollections(db);
 
       console.log(`\nCollections: ${collections.length}\n`);
@@ -55,6 +54,9 @@ export const statusCommand = new Command("status")
 
     // Evidence OS
     console.log(`\nEvidence OS:`);
+    if (!config.relations) {
+      console.log(`  Relations: not configured`);
+    } else {
     console.log(`  Relations: ${config.relations.enabled ? "enabled" : "disabled"}`);
     const graphPath = config.relations.graphDbPath;
     if (existsSync(graphPath)) {
@@ -73,6 +75,7 @@ export const statusCommand = new Command("status")
       }
     } else {
       console.log(`  Graph DB:  not created yet`);
+    }
     }
 
     console.log(`\nEndpoints:`);
