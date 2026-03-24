@@ -629,36 +629,34 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
   };
 
   const oldEnv: EnvMap = hadExistingEnv ? readEnvMap(root) : {};
-  const mergedLines = ["# ThreadClaw RSMA Configuration"];
   const templateKeys = new Set(Object.keys(templateEnv));
 
-  // Write template keys — use user's value if they customized it, otherwise template default
+  // Build merged env: user customizations win except for keys we always overwrite
+  const alwaysOverwrite = new Set(["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS", "RERANKER_MODEL"]);
+  const mergedEnv: EnvMap = {};
+
   for (const [key, defaultVal] of Object.entries(templateEnv)) {
     const userVal = oldEnv[key];
-    // For model-specific keys, always use the new installer value (user just chose these)
-    const alwaysOverwrite = key === "EMBEDDING_MODEL" || key === "EMBEDDING_DIMENSIONS";
-    if (alwaysOverwrite || userVal === undefined) {
-      mergedLines.push(`${key}=${defaultVal}`);
-    } else {
-      mergedLines.push(`${key}=${userVal}`);
-    }
+    mergedEnv[key] = (alwaysOverwrite.has(key) || userVal === undefined) ? defaultVal : userVal;
   }
 
   // Preserve unknown keys from previous install (API keys, source configs, custom settings)
-  const preserved: string[] = [];
+  let preservedCount = 0;
   for (const [key, value] of Object.entries(oldEnv)) {
     if (!templateKeys.has(key)) {
-      preserved.push(`${key}=${value}`);
+      mergedEnv[key] = value;
+      preservedCount++;
     }
   }
-  if (preserved.length > 0) {
-    mergedLines.push("");
-    mergedLines.push("# Preserved from previous install");
-    mergedLines.push(...preserved);
-  }
 
-  writeFileSync(envPath, mergedLines.join("\n") + "\n");
-  sp.succeed(hadExistingEnv ? `Configuration merged (${preserved.length} custom keys preserved)` : "Configuration saved");
+  try {
+    if (hadExistingEnv) backupEnvIfNeeded(envPath);
+    writeEnvMap(root, mergedEnv);
+    sp.succeed(hadExistingEnv ? `Configuration merged (${preservedCount} custom keys preserved)` : "Configuration saved");
+  } catch (error) {
+    sp.fail(`Failed to write .env: ${String(error).slice(0, 200)}`);
+    failures.push("Config: .env write failed. Check file permissions.");
+  }
 
   if (embedChoice.gated || rerankChoice.gated) {
     if (huggingFaceToken) await loginHuggingFace(python, huggingFaceToken, embedChoice, rerankChoice);
@@ -693,6 +691,7 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
       mkdirSync(cmdDir, { recursive: true });
       writeFileSync(resolve(cmdDir, "threadclaw.cmd"), `@echo off\r\nnode "${binEntry}" %*\r\n`);
       // Add to user PATH if not already there — read from registry to avoid corrupting system PATH
+      let pathRegistered = false;
       if (!((process.env.PATH ?? "").toLowerCase().includes("threadclaw"))) {
         try {
           const regOutput = execFileSync("reg", ["query", "HKCU\\Environment", "/v", "PATH"], { stdio: "pipe", timeout: 10000 }).toString();
@@ -702,22 +701,40 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
             const newPath = userPath ? `${userPath};${cmdDir}` : cmdDir;
             execFileSync("setx", ["PATH", newPath], { stdio: "pipe", timeout: 10000 });
           }
+          pathRegistered = true;
         } catch {
           // User PATH key may not exist yet — create it with just our dir
           try {
             execFileSync("setx", ["PATH", cmdDir], { stdio: "pipe", timeout: 10000 });
-          } catch {}
+            pathRegistered = true;
+          } catch (setxError) {
+            console.error(t.dim(`  setx failed: ${String(setxError).slice(0, 100)}`));
+          }
         }
+      } else {
+        pathRegistered = true;
       }
-      sp.succeed("threadclaw command registered. Restart terminal to use.");
+      if (pathRegistered) {
+        sp.succeed("threadclaw command registered. Restart terminal to use.");
+      } else {
+        sp.warn(`PATH not updated. Add manually: setx PATH "%PATH%;${cmdDir}"`);
+      }
     } else {
       const localBin = resolve(homedir(), ".local", "bin");
       mkdirSync(localBin, { recursive: true });
+      let linkCreated = false;
       try {
         execFileSync("ln", ["-sf", binEntry, resolve(localBin, "threadclaw")], { stdio: "pipe" });
         execFileSync("chmod", ["+x", resolve(localBin, "threadclaw")], { stdio: "pipe" });
-      } catch {}
-      sp.succeed("threadclaw command registered at ~/.local/bin/threadclaw");
+        linkCreated = true;
+      } catch (lnError) {
+        console.error(t.dim(`  Symlink failed: ${String(lnError).slice(0, 100)}`));
+      }
+      if (linkCreated) {
+        sp.succeed("threadclaw command registered at ~/.local/bin/threadclaw");
+      } else {
+        sp.warn(`Symlink failed. Run manually: ln -sf "${binEntry}" ~/.local/bin/threadclaw`);
+      }
     }
   } catch {
     sp.warn(`Global command not registered. Run: node ${resolve(root, "bin", "threadclaw.mjs")}`);
@@ -835,8 +852,10 @@ export async function loginHuggingFace(
       execFileSync(python, [loginScript], { stdio: "pipe", env: { ...process.env, HF_TOKEN: String(token) } });
     } finally { try { unlinkSync(loginScript); } catch {} }
     console.log(t.ok("  Logged in to HuggingFace.\n"));
-  } catch {
-    console.log(t.warn(`  Login failed for ${embedChoice.id} / ${rerankChoice.id}.\n`));
+  } catch (error) {
+    console.error(t.warn(`  HuggingFace login failed for ${embedChoice.id} / ${rerankChoice.id}.`));
+    console.error(t.dim(`  Error: ${String(error).slice(0, 200)}`));
+    console.error(t.dim("  Check your token at https://huggingface.co/settings/tokens\n"));
   }
 }
 
@@ -917,13 +936,18 @@ export async function enableObsidianVault(envPath: string): Promise<void> {
     console.log(t.dim("  No Obsidian vault detected.\n"));
     return;
   }
-  let env = readFileSync(envPath, "utf-8");
-  env += `\nOBSIDIAN_ENABLED=true\nOBSIDIAN_VAULT_PATH=${vaults[0]}\nOBSIDIAN_COLLECTION=obsidian\n`;
-  const current = env.match(/^WATCH_PATHS=(.*)$/m)?.[1]?.trim() ?? "";
+  const root = resolve(envPath, "..");
+  const currentEnv = readEnvMap(root);
+  const currentWatch = currentEnv.WATCH_PATHS?.trim() ?? "";
   const obsidianEntry = `${vaults[0]}|obsidian`;
-  const updated = current ? `${current},${obsidianEntry}` : obsidianEntry;
-  env = env.replace(/^WATCH_PATHS=.*$/m, `WATCH_PATHS=${updated}`);
-  writeFileSync(envPath, env);
+  const updatedWatch = currentWatch ? `${currentWatch},${obsidianEntry}` : obsidianEntry;
+
+  updateEnvValues(root, {
+    OBSIDIAN_ENABLED: "true",
+    OBSIDIAN_VAULT_PATH: vaults[0],
+    OBSIDIAN_COLLECTION: "obsidian",
+    WATCH_PATHS: updatedWatch,
+  });
   console.log(t.ok("  Obsidian indexing enabled.\n"));
 }
 
@@ -1029,7 +1053,9 @@ function installSkills(openclawDir: string | null, sourceRoot: string, root: str
       const source = resolve(skillsSource, skillDir);
       if (existsSync(source)) cpSync(source, resolve(skillsDestination, skillDir), { recursive: true });
     }
-  } catch {}
+  } catch (error) {
+    console.error(t.warn(`  Skills installation failed: ${String(error).slice(0, 200)}`));
+  }
 }
 
 async function selectModel(models: ModelInfo[], gpu: GpuInfo, otherModelVram: number, pythonCmd: string): Promise<ModelInfo | null> {

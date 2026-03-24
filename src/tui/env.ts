@@ -111,7 +111,7 @@ export function writeEnvMap(root: string, values: EnvMap): void {
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function backupEnvIfNeeded(envPath: string): void {
+export function backupEnvIfNeeded(envPath: string): void {
   const bakPath = envPath + ".bak";
   try {
     if (!existsSync(bakPath)) {
