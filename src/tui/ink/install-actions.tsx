@@ -104,20 +104,30 @@ export async function runInkInstall(): Promise<boolean> {
     if (root !== sourceRoot && existsSync(resolve(sourceRoot, "package.json"))) {
       const { cpSync, mkdirSync } = await import("fs");
       mkdirSync(root, { recursive: true });
+      console.log(t.dim(`\n  Copying ThreadClaw source to ${root}...`));
+      console.log(t.dim("  (node_modules, .venv, data, and .git are skipped — they will be created fresh)\n"));
+      let fileCount = 0;
       cpSync(sourceRoot, root, {
         recursive: true,
         filter: (src) => {
-          // Skip root node_modules, data, logs, .env, .git — runtime/env-specific
-          // Keep memory-engine/node_modules (monorepo deps can't be npm-installed)
+          // Skip heavy/runtime dirs that will be recreated by the installer.
+          // Keep memory-engine/node_modules (monorepo deps can't be npm-installed).
           const rel = src.slice(sourceRoot.length + 1).replace(/\\/g, "/");
           if ((rel === "node_modules" || rel.startsWith("node_modules/")) && !rel.startsWith("memory-engine/")) return false;
+          if (rel === ".venv" || rel.startsWith(".venv/")) return false;
+          if (rel === "dist" || rel.startsWith("dist/")) return false;
           if (rel === "data" || rel.startsWith("data/")) return false;
           if (rel === "logs" || rel.startsWith("logs/")) return false;
           if (rel === ".git" || rel.startsWith(".git/")) return false;
           if (rel === ".env") return false;
+          if (rel) {
+            fileCount++;
+            if (fileCount % 50 === 0) process.stdout.write(`\r  Copied ${fileCount} files...`);
+          }
           return true;
         },
       });
+      process.stdout.write(`\r  Copied ${fileCount} files.           \n`);
     }
     if (!existsSync(resolve(root, "package.json"))) {
       await showNotice("Install Location", "The selected directory does not contain a ThreadClaw package checkout.");

@@ -230,23 +230,31 @@ export async function runInstall(): Promise<void> {
   // If target doesn't have package.json, copy source files there (fresh install to new location)
   if (!existsSync(resolve(root, "package.json"))) {
     if (root !== sourceRoot && existsSync(resolve(sourceRoot, "package.json"))) {
-      console.log(t.dim(`\n  Copying ThreadClaw to ${root}...`));
+      console.log(t.dim(`\n  Copying ThreadClaw source to ${root}...`));
+      console.log(t.dim("  (node_modules, .venv, data, and .git are skipped — they will be created fresh)\n"));
       mkdirSync(root, { recursive: true });
+      let fileCount = 0;
       cpSync(sourceRoot, root, {
         recursive: true,
         filter: (src) => {
-          // Skip root node_modules, data, logs, .env, .git
-          // Keep memory-engine/node_modules (monorepo deps can't be npm-installed)
+          // Skip heavy/runtime dirs that will be recreated by the installer.
+          // Keep memory-engine/node_modules (monorepo deps can't be npm-installed).
           const rel = src.slice(sourceRoot.length + 1).replace(/\\/g, "/");
           if ((rel === "node_modules" || rel.startsWith("node_modules/")) && !rel.startsWith("memory-engine/")) return false;
+          if (rel === ".venv" || rel.startsWith(".venv/")) return false;
+          if (rel === "dist" || rel.startsWith("dist/")) return false;
           if (rel === "data" || rel.startsWith("data/")) return false;
           if (rel === "logs" || rel.startsWith("logs/")) return false;
           if (rel === ".git" || rel.startsWith(".git/")) return false;
           if (rel === ".env") return false;
+          if (rel) {
+            fileCount++;
+            if (fileCount % 50 === 0) process.stdout.write(`\r  Copied ${fileCount} files...`);
+          }
           return true;
         },
       });
-      console.log(t.ok("  Copied.\n"));
+      process.stdout.write(`\r  Copied ${fileCount} files.           \n`);
     }
     if (!existsSync(resolve(root, "package.json"))) {
       console.log(t.err("\n  The selected directory does not contain a ThreadClaw package checkout.\n"));
