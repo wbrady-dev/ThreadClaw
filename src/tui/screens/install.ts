@@ -593,7 +593,12 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
     trust_remote_code: embedChoice.trustRemoteCode || rerankChoice.trustRemoteCode,
     docling_device: parser,
   };
-  writeConfig(config, root);
+  try {
+    writeConfig(config, root);
+  } catch (error) {
+    sp.fail(`Failed to write config.json: ${String(error).slice(0, 200)}`);
+    failures.push("Config: config.json write failed. Check file permissions.");
+  }
   // Three-way .env merge: preserve user customizations, add new keys, keep unknown keys
   const templateEnv: EnvMap = {
     THREADCLAW_PORT: "18800",
