@@ -675,7 +675,7 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
   if (anyApplied.cnt === 0) {
     db.exec(FRESH_INSTALL_SQL);
     // Mark all migration versions as applied so the legacy chain never runs
-    for (let v = 1; v <= 23; v++) {
+    for (let v = 1; v <= 24; v++) {
       markMigrationApplied(db, v);
     }
     // File permissions
@@ -1561,6 +1561,14 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     try { db.exec("ALTER TABLE state_deltas RENAME TO _legacy_state_deltas"); } catch { /* already renamed or missing */ }
 
     markMigrationApplied(db, 23);
+  }
+
+  // Migration v24: Composite index for awareness queries (predicate + object_id)
+  if (!isMigrationApplied(db, 24)) {
+    try {
+      db.exec("CREATE INDEX IF NOT EXISTS idx_prov_pred_obj ON provenance_links(predicate, object_id)");
+    } catch {}
+    markMigrationApplied(db, 24);
   }
 
   // File permissions: chmod 600 on Unix/macOS, skip on Windows

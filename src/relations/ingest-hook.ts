@@ -349,8 +349,8 @@ export async function extractEntitiesFromDocument(
     let nerResults: Array<{ text: string; label: string }[]> | null = null;
     try {
       nerResults = await fetchNerEntities(chunks);
-    } catch {
-      // NER failure is non-fatal — fall back to regex-only
+    } catch (err) {
+      if (process.env.DEBUG) console.warn('[ingest] NER unavailable, using regex-only:', err instanceof Error ? err.message : String(err));
     }
 
     const tx = graphDb.transaction(() => {

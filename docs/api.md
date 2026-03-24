@@ -7,28 +7,28 @@
 - `POST /shutdown` -- Graceful shutdown (localhost only via `isLocalRequest` guard)
 
 ### Search & Query
-- `POST /query` -- Hybrid search with reranking
-- `POST /search` -- Simple search (no reranking)
+- `POST /query` -- Hybrid search with reranking (localhost only)
+- `POST /search` -- Simple search (no reranking) (localhost only)
 
 ### Ingestion
-- `POST /ingest` -- Ingest a file
-- `POST /ingest/batch` -- Batch ingest
+- `POST /ingest` -- Ingest a file (localhost only)
+- `POST /ingest/batch` -- Batch ingest (localhost only)
 
 ### Collections
-- `GET /collections` -- List collections
-- `POST /collections` -- Create collection
-- `DELETE /collections/:id` -- Delete collection
+- `GET /collections` -- List collections (localhost only)
+- `POST /collections` -- Create collection (localhost only)
+- `DELETE /collections/:id` -- Delete collection (localhost only)
 
 ### Documents
-- `GET /documents` -- List documents
-- `DELETE /documents/:id` -- Delete document and its chunks
+- `GET /documents` -- List documents (localhost only)
+- `DELETE /documents/:id` -- Delete document and its chunks (localhost only)
 
 ### Analytics & Diagnostics
-- `GET /analytics` -- Query performance summary
-- `GET /analytics/recent?limit=N` -- Recent queries
-- `GET /analytics/awareness` -- Awareness metrics
-- `DELETE /analytics` -- Clear analytics
-- `GET /diagnostics` -- Full RSMA health (JSON): memory stats, evidence counts, awareness metrics, compiler state
+- `GET /analytics` -- Query performance summary (localhost only)
+- `GET /analytics/recent?limit=N` -- Recent queries (localhost only)
+- `GET /analytics/awareness` -- Awareness metrics (localhost only)
+- `DELETE /analytics` -- Clear analytics (localhost only)
+- `GET /diagnostics` -- Full RSMA health (JSON): memory stats, evidence counts, awareness metrics, compiler state (localhost only)
 
 ### Sources
 
@@ -53,7 +53,7 @@ All graph endpoints are localhost-only (`isLocalRequest` guard).
   - Returns: `{ terms: string[], count: number }`
 
 ### Reindex
-- `POST /reindex` -- Reindex all documents in a collection
+- `POST /reindex` -- Reindex all documents in a collection (localhost only)
 
 ### Reset
 - `POST /reset` -- Knowledge base reset (localhost only via `isLocalRequest` guard)

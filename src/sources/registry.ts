@@ -34,7 +34,9 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   let env = "";
   try {
     if (existsSync(envPath)) env = readFileSync(envPath, "utf-8");
-  } catch {}
+  } catch (err) {
+    if (process.env.DEBUG) console.warn('[sources] Failed to read .env:', err instanceof Error ? err.message : String(err));
+  }
 
   // --- Local adapter: use canonical config (process.env via dotenv) ---
   if (config.watch.paths) {

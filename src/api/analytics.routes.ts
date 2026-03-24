@@ -9,77 +9,81 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
    */
   server.get("/analytics", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
-    const records = getRecords() as QueryRecord[];
-    if (records.length === 0) {
-      return { message: "No queries recorded yet", total: 0 };
+    try {
+      const records = getRecords() as QueryRecord[];
+      if (records.length === 0) {
+        return { message: "No queries recorded yet", total: 0 };
+      }
+
+      const total = records.length;
+      const cached = records.filter((r) => r.cached).length;
+      const avgElapsed = Math.round(records.reduce((s, r) => s + r.elapsedMs, 0) / total);
+      const avgConfidence = Math.round(records.reduce((s, r) => s + r.confidence, 0) / total * 100) / 100;
+      const avgCandidates = Math.round(records.reduce((s, r) => s + r.candidates, 0) / total);
+
+      // Identify low-confidence queries (potential search quality issues)
+      const lowConfidence = records
+        .filter((r) => r.confidence < 0.3 && !r.cached && r.chunksReturned > 0)
+        .slice(-10)
+        .map((r) => ({
+          query: r.query,
+          confidence: r.confidence,
+          collection: r.collection,
+          strategy: r.strategy,
+          bestDistance: r.bestDistance,
+          elapsedMs: r.elapsedMs,
+        }));
+
+      // Zero-result queries
+      const zeroResults = records
+        .filter((r) => r.chunksReturned === 0 && !r.cached)
+        .slice(-10)
+        .map((r) => ({
+          query: r.query,
+          collection: r.collection,
+          vectorHits: r.vectorHits,
+          bm25Hits: r.bm25Hits,
+        }));
+
+      // Slow queries (>2s)
+      const slow = records
+        .filter((r) => r.elapsedMs > 2000 && !r.cached)
+        .slice(-10)
+        .map((r) => ({
+          query: r.query,
+          elapsedMs: r.elapsedMs,
+          strategy: r.strategy,
+          candidates: r.candidates,
+        }));
+
+      // Strategy distribution
+      const strategies: Record<string, number> = {};
+      for (const r of records) {
+        strategies[r.strategy] = (strategies[r.strategy] ?? 0) + 1;
+      }
+
+      // Collection distribution
+      const collections: Record<string, number> = {};
+      for (const r of records) {
+        collections[r.collection] = (collections[r.collection] ?? 0) + 1;
+      }
+
+      return {
+        total,
+        cached,
+        cacheHitRate: Math.round(cached / total * 100),
+        avgElapsedMs: avgElapsed,
+        avgConfidence,
+        avgCandidates,
+        strategies,
+        collections,
+        lowConfidence,
+        zeroResults,
+        slow,
+      };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch analytics: ${err instanceof Error ? err.message : String(err)}` });
     }
-
-    const total = records.length;
-    const cached = records.filter((r) => r.cached).length;
-    const avgElapsed = Math.round(records.reduce((s, r) => s + r.elapsedMs, 0) / total);
-    const avgConfidence = Math.round(records.reduce((s, r) => s + r.confidence, 0) / total * 100) / 100;
-    const avgCandidates = Math.round(records.reduce((s, r) => s + r.candidates, 0) / total);
-
-    // Identify low-confidence queries (potential search quality issues)
-    const lowConfidence = records
-      .filter((r) => r.confidence < 0.3 && !r.cached && r.chunksReturned > 0)
-      .slice(-10)
-      .map((r) => ({
-        query: r.query,
-        confidence: r.confidence,
-        collection: r.collection,
-        strategy: r.strategy,
-        bestDistance: r.bestDistance,
-        elapsedMs: r.elapsedMs,
-      }));
-
-    // Zero-result queries
-    const zeroResults = records
-      .filter((r) => r.chunksReturned === 0 && !r.cached)
-      .slice(-10)
-      .map((r) => ({
-        query: r.query,
-        collection: r.collection,
-        vectorHits: r.vectorHits,
-        bm25Hits: r.bm25Hits,
-      }));
-
-    // Slow queries (>2s)
-    const slow = records
-      .filter((r) => r.elapsedMs > 2000 && !r.cached)
-      .slice(-10)
-      .map((r) => ({
-        query: r.query,
-        elapsedMs: r.elapsedMs,
-        strategy: r.strategy,
-        candidates: r.candidates,
-      }));
-
-    // Strategy distribution
-    const strategies: Record<string, number> = {};
-    for (const r of records) {
-      strategies[r.strategy] = (strategies[r.strategy] ?? 0) + 1;
-    }
-
-    // Collection distribution
-    const collections: Record<string, number> = {};
-    for (const r of records) {
-      collections[r.collection] = (collections[r.collection] ?? 0) + 1;
-    }
-
-    return {
-      total,
-      cached,
-      cacheHitRate: Math.round(cached / total * 100),
-      avgElapsedMs: avgElapsed,
-      avgConfidence,
-      avgCandidates,
-      strategies,
-      collections,
-      lowConfidence,
-      zeroResults,
-      slow,
-    };
   });
 
   /**

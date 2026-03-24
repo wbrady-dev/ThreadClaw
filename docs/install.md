@@ -13,7 +13,7 @@
 
 ```bash
 git clone https://github.com/wbrady-dev/ThreadClaw.git
-cd threadclaw
+cd ThreadClaw
 install.bat
 ```
 
@@ -21,7 +21,7 @@ install.bat
 
 ```bash
 git clone https://github.com/wbrady-dev/ThreadClaw.git
-cd threadclaw
+cd ThreadClaw
 chmod +x install.sh
 ./install.sh
 ```

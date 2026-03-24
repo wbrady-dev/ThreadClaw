@@ -21,8 +21,12 @@ function db() {
 export function registerCollectionRoutes(server: FastifyInstance) {
   server.get("/collections", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
-    const collections = listCollections(db());
-    return { collections };
+    try {
+      const collections = listCollections(db());
+      return { collections };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to list collections: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   server.post("/collections", async (req, reply) => {

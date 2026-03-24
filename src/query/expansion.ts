@@ -30,7 +30,7 @@ async function chatComplete(messages: ChatMessage[]): Promise<string | null> {
 
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const apiKey = process.env.QUERY_EXPANSION_API_KEY;
+    const apiKey = config.queryExpansion.apiKey;
     if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
     const response = await fetch(url, {

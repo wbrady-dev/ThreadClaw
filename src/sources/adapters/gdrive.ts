@@ -80,7 +80,10 @@ export class GDriveAdapter extends PollingAdapterBase {
         if (tokens.refresh_token && tokens.client_id) {
           return true;
         }
-      } catch {}
+      } catch {
+        // Credentials file corrupted or unreadable — treat as not configured
+        if (process.env.DEBUG) console.warn('[gdrive] Credentials file corrupted, re-authenticate with threadclaw configure');
+      }
     }
 
     // Check if client ID is configured via env (user can authenticate from TUI)

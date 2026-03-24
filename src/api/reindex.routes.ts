@@ -32,25 +32,30 @@ export function registerReindexRoutes(server: FastifyInstance) {
       dry_run?: boolean;
     } ?? {};
 
-    const db = getDb(resolve(config.dataDir, "threadclaw.db"));
-
-    // Get documents to reindex
+    let db: ReturnType<typeof getDb>;
     let docs: { id: string; source_path: string; collection_name: string }[];
-    if (collection) {
-      docs = db.prepare(`
-        SELECT d.id, d.source_path, c.name as collection_name
-        FROM documents d
-        JOIN collections c ON c.id = d.collection_id
-        WHERE c.name = ?
-        ORDER BY d.created_at
-      `).all(collection) as typeof docs;
-    } else {
-      docs = db.prepare(`
-        SELECT d.id, d.source_path, c.name as collection_name
-        FROM documents d
-        JOIN collections c ON c.id = d.collection_id
-        ORDER BY d.created_at
-      `).all() as typeof docs;
+    try {
+      db = getDb(resolve(config.dataDir, "threadclaw.db"));
+
+      // Get documents to reindex
+      if (collection) {
+        docs = db.prepare(`
+          SELECT d.id, d.source_path, c.name as collection_name
+          FROM documents d
+          JOIN collections c ON c.id = d.collection_id
+          WHERE c.name = ?
+          ORDER BY d.created_at
+        `).all(collection) as typeof docs;
+      } else {
+        docs = db.prepare(`
+          SELECT d.id, d.source_path, c.name as collection_name
+          FROM documents d
+          JOIN collections c ON c.id = d.collection_id
+          ORDER BY d.created_at
+        `).all() as typeof docs;
+      }
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch documents for reindex: ${err instanceof Error ? err.message : String(err)}` });
     }
 
     if (dry_run) {
@@ -110,23 +115,27 @@ export function registerReindexRoutes(server: FastifyInstance) {
     }
 
     const { collection } = req.body as { collection?: string } ?? {};
-    const db = getDb(resolve(config.dataDir, "threadclaw.db"));
     const { stat } = await import("fs/promises");
 
     let docs: { id: string; source_path: string; collection_name: string; file_mtime: string | null }[];
-    if (collection) {
-      docs = db.prepare(`
-        SELECT d.id, d.source_path, c.name as collection_name, d.file_mtime
-        FROM documents d
-        JOIN collections c ON c.id = d.collection_id
-        WHERE c.name = ?
-      `).all(collection) as typeof docs;
-    } else {
-      docs = db.prepare(`
-        SELECT d.id, d.source_path, c.name as collection_name, d.file_mtime
-        FROM documents d
-        JOIN collections c ON c.id = d.collection_id
-      `).all() as typeof docs;
+    try {
+      const db = getDb(resolve(config.dataDir, "threadclaw.db"));
+      if (collection) {
+        docs = db.prepare(`
+          SELECT d.id, d.source_path, c.name as collection_name, d.file_mtime
+          FROM documents d
+          JOIN collections c ON c.id = d.collection_id
+          WHERE c.name = ?
+        `).all(collection) as typeof docs;
+      } else {
+        docs = db.prepare(`
+          SELECT d.id, d.source_path, c.name as collection_name, d.file_mtime
+          FROM documents d
+          JOIN collections c ON c.id = d.collection_id
+        `).all() as typeof docs;
+      }
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch documents for stale reindex: ${err instanceof Error ? err.message : String(err)}` });
     }
 
     const start = Date.now();

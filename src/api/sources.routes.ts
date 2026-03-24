@@ -24,16 +24,20 @@ export function registerSourceRoutes(server: FastifyInstance) {
   /** Get current source status */
   server.get("/sources", async (_req, reply) => {
     if (!isLocalRequest(_req)) return reply.status(403).send({ error: "Forbidden" });
-    const entries = getSourceEntries();
-    return reply.send({
-      sources: entries.map((e) => ({
-        id: e.adapter.id,
-        name: e.adapter.name,
-        type: e.adapter.type,
-        enabled: e.config.enabled,
-        status: e.status,
-        collections: e.config.collections,
-      })),
-    });
+    try {
+      const entries = getSourceEntries();
+      return reply.send({
+        sources: entries.map((e) => ({
+          id: e.adapter.id,
+          name: e.adapter.name,
+          type: e.adapter.type,
+          enabled: e.config.enabled,
+          status: e.status,
+          collections: e.config.collections,
+        })),
+      });
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch sources: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 }

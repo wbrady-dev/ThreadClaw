@@ -156,6 +156,7 @@ export const config = {
     get enabled() { return hotConfig.queryExpansionEnabled; },
     url: env("QUERY_EXPANSION_URL", "http://127.0.0.1:1234/v1"),
     model: env("QUERY_EXPANSION_MODEL", ""),
+    apiKey: env("QUERY_EXPANSION_API_KEY", ""),
     temperature: envFloat("QUERY_EXPANSION_TEMPERATURE", 0.3),
     maxTokens: envInt("QUERY_EXPANSION_MAX_TOKENS", 512),
     timeoutMs: envInt("QUERY_EXPANSION_TIMEOUT_MS", 15000),

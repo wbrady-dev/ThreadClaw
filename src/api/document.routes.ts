@@ -14,18 +14,22 @@ function db() {
 export function registerDocumentRoutes(server: FastifyInstance) {
   server.get("/documents", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
-    const { collection } = req.query as { collection?: string };
-    const database = db();
+    try {
+      const { collection } = req.query as { collection?: string };
+      const database = db();
 
-    let collectionId: string | undefined;
-    if (collection) {
-      const coll = getCollectionByName(database, collection);
-      if (!coll) return reply.status(404).send({ error: `Collection '${collection}' not found` });
-      collectionId = coll.id;
+      let collectionId: string | undefined;
+      if (collection) {
+        const coll = getCollectionByName(database, collection);
+        if (!coll) return reply.status(404).send({ error: `Collection '${collection}' not found` });
+        collectionId = coll.id;
+      }
+
+      const documents = listDocuments(database, collectionId);
+      return { documents };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to list documents: ${err instanceof Error ? err.message : String(err)}` });
     }
-
-    const documents = listDocuments(database, collectionId);
-    return { documents };
   });
 
   server.delete("/documents/:id", async (req, reply) => {

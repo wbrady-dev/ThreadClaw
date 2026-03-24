@@ -250,8 +250,8 @@ export async function query(
             strategy += "+entity_boost";
           }
         }
-      } catch {
-        // Non-fatal: entity boost failure doesn't block search
+      } catch (err) {
+        if (process.env.DEBUG) console.warn('[query] Entity boost failed:', err instanceof Error ? err.message : String(err));
       }
     }
   }
