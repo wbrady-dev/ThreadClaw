@@ -847,104 +847,127 @@ async function configureNer(): Promise<void> {
 
 async function configureEvidence(): Promise<void> {
   const root = getRootDir();
-  const env = readEnvMap(root);
-  const items = await promptChecklist({
-    title: "Evidence OS",
-    message: "Toggle the relation, awareness, claim, attempt, and deep extraction features.",
-    items: [
-      { key: "relations", label: "Entity Relations", checked: env.THREADCLAW_MEMORY_RELATIONS_ENABLED === "true", description: "Master switch for graph-aware memory." },
-      { key: "awareness", label: "Awareness Notes", checked: env.THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED === "true", description: "Inject short context notes into prompts." },
-      { key: "claims", label: "Claim Extraction", checked: env.THREADCLAW_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED === "true", description: "Extract factual claims from outputs." },
-      { key: "attempts", label: "Attempt Tracking", checked: env.THREADCLAW_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED === "true", description: "Track successful and failed tool attempts." },
-      { key: "deep", label: "Deep Extraction", checked: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED === "true", description: "Use an LLM for richer graph extraction." },
-    ],
-    confirmLabel: "Save features",
-  });
 
-  if (!items) return;
+  while (true) {
+    const env = readEnvMap(root);
+    const relOn = env.THREADCLAW_MEMORY_RELATIONS_ENABLED === "true";
+    const awarenessOn = env.THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED === "true";
+    const claimsOn = env.THREADCLAW_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED === "true";
+    const attemptsOn = env.THREADCLAW_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED === "true";
+    const deepOn = env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED === "true";
+    const tier = env.THREADCLAW_MEMORY_RELATIONS_CONTEXT_TIER ?? "standard";
+    const deepProvider = env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER || "none";
+    const deepModel = env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL || "none";
+    const mode = env.THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE ?? "smart";
+    const dot = (on: boolean) => on ? t.ok("on") : t.dim("off");
 
-  const selected = new Set(items.filter((item) => item.checked).map((item) => item.key));
-  const relationsEnabled = selected.has("relations");
-  updateEnvValues(root, {
-    THREADCLAW_MEMORY_RELATIONS_ENABLED: relationsEnabled ? "true" : "false",
-    THREADCLAW_RELATIONS_ENABLED: relationsEnabled ? "true" : "false",
-    THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED: relationsEnabled && selected.has("awareness") ? "true" : "false",
-    THREADCLAW_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED: relationsEnabled && selected.has("claims") ? "true" : "false",
-    THREADCLAW_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED: relationsEnabled && selected.has("attempts") ? "true" : "false",
-    THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED: relationsEnabled && selected.has("deep") ? "true" : "false",
-  });
-
-  if (relationsEnabled) {
-    const tier = await promptMenu({
-      title: "Context Tier",
-      message: "Choose how much Evidence OS context to compile into prompts.",
+    const action = await promptMenu({
+      title: "Evidence OS",
+      message: "Knowledge graph, entity tracking, and LLM extraction settings.\nAll features are optional — ThreadClaw works without them.",
       items: [
-        { label: "Lite (110 tokens)", value: "lite" },
-        { label: "Standard (190 tokens)", value: "standard" },
-        { label: "Premium (280 tokens)", value: "premium" },
-        { label: "Keep current", value: "__keep__", color: t.dim },
+        { label: t.dim("── Feature Toggles ────────────"), value: "__sep_toggles__" },
+        { label: `  Entity Relations    ${dot(relOn)}`, value: "toggle-relations", description: "Master switch for the knowledge graph" },
+        { label: `  Awareness Notes     ${dot(awarenessOn)}`, value: "toggle-awareness", description: "Inject entity context into prompts" },
+        { label: `  Claim Extraction    ${dot(claimsOn)}`, value: "toggle-claims", description: "Extract factual claims from outputs" },
+        { label: `  Attempt Tracking    ${dot(attemptsOn)}`, value: "toggle-attempts", description: "Track tool success/failure patterns" },
+        { label: `  Deep Extraction     ${dot(deepOn)}`, value: "toggle-deep", description: "Use an LLM for richer extraction" },
+        { label: "", value: "__sep_blank1__" },
+        { label: t.dim("── Extraction LLM ────────────"), value: "__sep_llm__" },
+        { label: `  Provider            ${t.dim(deepProvider)}`, value: "deep-provider", description: "ollama, lmstudio, openai, anthropic" },
+        { label: `  Model               ${t.dim(deepModel)}`, value: "deep-model", description: "e.g. llama3.1:8b, gpt-4o-mini" },
+        { label: `  API Key             ${t.dim(env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_API_KEY ? "••••••" : "not set")}`, value: "deep-apikey", description: "Required for cloud providers" },
+        { label: `  Base URL            ${t.dim(env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_BASE_URL || "auto")}`, value: "deep-baseurl", description: "Custom endpoint for Ollama/LM Studio" },
+        { label: "", value: "__sep_blank2__" },
+        { label: t.dim("── Tuning ────────────────────"), value: "__sep_tuning__" },
+        { label: `  Context Tier        ${t.dim(tier)}`, value: "context-tier", description: "How much graph context per prompt (lite/standard/premium)" },
+        { label: `  Extraction Mode     ${t.dim(mode)}`, value: "extraction-mode", description: "smart (LLM) or fast (regex, <5ms)" },
+        { label: `  Extraction Tuning`, value: "extraction-tuning", description: "Min mentions, stale days, decay interval" },
+        { label: `  Awareness Tuning`, value: "awareness-tuning", description: "Max notes, max tokens, doc surfacing" },
+        { label: "", value: "__sep_blank3__" },
+        { label: "  Back", value: "__back__", color: t.dim },
       ],
     });
-    if (tier && tier !== "__keep__") {
-      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_CONTEXT_TIER: tier });
+
+    if (!action || action === "__back__") return;
+    if (action.startsWith("__sep")) continue;
+
+    if (action === "toggle-relations") {
+      const next = relOn ? "false" : "true";
+      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_ENABLED: next, THREADCLAW_RELATIONS_ENABLED: next });
+      continue;
     }
-
-    if (selected.has("deep")) {
-      const provider = await promptText({
-        title: "Deep Extraction Provider",
-        message: "Examples: ollama, lmstudio, openai, anthropic. Leave blank to use the summary/OpenClaw model.",
-        label: "Provider",
-        initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER ?? "",
-        allowEmpty: true,
-      });
-      if (provider == null) return;
-
-      const model = await promptText({
-        title: "Deep Extraction Model",
-        message: "Examples: llama3.1:8b, gpt-4o-mini, claude-sonnet-4-20250514.",
-        label: "Model",
-        initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL ?? "",
-        allowEmpty: true,
-      });
-      if (model == null) return;
-
-      const apiKey = await promptText({
-        title: "Deep Extraction API Key",
-        message: "API key for the extraction LLM provider (default: none — uses OpenClaw auth)",
-        label: "API Key",
-        initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_API_KEY || "",
-        allowEmpty: true,
-        mask: "*",
-      });
-      if (apiKey !== null) {
-        updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_API_KEY: apiKey });
-      }
-
-      const baseUrl = await promptText({
-        title: "Deep Extraction Base URL",
-        message: "Custom API endpoint for Ollama/LM Studio/compatible (default: auto-detected from provider)",
-        label: "Base URL",
-        initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_BASE_URL || "",
-        allowEmpty: true,
-      });
-      if (baseUrl !== null) {
-        updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_BASE_URL: baseUrl });
-      }
-
-      updateEnvValues(root, {
-        THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER: provider,
-        THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL: model,
-      });
+    if (action === "toggle-awareness") {
+      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED: awarenessOn ? "false" : "true" });
+      continue;
     }
-
-    await configureFieldGroup("Extraction Tuning", EXTRACTION_TUNING_FIELDS);
-    await showNotice("Extraction Tuning", "Extraction tuning settings saved.");
-
-    await configureFieldGroup("Awareness Tuning", AWARENESS_TUNING_FIELDS);
-    await showNotice("Awareness Tuning", "Awareness tuning settings saved.");
+    if (action === "toggle-claims") {
+      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_CLAIM_EXTRACTION_ENABLED: claimsOn ? "false" : "true" });
+      continue;
+    }
+    if (action === "toggle-attempts") {
+      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_ATTEMPT_TRACKING_ENABLED: attemptsOn ? "false" : "true" });
+      continue;
+    }
+    if (action === "toggle-deep") {
+      updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED: deepOn ? "false" : "true" });
+      continue;
+    }
+    if (action === "deep-provider") {
+      const val = await promptText({ title: "Deep Extraction Provider", message: "ollama, lmstudio, openai, anthropic, or blank for OpenClaw default", label: "Provider", initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER ?? "", allowEmpty: true });
+      if (val != null) updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER: val });
+      continue;
+    }
+    if (action === "deep-model") {
+      const val = await promptText({ title: "Deep Extraction Model", message: "e.g. llama3.1:8b, gpt-4o-mini, claude-sonnet-4-20250514", label: "Model", initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL ?? "", allowEmpty: true });
+      if (val != null) updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL: val });
+      continue;
+    }
+    if (action === "deep-apikey") {
+      const val = await promptText({ title: "Deep Extraction API Key", message: "API key for cloud providers. Leave blank to use OpenClaw auth.", label: "API Key", initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_API_KEY ?? "", allowEmpty: true, mask: "*" });
+      if (val != null) updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_API_KEY: val });
+      continue;
+    }
+    if (action === "deep-baseurl") {
+      const val = await promptText({ title: "Deep Extraction Base URL", message: "Custom endpoint (e.g. http://localhost:11434/v1). Blank = auto-detect.", label: "Base URL", initial: env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_BASE_URL ?? "", allowEmpty: true });
+      if (val != null) updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_BASE_URL: val });
+      continue;
+    }
+    if (action === "context-tier") {
+      const val = await promptMenu({
+        title: "Context Tier",
+        message: "How much Evidence OS context to compile into each prompt.",
+        items: [
+          { label: `Lite (110 tokens)${tier === "lite" ? " (current)" : ""}`, value: "lite" },
+          { label: `Standard (190 tokens)${tier === "standard" ? " (current)" : ""}`, value: "standard" },
+          { label: `Premium (280 tokens)${tier === "premium" ? " (current)" : ""}`, value: "premium" },
+          { label: "Cancel", value: "__back__", color: t.dim },
+        ],
+      });
+      if (val && val !== "__back__") updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_CONTEXT_TIER: val });
+      continue;
+    }
+    if (action === "extraction-mode") {
+      const val = await promptMenu({
+        title: "Extraction Mode",
+        message: "How entities and relations are extracted from text.",
+        items: [
+          { label: `Smart — LLM-based, higher quality${mode === "smart" ? " (current)" : ""}`, value: "smart" },
+          { label: `Fast — regex only, <5ms per message${mode === "fast" ? " (current)" : ""}`, value: "fast" },
+          { label: "Cancel", value: "__back__", color: t.dim },
+        ],
+      });
+      if (val && val !== "__back__") updateEnvValues(root, { THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE: val });
+      continue;
+    }
+    if (action === "extraction-tuning") {
+      await configureFieldGroup("Extraction Tuning", EXTRACTION_TUNING_FIELDS);
+      continue;
+    }
+    if (action === "awareness-tuning") {
+      await configureFieldGroup("Awareness Tuning", AWARENESS_TUNING_FIELDS);
+      continue;
+    }
   }
-
-  await showNotice("Evidence OS", "Evidence OS settings saved.");
 }
 
 async function configureWatchPaths(): Promise<void> {
