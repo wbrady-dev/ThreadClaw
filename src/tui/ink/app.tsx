@@ -560,7 +560,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [modelsUp]);
 
   const refresh = async () => { try {
     const [mUp, cUp, gpuState, autoStartState, statsRes, sourcesRes, healthRes] = await Promise.all([
