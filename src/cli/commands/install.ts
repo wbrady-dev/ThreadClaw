@@ -22,7 +22,8 @@ export const installCommand = new Command("install")
 
     if (capabilities.rich && !options.plain) {
       const { runInkInstall } = await import("../../tui/ink/install-actions.js");
-      await runInkInstall();
+      const completed = await runInkInstall();
+      if (!completed) process.exit(1);
       return;
     }
 
