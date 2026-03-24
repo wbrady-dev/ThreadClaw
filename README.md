@@ -256,7 +256,7 @@ Authentication: set `THREADCLAW_API_KEY` to require `Authorization: Bearer <key>
 ```
                     ThreadClaw (Node.js :18800)
                     +-------------------------------+
-  threadclaw query -> |  Query Pipeline               |
+  threadclaw query -> |  Query Pipeline             |
   HTTP POST      -> |  cache -> expand ->           |
   MCP tool       -> |  embed -> search ->           |
                     |  dedup -> gate -> rerank ->   |
@@ -266,7 +266,7 @@ Authentication: set `THREADCLAW_API_KEY` to require `Authorization: Bearer <key>
                                     |
                     +---------------+---------------+
                     |  3 SQLite Databases            |
-                    |  threadclaw.db: vectors + FTS5   |
+                    |  threadclaw.db: vectors + FTS5 |
                     |  graph.db: Evidence OS         |
                     |  memory.db: conversations      |
                     +---------------+---------------+
