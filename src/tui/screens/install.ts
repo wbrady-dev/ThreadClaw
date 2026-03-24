@@ -827,8 +827,8 @@ async function warmModel(python: string, model: ModelInfo, trustRemoteCode: bool
     });
     sp.succeed(`${model.name} ready`);
   } catch (error) {
-    sp.warn(`${model.name} download failed. It will retry on first startup.`);
-    console.log(t.dim(`  ${String(error).slice(0, 120)}`));
+    sp.fail(`${model.name} download failed.`);
+    throw new Error(`Model download failed for ${model.name}: ${String(error).slice(0, 200)}`);
   }
 }
 

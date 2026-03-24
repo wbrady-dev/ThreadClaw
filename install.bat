@@ -58,15 +58,16 @@ if %PYTHON_MINOR% LSS 10 (
 )
 
 :: ── Step 3: Node.js dependencies ──
-if not exist "%SCRIPT_DIR%\node_modules" (
+if not exist "%SCRIPT_DIR%\node_modules\.install-ok" (
     echo.
     echo [install] Installing Node.js dependencies...
     call npm install --no-audit --no-fund
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] npm install failed.
         pause
         exit /b 1
     )
+    type nul > "%SCRIPT_DIR%\node_modules\.install-ok"
     echo [OK] Node.js dependencies installed
 ) else (
     echo [OK] Node.js dependencies already present
@@ -74,11 +75,18 @@ if not exist "%SCRIPT_DIR%\node_modules" (
 set "THREADCLAW_SKIP_NODE_INSTALL=1"
 
 :: ── Step 4: Python virtual environment ──
+if exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" (
+    "%SCRIPT_DIR%\.venv\Scripts\python.exe" -c "import sys" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo [WARN] Existing venv is broken — recreating...
+        rmdir /s /q "%SCRIPT_DIR%\.venv"
+    )
+)
 if not exist "%SCRIPT_DIR%\.venv\Scripts\python.exe" (
     echo.
     echo [install] Creating Python virtual environment...
     python -m venv "%SCRIPT_DIR%\.venv"
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo [ERROR] Failed to create Python virtual environment.
         echo         Make sure 'python -m venv' works on your system.
         pause
@@ -106,6 +114,12 @@ if %errorlevel% neq 0 (
             pause
             exit /b 1
         )
+    )
+    "%SCRIPT_DIR%\.venv\Scripts\python.exe" -c "import torch" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo [ERROR] PyTorch installation failed.
+        pause
+        exit /b 1
     )
     echo [OK] PyTorch installed
 ) else (
@@ -151,11 +165,12 @@ if not exist "%SCRIPT_DIR%\memory-engine\node_modules\@sinclair\typebox" (
         echo [WARN] memory-engine npm install returned an error.
     )
     cd /d "%SCRIPT_DIR%"
-    if exist "%SCRIPT_DIR%\memory-engine\node_modules\@sinclair\typebox" (
+    if exist "%SCRIPT_DIR%\memory-engine\node_modules\@sinclair" (
         echo [OK] Memory-engine dependencies installed
     ) else (
-        echo [WARN] Memory-engine install incomplete. Plugin may not load.
-        echo         Fix: cd memory-engine ^&^& npm install
+        echo [ERROR] Memory-engine dependencies incomplete.
+        pause
+        exit /b 1
     )
 ) else (
     echo [OK] Memory-engine dependencies already present

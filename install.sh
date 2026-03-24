@@ -54,10 +54,11 @@ if [ "$PYTHON_MINOR" -lt 10 ]; then
 fi
 
 # ── Step 3: Node.js dependencies ──
-if [ ! -d "$SCRIPT_DIR/node_modules" ]; then
+if [ ! -f "$SCRIPT_DIR/node_modules/.install-ok" ]; then
   echo ""
   echo "[install] Installing Node.js dependencies..."
   npm install --no-audit --no-fund
+  touch "$SCRIPT_DIR/node_modules/.install-ok"
   echo "[OK] Node.js dependencies installed"
 else
   echo "[OK] Node.js dependencies already present"
@@ -66,6 +67,10 @@ export THREADCLAW_SKIP_NODE_INSTALL=1
 
 # ── Step 4: Python virtual environment ──
 VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python3"
+if [ -f "$VENV_PYTHON" ] && ! "$VENV_PYTHON" -c "import sys" 2>/dev/null; then
+  echo "[WARN] Existing venv is broken — recreating..."
+  rm -rf "$SCRIPT_DIR/.venv"
+fi
 if [ ! -f "$VENV_PYTHON" ]; then
   echo ""
   echo "[install] Creating Python virtual environment..."
@@ -88,6 +93,7 @@ if ! "$VENV_PYTHON" -c "import torch" 2>/dev/null; then
     "$SCRIPT_DIR/.venv/bin/pip" install torch torchvision --index-url https://download.pytorch.org/whl/cu124 2>&1 | tail -1 || \
     "$SCRIPT_DIR/.venv/bin/pip" install torch torchvision 2>&1 | tail -1
   fi
+  "$VENV_PYTHON" -c "import torch" 2>/dev/null || { echo "[ERROR] PyTorch installation failed."; exit 1; }
   echo "[OK] PyTorch installed"
   # Verify MPS (Apple Silicon GPU) availability on macOS
   if [ "$(uname)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
@@ -130,7 +136,8 @@ fi
 if [ ! -d "$SCRIPT_DIR/memory-engine/node_modules/@sinclair/typebox" ]; then
   echo "[install] Installing memory-engine dependencies..."
   (cd "$SCRIPT_DIR/memory-engine" && npm install --no-audit --no-fund 2>&1 | tail -1) || \
-    echo "[WARN] Memory-engine install incomplete. Run: cd memory-engine && npm install"
+    echo "[WARN] Memory-engine npm install returned an error."
+  [ -d "$SCRIPT_DIR/memory-engine/node_modules/@sinclair" ] || { echo "[ERROR] Memory-engine dependencies incomplete."; exit 1; }
   echo "[OK] Memory-engine dependencies installed"
 else
   echo "[OK] Memory-engine dependencies already present"
