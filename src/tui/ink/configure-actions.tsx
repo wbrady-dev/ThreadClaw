@@ -165,6 +165,9 @@ export async function runInkConfigureAction(action: ConfigureAction): Promise<vo
   else if (action === "embedding-tuning") await configureEmbeddingTuning();
   else if (action === "watch-tuning") await configureWatchTuning();
   else if (action === "rate-limiting") await configureRateLimiting();
+  else if (action === "summary-model") await configureSummaryModel();
+  else if (action === "query-tuning") await configureQueryTuning();
+  else if (action === "ingestion-tuning") await configureIngestionTuning();
 }
 
 export async function configureEmbeddingTuning(): Promise<void> {

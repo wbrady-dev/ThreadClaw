@@ -15,6 +15,7 @@ interface PromptMenuOptions extends BasePromptProps {
 
 interface PromptTextOptions extends BasePromptProps {
   label: string;
+  description?: string;
   initial?: string;
   placeholder?: string;
   mask?: string;
@@ -64,6 +65,7 @@ export async function promptText(options: PromptTextOptions): Promise<string | n
     <TextPrompt
       title={options.title}
       message={options.message}
+      description={options.description}
       label={options.label}
       initial={options.initial}
       placeholder={options.placeholder}
@@ -142,6 +144,7 @@ function MenuPrompt({
 function TextPrompt({
   title,
   message,
+  description,
   label,
   initial,
   placeholder,
@@ -176,7 +179,8 @@ function TextPrompt({
     <Box flexDirection="column">
       <Section title={title} />
       {message && <Text>{"  " + t.dim(message)}</Text>}
-      {message && <Text> </Text>}
+      {description && <Text>{t.dim(`  ${description}`)}</Text>}
+      {(message || description) && <Text> </Text>}
       <Text>{"  " + t.label(label)}</Text>
       <Box marginLeft={2}>
         <Text>{t.ok("> ")}</Text>
