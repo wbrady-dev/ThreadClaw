@@ -295,11 +295,11 @@ describe("H3 Anti-runbook confidence increment", () => {
     const arbs = getAntiRunbooks(db, 1);
     const arb = arbs.find((a) => a.anti_runbook_key === "arb1");
     expect(arb).toBeDefined();
-    // logistic: 0.3 + 0.7*(1 - 1/(1 + 2*0.5)) = 0.3 + 0.7*(1 - 0.5) = 0.65
-    // But confidence is blended by mo-store: new * 0.7 + old * 0.3
+    // Formula: 0.3 + 0.7*(totalFailureCount / (totalFailureCount + 3))
     // First upsert: confidence = 0.5
-    // Second upsert: logistic gives 0.65, blended = 0.65 * 0.7 + 0.5 * 0.3 = 0.605
-    expect(arb!.confidence).toBeCloseTo(0.605, 2);
+    // Second upsert: raw = 0.3 + 0.7*(2 / (2+3)) = 0.3 + 0.28 = 0.58
+    // Blended by mo-store: 0.58 * 0.7 + 0.5 * 0.3 = 0.556
+    expect(arb!.confidence).toBeCloseTo(0.556, 2);
   });
 });
 

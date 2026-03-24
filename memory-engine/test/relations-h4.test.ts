@@ -245,7 +245,7 @@ describe("H4 Snapshot historical accuracy", () => {
       VALUES ('invariant:hist:old-rule', 'invariant', 'inv::old-rule', 'Old rule',
         '{"key":"old-rule","description":"Old rule","severity":"warning","enforcementMode":"advisory"}',
         1, 0, 0.5,
-        'retired', '2026-01-01T10:00:00.000', '2026-01-01T14:00:00.000')
+        'superseded', '2026-01-01T10:00:00.000', '2026-01-01T14:00:00.000')
     `).run();
 
     // At 12:00 (before retirement), invariant should be visible

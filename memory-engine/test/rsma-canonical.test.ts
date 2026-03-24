@@ -87,13 +87,16 @@ describe("RSMA Canonical: claim keys", () => {
 describe("RSMA Canonical: decision keys", () => {
   it("builds decision::topic key", () => {
     const key = buildCanonicalKey("decision", "", { topic: "staging database" });
-    expect(key).toBe("decision::staging database");
+    expect(key).toMatch(/^decision::[0-9a-f]{16}$/);
   });
 
-  it("truncates long topics at 60 chars", () => {
+  it("hashes long topics consistently", () => {
     const longTopic = "a".repeat(100);
     const key = buildCanonicalKey("decision", "", { topic: longTopic });
-    expect(key).toBe(`decision::${"a".repeat(60)}`);
+    expect(key).toMatch(/^decision::[0-9a-f]{16}$/);
+    // same input → same hash
+    const key2 = buildCanonicalKey("decision", "", { topic: longTopic });
+    expect(key2).toBe(key);
   });
 
   it("returns undefined when topic is missing", () => {
