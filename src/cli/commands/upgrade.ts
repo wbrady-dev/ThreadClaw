@@ -84,11 +84,22 @@ function releaseLock(): void {
 
 // ── Backup validation ──
 
-function validateBackup(backupDir: string, expectedFiles: string[]): boolean {
+async function validateBackup(backupDir: string, expectedFiles: string[]): Promise<boolean> {
   for (const f of expectedFiles) {
     const p = resolve(backupDir, f);
     if (!existsSync(p)) return false;
     if (statSync(p).size === 0) return false;
+    if (f.endsWith(".db")) {
+      try {
+        const { DatabaseSync } = await import("node:sqlite");
+        const db = new DatabaseSync(p, { readOnly: true });
+        const result = (db.prepare("PRAGMA integrity_check").get() as any);
+        db.close();
+        if (result?.integrity_check !== "ok") return false;
+      } catch {
+        // If DatabaseSync not available, skip integrity check (still better than nothing)
+      }
+    }
   }
   return true;
 }
@@ -300,7 +311,7 @@ export const upgradeCommand = new Command("upgrade")
 
       // Validate backup
       if (!isDryRun && backedUpFiles.length > 0) {
-        if (validateBackup(backupDir, backedUpFiles)) {
+        if (await validateBackup(backupDir, backedUpFiles)) {
           ok("Backup validated (all files present and non-empty)");
         } else {
           err("Backup validation failed — aborting upgrade");

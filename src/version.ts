@@ -6,7 +6,7 @@
  * what state the integration is in.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "fs";
 import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
@@ -80,7 +80,9 @@ export function readManifest(): ThreadClawManifest {
 
 export function writeManifest(manifest: ThreadClawManifest): void {
   mkdirSync(THREADCLAW_HOME, { recursive: true });
-  writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n");
+  const tmpPath = MANIFEST_PATH + ".tmp";
+  writeFileSync(tmpPath, JSON.stringify(manifest, null, 2) + "\n");
+  renameSync(tmpPath, MANIFEST_PATH);
 }
 
 // ── App version from package.json ──

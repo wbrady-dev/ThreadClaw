@@ -49,10 +49,14 @@ goto :wait_loop
 
 :: ── Backup before pull ──
 if exist "%ROOT%\scripts\backup.bat" (
-    call "%ROOT%\scripts\backup.bat" >nul 2>&1
-    if %errorlevel% neq 0 echo [WARN] Backup skipped
+    call "%ROOT%\scripts\backup.bat"
+    if !errorlevel! neq 0 (
+        echo [ERROR] Backup failed. Aborting update for safety.
+        exit /b 1
+    )
 ) else (
-    echo [WARN] Backup skipped
+    echo [ERROR] Backup script not found. Aborting update for safety.
+    exit /b 1
 )
 
 :: ── Pull latest ──
@@ -94,8 +98,10 @@ if exist "%ROOT%\.venv\Scripts\pip.exe" (
 :: ── Rebuild ──
 echo [update] Building...
 call npm run build
-if %errorlevel% neq 0 (
-    echo [WARN] Build failed. Run 'npm run build' manually.
+if !errorlevel! neq 0 (
+    echo [ERROR] Build failed. Services will NOT be restarted.
+    echo [ERROR] Fix build errors and run: npm run build ^&^& threadclaw start
+    exit /b 1
 )
 
 :: ── Run migrations ──

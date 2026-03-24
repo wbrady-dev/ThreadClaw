@@ -43,7 +43,10 @@ for i in $(seq 1 15); do
 done
 
 # ── Backup before pull ──
-bash "$ROOT/scripts/backup.sh" 2>/dev/null || echo "[WARN] Backup skipped"
+if ! bash "$ROOT/scripts/backup.sh"; then
+  echo "[ERROR] Backup failed. Aborting update for safety."
+  exit 1
+fi
 
 # ── Pull latest ──
 echo "[update] Pulling latest from GitHub..."
@@ -72,7 +75,11 @@ fi
 
 # ── Rebuild ──
 echo "[update] Building..."
-npm run build || echo "[WARN] Build failed. Run 'npm run build' manually."
+if ! npm run build; then
+  echo "[ERROR] Build failed. Services will NOT be restarted."
+  echo "[ERROR] Fix build errors and run: npm run build && threadclaw start"
+  exit 1
+fi
 
 # ── Run migrations ──
 echo "[update] Running migrations..."

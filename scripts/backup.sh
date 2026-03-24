@@ -8,6 +8,8 @@
 
 set -e
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 BACKUP_ROOT="${1:-$HOME/backups/threadclaw}"
 BACKUP_DIR="$BACKUP_ROOT/$(date +%Y-%m-%d)"
 mkdir -p "$BACKUP_DIR"
@@ -16,9 +18,12 @@ echo "ThreadClaw Backup — $(date)"
 echo "Destination: $BACKUP_DIR"
 echo ""
 
-# Find databases
-THREADCLAW_DB="$HOME/.openclaw/services/threadclaw/data/threadclaw.db"
-MEMORY_DB="$HOME/.openclaw/threadclaw-memory.db"
+# Try to read data dir from .env
+DATA_DIR=$(grep '^THREADCLAW_DATA_DIR=' "$ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '"')
+[ -z "$DATA_DIR" ] && DATA_DIR="$HOME/.threadclaw/data"
+THREADCLAW_DB="$DATA_DIR/threadclaw.db"
+MEMORY_DB="$DATA_DIR/memory.db"
+GRAPH_DB="$DATA_DIR/graph.db"
 
 # Backup ThreadClaw knowledge DB
 if [ -f "$THREADCLAW_DB" ]; then
@@ -30,14 +35,24 @@ else
   echo "  ⚠ threadclaw.db not found at $THREADCLAW_DB"
 fi
 
-# Backup Memory Engine DB
+# Backup Memory DB
 if [ -f "$MEMORY_DB" ]; then
-  echo "  Backing up threadclaw-memory.db..."
-  sqlite3 "$MEMORY_DB" "VACUUM INTO '$BACKUP_DIR/threadclaw-memory.db'"
-  SIZE=$(du -sh "$BACKUP_DIR/threadclaw-memory.db" | cut -f1)
-  echo "  ✓ threadclaw-memory.db ($SIZE)"
+  echo "  Backing up memory.db..."
+  sqlite3 "$MEMORY_DB" "VACUUM INTO '$BACKUP_DIR/memory.db'"
+  SIZE=$(du -sh "$BACKUP_DIR/memory.db" | cut -f1)
+  echo "  ✓ memory.db ($SIZE)"
 else
-  echo "  ⚠ threadclaw-memory.db not found at $MEMORY_DB"
+  echo "  ⚠ memory.db not found at $MEMORY_DB"
+fi
+
+# Backup Graph DB
+if [ -f "$GRAPH_DB" ]; then
+  echo "  Backing up graph.db..."
+  sqlite3 "$GRAPH_DB" "VACUUM INTO '$BACKUP_DIR/graph.db'"
+  SIZE=$(du -sh "$BACKUP_DIR/graph.db" | cut -f1)
+  echo "  ✓ graph.db ($SIZE)"
+else
+  echo "  ⚠ graph.db not found at $GRAPH_DB"
 fi
 
 # Prune old backups (keep 30 days)
