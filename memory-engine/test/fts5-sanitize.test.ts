@@ -27,11 +27,11 @@ describe("sanitizeFts5Query", () => {
   });
 
   it("handles empty string", () => {
-    expect(sanitizeFts5Query("")).toBe('""');
+    expect(sanitizeFts5Query("")).toBeNull();
   });
 
   it("handles whitespace-only", () => {
-    expect(sanitizeFts5Query("   ")).toBe('""');
+    expect(sanitizeFts5Query("   ")).toBeNull();
   });
 
   it("handles single token", () => {

@@ -1,6 +1,7 @@
 import { readFile } from "fs/promises";
 import { basename } from "path";
 import type { ParsedDocument, StructureHint, DocMetadata } from "./index.js";
+import { logger } from "../../utils/logger.js";
 
 /**
  * Parse PDF files using pdfjs-dist.
@@ -66,7 +67,7 @@ export async function parsePdf(filePath: string): Promise<ParsedDocument> {
       }
     } catch (err) {
       // Skip corrupted page — don't abort the entire document
-      console.error(`[pdf] Failed to extract page ${i}: ${err}`);
+      logger.warn(`[pdf] Failed to extract page ${i}: ${err}`);
     }
   }
 

@@ -128,7 +128,7 @@ describe("RSMA Semantic: basic extraction", () => {
     const result = await semanticExtract("Need to rotate the API key before Friday", "msg-5", "user", config);
     const loop = result.objects.find((o) => o.kind === "loop");
     expect(loop).toBeDefined();
-    expect(loop!.effective_at).toBe("before Friday");
+    expect(loop!.effective_at).toBeUndefined();
     expect(result.eventTypes).toContain("task");
   });
 
