@@ -410,7 +410,7 @@ Authentication: set `THREADCLAW_API_KEY` to require `Authorization: Bearer <key>
 ```
                     ThreadClaw (Node.js :18800)
                     +-------------------------------+
-  threadclaw query -> |  Query Pipeline             |
+ threadclaw query-> |  Query Pipeline               |  
   HTTP POST      -> |  cache -> expand ->           |
   MCP tool       -> |  embed -> search ->           |
                     |  dedup -> gate -> rerank ->   |
