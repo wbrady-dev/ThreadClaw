@@ -20,108 +20,29 @@ ThreadClaw works standalone or as a plugin for [OpenClaw](https://openclaw.ai).
 
 ---
 
-## Why Does This Matter? (Real Examples)
+## OpenClaw vs OpenClaw + ThreadClaw
 
-Your AI agent's responses change dramatically depending on what memory system it has. Here's the same question asked across three setups:
+Without ThreadClaw, your agent only knows what's in the current conversation. With ThreadClaw, it has persistent memory across sessions — documents, decisions, corrections, and context that builds over time.
 
-### You ask: *"What database does staging use?"*
+**Scenario:** You told your agent two weeks ago that your team switched from PostgreSQL to SQLite for staging. Today you ask:
 
----
+> *"What database does staging use?"*
 
-**Setup 1: OpenClaw alone (no ThreadClaw)**
+| OpenClaw alone | OpenClaw + ThreadClaw |
+|---|---|
+| *"I don't have that information. What database does staging use?"* | *"Staging uses SQLite. You switched from PostgreSQL on March 10."* |
 
-Your AI has only the current conversation. If you told it last week, it's gone.
+It asks you to repeat yourself because it doesn't remember. ThreadClaw remembered the conversation, extracted the fact, and superseded the old one automatically.
 
-```
-I don't have information about your staging database.
-Could you tell me what database staging uses?
-```
+**Scenario:** Over several conversations you said "we're using Valkey for caching", then later "actually no, switch to Redis", then "final answer: Redis." Today you ask:
 
-It asks YOU because it has no memory beyond this conversation.
+> *"What's our caching setup?"*
 
----
+| OpenClaw alone | OpenClaw + ThreadClaw |
+|---|---|
+| *"Could you tell me about your caching setup?"* | *"You're using Redis for caching. This was finalized after initially considering Valkey."* |
 
-**Setup 2: OpenClaw + ThreadClaw RAG (document search)**
-
-ThreadClaw indexes your documents, notes, and files. It can search them.
-
-```
-Based on your infrastructure notes (last updated January 15):
-
-  "Staging environment runs PostgreSQL 15 on AWS RDS."
-
-Source: infrastructure/staging-setup.md
-```
-
-Better — it found an answer in your docs. But if you changed the database last week in a conversation and never updated the doc, it gives you the **old** answer.
-
----
-
-**Setup 3: OpenClaw + ThreadClaw Full (RAG + Evidence OS)**
-
-ThreadClaw extracts facts from your conversations automatically. When you said "we switched staging to SQLite" last Tuesday, it recorded that as a claim, superseded the old PostgreSQL claim, and tracked the change.
-
-```
-Staging uses SQLite.
-
-  [Resolved Facts — current state]
-  • staging uses: SQLite (conf=0.95)
-
-  [Active Decisions]
-  • Switch staging from PostgreSQL to SQLite
-
-  [Conversation History — may contain outdated info]
-  • March 18: "we switched staging to SQLite for the prototype phase"
-  • January 15: infrastructure notes mention PostgreSQL (superseded)
-```
-
-It knows the **current** answer, **why** it changed, **when** it changed, and what the **old** answer was — all without you manually updating anything.
-
----
-
-### You ask: *"Does Nina report to Alex?"*
-
-**Without Evidence OS:**
-```
-I don't have information about your team structure.
-```
-
-**With Evidence OS (after you mentioned it in conversation):**
-```
-No — Nina does not report to Alex.
-
-You initially mentioned Nina works under Alex, but later corrected
-this. The current state is that Nina does not report to Alex.
-
-  [Resolved Facts — current state]
-  • Nina reports_to: (none) (conf=0.90)
-```
-
-The system understood the negation ("Nina does NOT report to Alex"), superseded the old claim, and presents the corrected state.
-
----
-
-### You ask: *"What did we decide about caching?"*
-
-**RAG only (searched your docs but found nothing):**
-```
-I couldn't find any documents about caching decisions.
-```
-
-**With Evidence OS:**
-```
-You decided to use Redis for caching.
-
-  [Active Decisions]
-  • Use Redis for caching
-
-  [Conversation History]
-  • March 15: "we use Valkey for cache"
-  • March 16: "Ignore that — caching is not Valkey, it's Redis"
-  • March 18: "Final decision: caching uses Redis"
-```
-
-It tracked the full decision history — initial choice, correction, and final decision — automatically.
+ThreadClaw tracked the full correction chain — Valkey → Redis — and knows which answer is current. It also indexed your architecture docs so it can pull supporting context if needed.
 
 ---
 
