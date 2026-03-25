@@ -294,7 +294,13 @@ async function runResetKnowledgeBase(): Promise<void> {
         if (clearMemory) {
           try {
             const { DatabaseSync } = await import("node:sqlite");
-            const memPath = resolve(appConfig.dataDir, "memory.db");
+            const { homedir } = await import("os");
+            // Memory DB may be at config dataDir OR ~/.threadclaw/data/ (plugin default)
+            const candidates = [
+              resolve(appConfig.dataDir, "memory.db"),
+              resolve(homedir(), ".threadclaw", "data", "memory.db"),
+            ];
+            const memPath = candidates.find((p) => existsSync(p)) ?? candidates[0];
             const memDb = new DatabaseSync(memPath);
             // Count before deleting
             const ALLOWED_MEM_TABLES = new Set(["conversations", "messages", "summaries", "context_items", "summary_parents", "summary_messages", "message_parts", "large_files"]);

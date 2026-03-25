@@ -54,7 +54,14 @@ export function registerResetRoutes(server: FastifyInstance) {
     if (clearMemory) {
       try {
         const { DatabaseSync } = await import("node:sqlite");
-        const memPath = resolve(config.dataDir, "memory.db");
+        const { homedir } = await import("os");
+        const { existsSync } = await import("fs");
+        // Memory DB may be at config dataDir OR ~/.threadclaw/data/ (plugin default)
+        const memCandidates = [
+          resolve(config.dataDir, "memory.db"),
+          resolve(homedir(), ".threadclaw", "data", "memory.db"),
+        ];
+        const memPath = memCandidates.find((p) => existsSync(p)) ?? memCandidates[0];
         const memDb = new DatabaseSync(memPath);
         // Allowlist of valid memory tables to prevent SQL injection via table name interpolation
         const ALLOWED_MEM_TABLES = new Set([
