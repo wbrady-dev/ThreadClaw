@@ -1612,7 +1612,10 @@ export class LcmContextEngine implements ContextEngine {
                 apiKey: directApiKey || undefined,
                 baseUrl: _config.relationsDeepExtractionBaseUrl || undefined,
               });
-              if (directFn) completeFn = directFn;
+              if (directFn) {
+                completeFn = directFn;
+                console.log(`[rsma] Using direct ${extractionProvider}/${extractionModel} for extraction (API key configured)`);
+              }
             }
 
             writerResult = await semanticExtract(_content, _messageId, role, {
