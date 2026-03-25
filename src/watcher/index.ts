@@ -85,6 +85,20 @@ export class ThreadClawWatcher {
           "**/*.db",
           "**/*.db-journal",
           "**/*.db-wal",
+          // Windows protected junction points inside user folders
+          "**/My Videos/**",
+          "**/My Music/**",
+          "**/My Pictures/**",
+          "**/My Documents/**",
+          "**/Application Data/**",
+          "**/Local Settings/**",
+          "**/Cookies/**",
+          "**/NetHood/**",
+          "**/PrintHood/**",
+          "**/Recent/**",
+          "**/SendTo/**",
+          "**/Templates/**",
+          "**/Start Menu/**",
           ...(config.watch.excludePatterns
             ? config.watch.excludePatterns.split(",").map((p) => p.trim()).filter(Boolean)
             : []),

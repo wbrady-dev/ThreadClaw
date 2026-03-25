@@ -56,7 +56,7 @@ export class LocalAdapter implements SourceAdapter {
         paths: [resolve(c.path)],
         collection: c.collection,
         debounceMs: config.watch.debounceMs,
-        ingestExisting: false,
+        ingestExisting: true,
         fileTypes: cfg.fileTypes,
       }));
 
