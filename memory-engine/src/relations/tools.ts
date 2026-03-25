@@ -725,18 +725,22 @@ export function createCcMemoryTool(input: {
         }
 
         // ── 3b. Search entity-to-entity relations (provenance_links) ──
-        if (claimTerms.length > 0) {
+        {
           try {
             const allRels = getRelationGraph(db, 1, { limit: 30 });
-            const matchedRels = allRels.filter((r) => {
-              const text = `${r.subject_name} ${r.predicate} ${r.object_name}`.toLowerCase();
-              return claimTerms.some((t) => text.includes(t));
-            });
 
-            if (matchedRels.length > 0) {
+            if (allRels.length > 0) {
+              // Score relations: those matching query terms sort first, rest follow
+              const scored = allRels.map((r) => {
+                const text = `${r.subject_name} ${r.predicate} ${r.object_name}`.toLowerCase();
+                const matchCount = claimTerms.filter((t) => text.includes(t)).length;
+                return { rel: r, score: matchCount };
+              });
+              scored.sort((a, b) => b.score - a.score || b.rel.confidence - a.rel.confidence);
+
               sources.push("relations");
               const lines: string[] = [];
-              for (const r of matchedRels.slice(0, 8)) {
+              for (const { rel: r } of scored.slice(0, 12)) {
                 const line = `• ${r.subject_name} —[${r.predicate}]→ ${r.object_name} (conf=${r.confidence.toFixed(2)})`;
                 const cost = Math.ceil(line.length / 4);
                 if (tokenBudget - cost < 0) break;
