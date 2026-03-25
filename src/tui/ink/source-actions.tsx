@@ -508,11 +508,13 @@ async function configureAppleNotes(): Promise<void> {
 }
 
 async function promptDriveFolder(): Promise<string | null> {
+  console.log(t.dim("  Fetching folders from Google Drive..."));
   const folders = await listDriveFolders();
   if (folders.length === 0) {
+    console.log(t.dim("  Could not list folders — check console output above for errors."));
     const name = await promptText({
       title: "Drive Folder Name",
-      message: "Type the exact folder name if it is not listed automatically.",
+      message: "Could not fetch folder list. Type the exact folder name from your Drive.",
       label: "Folder",
     });
     if (!name) return null;
@@ -526,8 +528,10 @@ async function promptDriveFolder(): Promise<string | null> {
     return `${name}|${collection}`;
   }
 
+  console.log(t.ok(`  Found ${folders.length} folder(s) in your Drive.`));
   const picked = await promptMenu({
-    title: "Google Drive Folder",
+    title: "Select a Google Drive Folder",
+    message: `${folders.length} top-level folder(s) found.`,
     items: [
       ...folders.map((folder) => ({ label: folder.name, value: folder.name })),
       { label: "Type manually", value: "__manual__" },

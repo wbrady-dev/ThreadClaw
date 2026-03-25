@@ -420,7 +420,10 @@ export function removeGDriveCredentials(): void {
 
 /** List top-level folders in the user's Drive (for TUI browser) */
 export async function listDriveFolders(): Promise<{ id: string; name: string }[]> {
-  if (!existsSync(CREDENTIALS_FILE)) return [];
+  if (!existsSync(CREDENTIALS_FILE)) {
+    console.error("[gdrive] No credentials file found at", CREDENTIALS_FILE);
+    return [];
+  }
 
   try {
     const drive = await initDriveClient();
@@ -430,8 +433,13 @@ export async function listDriveFolders(): Promise<{ id: string; name: string }[]
       pageSize: 100,
       orderBy: "name",
     });
-    return (res.data.files ?? []).map((f) => ({ id: f.id!, name: f.name! }));
-  } catch {
+    const folders = (res.data.files ?? []).map((f) => ({ id: f.id!, name: f.name! }));
+    if (folders.length === 0) {
+      console.warn("[gdrive] API returned 0 folders — Drive may have no top-level folders or scope may be too narrow");
+    }
+    return folders;
+  } catch (err) {
+    console.error("[gdrive] Failed to list Drive folders:", err instanceof Error ? err.message : String(err));
     return [];
   }
 }
