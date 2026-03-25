@@ -1086,7 +1086,7 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
               }),
             );
           } catch (err) {
-            api.logger.error(`[cc-mem] modelAuth.resolveApiKeyForProvider failed: ${err instanceof Error ? err.message : String(err)}`);
+            api.logger.debug(`[cc-mem] modelAuth.resolveApiKeyForProvider: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         if (!resolvedApiKey && !modelAuth) {
@@ -1181,7 +1181,7 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
           request_temperature_sent: typeof completeOptions.temperature === "number" ? "true" : "false",
         };
       } catch (err) {
-        api.logger.error(`[cc-mem] completeSimple error: ${err instanceof Error ? err.message : String(err)}`);
+        api.logger.debug(`[cc-mem] completeSimple: ${err instanceof Error ? err.message : String(err)}`);
         return { content: [] };
       }
     },
@@ -1231,7 +1231,10 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         }
       }
 
-      const provider = (providerHint?.trim() || envSnapshot.openclawProvider || "openai").trim();
+      // When using OAuth (modelAuth available), prefer "openai-codex" over bare "openai"
+      // since OAuth tokens authenticate via the Codex endpoint, not the direct OpenAI API.
+      const defaultProvider = modelAuth ? "openai-codex" : "openai";
+      const provider = (providerHint?.trim() || envSnapshot.openclawProvider || defaultProvider).trim();
       return { provider, model: raw };
     },
     getApiKey: async (provider, model, options) => {
