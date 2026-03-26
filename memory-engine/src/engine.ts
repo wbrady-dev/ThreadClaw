@@ -2174,7 +2174,7 @@ export class LcmContextEngine implements ContextEngine {
         try {
           const { getCapabilities } = await import("./relations/capability-store.js");
           const caps = getCapabilities(this.graphDb, 1, { limit: 20 });
-          const noteworthy = caps.filter((c: Record<string, unknown>) => c.status === "deprecated" || c.status === "broken");
+          const noteworthy = caps.filter((c: Record<string, unknown>) => c.status === "unavailable" || c.status === "degraded");
           if (noteworthy.length > 0) {
             const lines = noteworthy.map((c: Record<string, unknown>) =>
               `[CAPABILITY: ${c.status}] ${c.display_name ?? c.capability_key}`,
