@@ -187,6 +187,33 @@ export function decayLoops(db: GraphDb, scopeId: number): number {
 }
 
 /**
+ * Mark relations as 'stale' when not updated in staleDays.
+ */
+export function decayRelations(db: GraphDb, scopeId: number, staleDays = 180): number {
+  const staled = db.prepare(`
+    UPDATE memory_objects
+    SET status = 'stale',
+        updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
+    WHERE scope_id = ?
+      AND kind = 'relation'
+      AND status = 'active'
+      AND updated_at < datetime('now', '-' || ? || ' days')
+  `).run(scopeId, staleDays);
+
+  if (Number(staled.changes) > 0) {
+    logEvidence(db, {
+      scopeId,
+      objectType: "relation",
+      objectId: 0,
+      eventType: "decay",
+      payload: { markedStale: Number(staled.changes), staleDays },
+    });
+  }
+
+  return Number(staled.changes);
+}
+
+/**
  * Apply all decay rules for a scope. Call lazily before queries.
  */
 export function applyDecay(
@@ -200,6 +227,7 @@ export function applyDecay(
     decayAntiRunbooks(db, scopeId, decayDays, opts);
     decayRunbooks(db, scopeId, staleDays);
     decayLoops(db, scopeId);
+    decayRelations(db, scopeId, staleDays);
   } catch {
     // Non-fatal: decay failure should not block queries
   }
