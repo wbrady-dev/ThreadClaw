@@ -57,6 +57,7 @@ export {
   createCcLoopsTool, createCcAttemptsTool,
   createCcBranchTool, createCcProceduresTool,
   createCcDiagnosticsTool, createCcMemoryTool,
+  createCcSynthesizeTool,
 } from "./tools.js";
 
 export { compileContextCapsules, type ContextCompilerConfig, type CompilerResult } from "./context-compiler.js";

@@ -718,3 +718,61 @@ export function extractClaimsFast(
 
   return safe;
 }
+
+// ---------------------------------------------------------------------------
+// Strategy 8: Invariant extraction from user messages
+// ---------------------------------------------------------------------------
+
+const INVARIANT_PATTERNS: Array<{ re: RegExp; severity: string; enforcementMode: string }> = [
+  // Strict / critical: absolute prohibitions and requirements
+  { re: /\b(?:never|must\s+not|must\s+never|do\s+not\s+ever)\s+(.{5,200})/i, severity: "critical", enforcementMode: "strict" },
+  { re: /\b(?:always|must\s+always|must)\s+(.{5,200})/i, severity: "error", enforcementMode: "strict" },
+  // Advisory: preferences and suggestions
+  { re: /\b(?:should\s+not|shouldn't|avoid)\s+(.{5,200})/i, severity: "warning", enforcementMode: "advisory" },
+  { re: /\b(?:should|prefer|try\s+to)\s+(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
+  // Explicit labels
+  { re: /\b(?:rule|constraint|invariant):\s*(.{5,200})/i, severity: "error", enforcementMode: "strict" },
+];
+
+export interface InvariantExtractionResult {
+  key: string;
+  description: string;
+  severity: string;
+  enforcementMode: string;
+  sourceId: string;
+}
+
+export function extractInvariantsFromText(
+  text: string,
+  sourceId: string,
+): InvariantExtractionResult[] {
+  const results: InvariantExtractionResult[] = [];
+  const seen = new Set<string>();
+
+  for (const { re, severity, enforcementMode } of INVARIANT_PATTERNS) {
+    re.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+      const description = match[1].trim().split(/[.!?]\s/)[0].trim();
+      if (description.length < 5 || description.length > 200) continue;
+
+      // Deduplicate by lowercased description
+      const dedupKey = description.toLowerCase();
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
+      // Generate a stable key from the description
+      const key = description.toLowerCase().replace(/[^a-z0-9]+/g, "_").substring(0, 60);
+
+      results.push({
+        key,
+        description,
+        severity,
+        enforcementMode,
+        sourceId,
+      });
+    }
+  }
+
+  return results;
+}

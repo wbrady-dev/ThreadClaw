@@ -1438,6 +1438,14 @@ export class LcmContextEngine implements ContextEngine {
             outputSummary: isError ? undefined : content.substring(0, 200),
           });
         });
+
+        // Auto-infer runbooks from repeated successful tool usage
+        if (status === "success") {
+          try {
+            const { inferRunbookFromAttempts } = await import("./relations/runbook-store.js");
+            inferRunbookFromAttempts(graphDb, 1, toolName.substring(0, 100));
+          } catch { /* non-fatal */ }
+        }
       } catch (err) {
         // Non-fatal: attempt tracking failure must not break message ingest
         console.warn("[cc-mem] attempt tracking failed:", err instanceof Error ? err.message : String(err));
@@ -1504,7 +1512,7 @@ export class LcmContextEngine implements ContextEngine {
     // Skip legacy extraction when RSMA pipeline will handle it (avoids double-writes)
     if (this.graphDb && claimExtractionEnabled && stored.role === "user" && !rsmaWillRun) {
       try {
-        const { extractClaimsFast, extractClaimsFromUserExplicit, extractDecisionsFromText, extractLoopsFromText } = await import("./relations/claim-extract.js");
+        const { extractClaimsFast, extractClaimsFromUserExplicit, extractDecisionsFromText, extractLoopsFromText, extractInvariantsFromText } = await import("./relations/claim-extract.js");
         const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
         const { upsertDecision } = await import("./relations/decision-store.js");
         const { openLoop } = await import("./relations/loop-store.js");
@@ -1552,6 +1560,22 @@ export class LcmContextEngine implements ContextEngine {
                 sourceId: l.sourceId,
               });
             }
+
+            // Invariant extraction: "Never ...", "Always ...", "Rule: ..."
+            try {
+              const { upsertInvariant } = await import("./relations/invariant-store.js");
+              const invariants = extractInvariantsFromText(stored.content, String(msgRecord.messageId));
+              for (const inv of invariants) {
+                upsertInvariant(graphDb, {
+                  scopeId: 1,
+                  invariantKey: inv.key,
+                  description: inv.description,
+                  severity: inv.severity as "critical" | "error" | "warning" | "info",
+                  enforcementMode: inv.enforcementMode as "strict" | "advisory",
+                  sourceId: inv.sourceId,
+                });
+              }
+            } catch { /* non-fatal */ }
           }
         });
       } catch (err) {
@@ -1674,7 +1698,7 @@ export class LcmContextEngine implements ContextEngine {
               // BUG 3 FIX: Actually supersede the old record in the physical table.
               // Without this, old claims stay status='active' forever.
               try {
-                const oldKindMatch = action.oldObjectId.match(/^(claim|decision|loop|invariant):(\d+)$/);
+                const oldKindMatch = action.oldObjectId.match(/^(claim|decision|loop|invariant|relation):(\d+)$/);
                 if (oldKindMatch) {
                   const oldKind = oldKindMatch[1];
                   const oldRawId = parseInt(oldKindMatch[2], 10);
@@ -1714,11 +1738,30 @@ export class LcmContextEngine implements ContextEngine {
                     graphDb.prepare(
                       "UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE kind = 'invariant' AND id = ?",
                     ).run(oldRawId);
+                  } else if (oldKind === "relation" && !isNaN(oldRawId)) {
+                    graphDb.prepare(
+                      "UPDATE memory_objects SET status = 'superseded', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE kind = 'relation' AND id = ?",
+                    ).run(oldRawId);
                   }
                 }
               } catch (supersErr) {
                 console.debug("[rsma] failed to supersede old record in physical table:", supersErr instanceof Error ? supersErr.message : String(supersErr));
               }
+              // Record state delta for supersession tracking
+              try {
+                const { recordStateDelta } = await import("./relations/delta-store.js");
+                recordStateDelta(graphDb, {
+                  scopeId: action.newObject.scope_id ?? 1,
+                  deltaType: "supersession",
+                  entityKey: action.newObject.canonical_key ?? action.newObject.id,
+                  summary: action.reason,
+                  oldValue: action.oldObjectId,
+                  newValue: action.newObject.id,
+                  confidence: action.newObject.confidence,
+                  sourceType: "reconciliation",
+                  sourceId: action.newObject.provenance?.source_id ?? "",
+                });
+              } catch { /* non-fatal */ }
             } else if (action.type === "conflict") {
               upsertMemoryObject(graphDb, action.conflictObject);
               projectProvenance(graphDb, action.conflictObject);
@@ -1826,6 +1869,27 @@ export class LcmContextEngine implements ContextEngine {
             }
           }
         }
+
+          // ── Deep claim extraction: LLM-powered claim mining (fallback) ──
+          // Only runs when semantic extraction didn't produce claims, to avoid
+          // double-extracting the same facts.
+          if (_config.relationsDeepExtractionEnabled && hasExtractionModel) {
+            const semanticClaimCount = writerResult.objects.filter(o => o.kind === "claim").length;
+            if (semanticClaimCount === 0) {
+              try {
+                const { extractClaimsDeep } = await import("./relations/deep-extract.js");
+                const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
+                const deepClaims = await extractClaimsDeep(_content, _deps, _config);
+                if (deepClaims.length > 0) {
+                  wt(gdb, () => {
+                    storeClaimExtractionResults(gdb, deepClaims, 1);
+                  });
+                }
+              } catch (deepClaimErr) {
+                console.debug("[rsma] deep claim extraction failed:", deepClaimErr instanceof Error ? deepClaimErr.message : String(deepClaimErr));
+              }
+            }
+          }
         // Health monitoring: track success
         _rsmaSuccessCount++;
         if (_rsmaSuccessCount % _RSMA_LOG_INTERVAL === 0) {
@@ -2073,6 +2137,22 @@ export class LcmContextEngine implements ContextEngine {
         } catch {
           // Non-fatal: context compiler failure must not block assembly
         }
+      }
+
+      // Surface deprecated/broken capabilities as system prompt notes
+      if (this.graphDb && this.config.relationsEnabled) {
+        try {
+          const { getCapabilities } = await import("./relations/capability-store.js");
+          const caps = getCapabilities(this.graphDb, 1, { limit: 20 });
+          const noteworthy = caps.filter((c: Record<string, unknown>) => c.status === "deprecated" || c.status === "broken");
+          if (noteworthy.length > 0) {
+            const lines = noteworthy.map((c: Record<string, unknown>) =>
+              `[CAPABILITY: ${c.status}] ${c.display_name ?? c.capability_key}`,
+            );
+            result.systemPromptAddition =
+              (result.systemPromptAddition ?? "") + "\n\n[ThreadClaw Capabilities]\n" + lines.join("\n");
+          }
+        } catch { /* non-fatal */ }
       }
 
       return result;

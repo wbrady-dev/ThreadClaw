@@ -383,16 +383,42 @@ export function buildAwarenessNote(
       .map((e) => e.composite_id);
     const terms = matchedEntities.map((e) => e.name);
 
-    if (matchedIds.length === 0) {
-      recordAwarenessEvent({
-        fired: false, noteCount: 0, noteTypes: [], latencyMs: Date.now() - start, terms, tokensAdded: 0,
-      });
-      return null;
-    }
-
     // Reserve tokens for header "[ThreadClaw Awareness]\n"
     const headerTokens = estimateTokens("[ThreadClaw Awareness]\n");
     let tokenBudget = config.maxTokens - headerTokens;
+
+    if (matchedIds.length === 0) {
+      // Proactive awareness: surface high-value entities even when none match current turn
+      try {
+        const highValue = withBudgetGuard(
+          () => db.prepare(`
+            SELECT content AS name,
+                   COALESCE(json_extract(structured_json, '$.mentionCount'), 1) AS mention_count
+            FROM memory_objects
+            WHERE kind = 'entity' AND status = 'active'
+            ORDER BY CAST(COALESCE(json_extract(structured_json, '$.mentionCount'), 1) AS INTEGER) DESC
+            LIMIT 3
+          `).all() as Array<{ name: string; mention_count: number }>,
+          25,
+        );
+        for (const hv of highValue) {
+          if (noteLines.length >= config.maxNotes) break;
+          const line = `Background: "${hv.name}" (${hv.mention_count} mentions) — high-activity entity`;
+          const cost = estimateTokens(line);
+          if (cost > tokenBudget) continue;
+          noteLines.push(line);
+          noteTypes.push("proactive");
+          tokenBudget -= cost;
+        }
+      } catch { /* non-fatal */ }
+
+      if (noteLines.length === 0) {
+        recordAwarenessEvent({
+          fired: false, noteCount: 0, noteTypes: [], latencyMs: Date.now() - start, terms, tokensAdded: 0,
+        });
+        return null;
+      }
+    }
 
     // Query 1: Mismatches (25ms guard)
     const mismatches = withBudgetGuard(

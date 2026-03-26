@@ -134,6 +134,28 @@ export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): num
     payload: { claimId: input.claimId, role: input.evidenceRole },
   });
 
+  // Propagate evidence to claim confidence
+  const weight = Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1));
+  try {
+    if (input.evidenceRole === "contradict") {
+      // Reduce confidence — floor at 0.05 to prevent total erasure
+      db.prepare(
+        `UPDATE memory_objects SET
+           confidence = MAX(0.05, confidence * (1.0 - ?)),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
+         WHERE id = ?`,
+      ).run(weight, input.claimId);
+    } else if (input.evidenceRole === "support") {
+      // Boost with diminishing returns — harder to push past 0.9
+      db.prepare(
+        `UPDATE memory_objects SET
+           confidence = MIN(1.0, confidence + ? * (1.0 - confidence) * 0.5),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
+         WHERE id = ?`,
+      ).run(weight, input.claimId);
+    }
+  } catch { /* non-fatal: belief propagation failure must not break evidence recording */ }
+
   return evidenceId;
 }
 

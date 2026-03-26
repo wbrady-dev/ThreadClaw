@@ -22,7 +22,9 @@ import { getRunbooks, getRunbookWithEvidence } from "./runbook-store.js";
 import { getAwarenessStats } from "./eval.js";
 import { compileContextCapsules } from "./context-compiler.js";
 import { getRelationGraph, getRelationsForEntity } from "./relation-store.js";
+import { synthesizeScope } from "./synthesis.js";
 import type { LcmContextEngine } from "../engine.js";
+import type { LcmConfig } from "../db/config.js";
 
 
 // ============================================================================
@@ -895,6 +897,57 @@ export function createCcMemoryTool(input: {
             sources,
             sectionsReturned: sections.length,
           },
+        };
+      } catch (err) {
+        return jsonResult({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// cc_synthesize — on-demand retrospective scope synthesis
+// ═══════════════════════════════════════════════════════════════════
+
+const CcSynthesizeSchema = Type.Object({
+  scope_id: Type.Optional(Type.Number({ description: "Scope ID (default: 1 = global)" })),
+});
+
+export function createCcSynthesizeTool(input: {
+  deps: LcmDependencies;
+  graphDb: GraphDb;
+  config: LcmConfig;
+}): AnyAgentTool {
+  return {
+    name: "cc_synthesize",
+    label: "ThreadClaw Synthesis",
+    description:
+      "Generate a retrospective synthesis of the current evidence state — claims, decisions, " +
+      "relations, loops, and invariants — into a coherent narrative summary. " +
+      "Requires LLM access (deep extraction must be enabled). Use sparingly — this is an LLM call.",
+    parameters: CcSynthesizeSchema,
+    async execute(_toolCallId, params) {
+      const p = params as Record<string, unknown>;
+      const scopeId = typeof p.scope_id === "number" ? Math.trunc(p.scope_id) : 1;
+
+      if (!input.config.relationsDeepExtractionEnabled) {
+        return {
+          content: [{ type: "text", text: "Synthesis requires deep extraction to be enabled (relationsDeepExtractionEnabled). Configure an extraction model first." }],
+          details: { error: "deep_extraction_disabled" },
+        };
+      }
+
+      try {
+        const result = await synthesizeScope(input.graphDb, scopeId, input.deps, input.config);
+        if (!result) {
+          return {
+            content: [{ type: "text", text: "No evidence found to synthesize for this scope." }],
+            details: { empty: true },
+          };
+        }
+        return {
+          content: [{ type: "text", text: result }],
+          details: { scopeId, synthesized: true },
         };
       } catch (err) {
         return jsonResult({ error: err instanceof Error ? err.message : String(err) });

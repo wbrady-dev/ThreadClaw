@@ -190,13 +190,15 @@ function deltaCapsules(deltas: DeltaRow[]): CapsuleCandidate[] {
 
 function invariantCapsules(invariants: InvariantRow[]): CapsuleCandidate[] {
   return invariants.map((inv) => {
-    const text = `[invariant:${inv.severity}] ${inv.description}`;
+    const modeLabel = inv.enforcement_mode === "strict" ? "STRICT" : "advisory";
+    const text = `[INVARIANT: ${modeLabel}/${inv.severity}] ${inv.description}`;
     const tokens = estimateTokens(text);
-    // Critical invariants score highest
+    // Strict invariants always make the budget (score 1.0)
+    // Advisory invariants scored by severity
     const severityScore: Record<string, number> = {
       critical: 1.0, error: 0.9, warning: 0.7, info: 0.4,
     };
-    const score = severityScore[inv.severity] ?? 0.5;
+    const score = inv.enforcement_mode === "strict" ? 1.0 : (severityScore[inv.severity] ?? 0.5);
     return {
       type: "invariant",
       text,
