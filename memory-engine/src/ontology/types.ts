@@ -17,6 +17,7 @@ export type MemoryKind =
   | "claim"      // factual assertions (projected to graph.db)
   | "decision"   // recorded choices (projected to graph.db)
   | "entity"     // named things (projected to graph.db)
+  | "relation"   // entity-to-entity relationships (projected to graph.db)
   | "loop"       // open tasks/questions (projected to graph.db)
   | "attempt"    // tool execution records (projected to graph.db)
   | "procedure"  // runbooks + anti-runbooks merged (projected to graph.db)

@@ -134,9 +134,9 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
     });
 
     // Verify entity_relations table has the expected row
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(1);
-    expect(relations[0].detail).toBe("works_for");
+    expect(relations[0].content).toContain("works_for");
   });
 
   it("'Project uses PostgreSQL' creates a relation (predicate != 'is')", () => {
@@ -147,9 +147,9 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
       expect(result.created).toBe(true);
     });
 
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(1);
-    expect(relations[0].detail).toBe("uses");
+    expect(relations[0].content).toContain("uses");
   });
 
   it("'The sky is blue' does NOT create a relation (predicate = 'is', blacklisted)", () => {
@@ -160,7 +160,7 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
       expect(result.created).toBe(false);
     });
 
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(0);
   });
 
@@ -174,7 +174,7 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
       expect(result.created).toBe(false);
     });
 
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(0);
   });
 
@@ -187,7 +187,7 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
       expect(result.created).toBe(false);
     });
 
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(0);
   });
 
@@ -244,7 +244,7 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
       expect(result.objectName).toBe("auth team");
     });
 
-    const relations = db.prepare("SELECT * FROM provenance_links WHERE predicate = 'relates_to'").all() as Array<Record<string, unknown>>;
+    const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(1);
   });
 });

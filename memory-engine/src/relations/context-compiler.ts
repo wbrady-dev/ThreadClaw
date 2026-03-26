@@ -16,6 +16,7 @@ import { getOpenLoops, type LoopRow } from "./loop-store.js";
 import { getRecentDeltas, type DeltaRow } from "./delta-store.js";
 import { getActiveInvariants, type InvariantRow } from "./invariant-store.js";
 import { getAntiRunbooks, type AntiRunbookRow } from "./anti-runbook-store.js";
+import { getRelationGraph } from "./relation-store.js";
 import { applyDecay, type DecayConfig } from "./decay.js";
 import { runArchive } from "./archive.js";
 import { resolve } from "path";
@@ -222,6 +223,21 @@ function antiRunbookCapsules(antiRunbooks: AntiRunbookRow[]): CapsuleCandidate[]
   });
 }
 
+function relationCapsules(relations: Array<{ subject_name: string; predicate: string; object_name: string; confidence: number }>): CapsuleCandidate[] {
+  return relations.map((r) => {
+    const text = `[relation] ${r.subject_name} ${r.predicate} ${r.object_name}`;
+    const tokens = estimateTokens(text);
+    const score = r.confidence * 0.8; // Slightly below claims
+    return {
+      type: "relation",
+      text,
+      tokens,
+      score,
+      scorePerToken: score / Math.max(1, tokens),
+    };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -324,6 +340,11 @@ export function compileContextCapsules(
   try {
     const antiRbs = getAntiRunbooks(db, scopeId, { limit: 5 });
     candidates.push(...antiRunbookCapsules(antiRbs));
+  } catch { /* non-fatal */ }
+
+  try {
+    const rels = getRelationGraph(db, scopeId, { limit: 10 });
+    candidates.push(...relationCapsules(rels));
   } catch { /* non-fatal */ }
 
   if (candidates.length === 0) return null;

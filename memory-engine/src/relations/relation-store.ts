@@ -1,14 +1,18 @@
 /**
- * Relation store — entity-to-entity relationships extracted by deep mode.
+ * Relation store — entity-to-entity relationships with full lifecycle.
  *
- * Phase 2: All writes go to provenance_links ONLY. Legacy entity_relations
- * table writes removed. Reads from provenance_links only.
+ * Phase 3: Relations are now stored as memory_objects (kind='relation')
+ * with full TruthEngine support: supersession, confidence blending,
+ * evidence chains, archival, and context compilation.
  *
  * Function signatures are UNCHANGED — callers don't need to change.
  */
 
 import type { GraphDb } from "./types.js";
+import type { MemoryObject } from "../ontology/types.js";
 import { logEvidence } from "./evidence-log.js";
+import { upsertMemoryObject } from "../ontology/mo-store.js";
+import { buildCanonicalKey, normalize, normalizePredicate } from "../ontology/canonical.js";
 
 export interface UpsertRelationInput {
   scopeId: number;
@@ -32,158 +36,157 @@ export interface RelationRow {
   created_at: string;
 }
 
-export function upsertRelation(
-  db: GraphDb,
-  input: UpsertRelationInput,
-): { relationId: number; isNew: boolean } {
-  const subjectKey = `entity:${input.subjectEntityId}`;
-  const objectKey = `entity:${input.objectEntityId}`;
-  const confidence = input.confidence ?? 0.5;
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
 
-  // Check for existing
-  const existing = db.prepare(
-    "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = 'relates_to' AND object_id = ? AND detail = ? AND scope_id = ?",
-  ).get(subjectKey, objectKey, input.predicate, input.scopeId) as { id: number } | undefined;
+/** Resolve entity display name and composite_id from numeric row ID. */
+function resolveEntity(db: GraphDb, entityId: number): { name: string; compositeId: string } {
+  try {
+    const row = db.prepare(
+      "SELECT composite_id, content, structured_json FROM memory_objects WHERE id = ? AND kind = 'entity'",
+    ).get(entityId) as { composite_id: string; content: string; structured_json: string | null } | undefined;
 
-  if (existing) {
-    // Update confidence (average)
-    db.prepare(`
-      UPDATE provenance_links SET
-        confidence = (confidence + ?) / 2.0
-      WHERE id = ?
-    `).run(confidence, existing.id);
-  } else {
-    db.prepare(`
-      INSERT INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      subjectKey,
-      "relates_to",
-      objectKey,
-      confidence,
-      input.predicate,
-      input.scopeId,
-      JSON.stringify({ source_type: input.sourceType, source_id: input.sourceId }),
-    );
-  }
+    if (row) {
+      let displayName = row.content;
+      try {
+        const s = row.structured_json ? JSON.parse(row.structured_json) : {};
+        displayName = String(s.displayName ?? s.name ?? row.content);
+      } catch { /* use content */ }
+      return { name: displayName, compositeId: row.composite_id };
+    }
+  } catch { /* fall through */ }
 
-  const row = db.prepare(
-    "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = 'relates_to' AND object_id = ? AND detail = ? AND scope_id = ?",
-  ).get(subjectKey, objectKey, input.predicate, input.scopeId) as { id: number };
-
-  const isNew = !existing;
-
-  logEvidence(db, {
-    scopeId: input.scopeId,
-    objectType: "relation",
-    objectId: row.id,
-    eventType: isNew ? "create" : "update",
-    payload: { predicate: input.predicate },
-  });
-
-  return { relationId: row.id, isNew };
+  return { name: String(entityId), compositeId: `entity:${entityId}` };
 }
 
-/**
- * Get relations for an entity (as subject, object, or both).
- */
-/** Parse "entity:42" -> 42, returning 0 on failure. */
-function parseEntityId(compositeId: unknown): number {
-  const parts = String(compositeId ?? "").split(":");
-  const n = Number(parts[1]);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** Safely parse JSON metadata, returning {} on failure. */
-function safeParseMeta(val: unknown): Record<string, unknown> {
+/** Parse structured_json safely. */
+function safeParseStructured(val: unknown): Record<string, unknown> {
   if (!val || typeof val !== "string") return {};
   try { return JSON.parse(val) as Record<string, unknown>; }
   catch { return {}; }
 }
 
-/** Batch-resolve entity display names (1 query instead of N). */
-function batchResolveEntityNames(db: GraphDb, ids: number[]): Map<number, string> {
-  const names = new Map<number, string>();
-  if (ids.length === 0) return names;
-  const unique = [...new Set(ids)];
-
-  // Try memory_objects first for entity names
-  for (let i = 0; i < unique.length; i += 500) {
-    const batch = unique.slice(i, i + 500);
-    const placeholders = batch.map(() => "?").join(",");
-    try {
-      const rows = db.prepare(
-        `SELECT id, structured_json FROM memory_objects WHERE id IN (${placeholders}) AND kind = 'entity'`,
-      ).all(...batch) as Array<{ id: number; structured_json: string | null }>;
-      for (const r of rows) {
-        try {
-          const s = r.structured_json ? JSON.parse(r.structured_json) : {};
-          names.set(r.id, String(s.displayName ?? s.name ?? r.id));
-        } catch { names.set(r.id, String(r.id)); }
-      }
-    } catch { /* fall through */ }
-
-    // Fill in any missing with their numeric ID as fallback
-    const missing = batch.filter((id) => !names.has(id));
-    for (const id of missing) names.set(id, String(id));
-  }
-  return names;
+/** Convert a memory_objects row (kind='relation') to RelationRow with names. */
+function moRowToRelationRow(row: Record<string, unknown>): RelationRow & { subject_name: string; object_name: string } {
+  const s = safeParseStructured(row.structured_json);
+  return {
+    id: Number(row.id),
+    scope_id: Number(row.scope_id ?? 1),
+    subject_entity_id: 0, // numeric ID no longer primary — use names/compositeIds
+    predicate: String(s.predicate ?? ""),
+    object_entity_id: 0,
+    confidence: Number(row.confidence ?? 0.5),
+    source_type: String(s.sourceType ?? ""),
+    source_id: String(s.sourceId ?? ""),
+    created_at: String(row.created_at ?? ""),
+    subject_name: String(s.subjectName ?? ""),
+    object_name: String(s.objectName ?? ""),
+  };
 }
 
-/** Convert provenance_links rows to RelationRow format with entity names. */
-function mapProvLinksToRelations(
+// ---------------------------------------------------------------------------
+// Upsert
+// ---------------------------------------------------------------------------
+
+export function upsertRelation(
   db: GraphDb,
-  rows: Array<Record<string, unknown>>,
-): Array<RelationRow & { subject_name: string; object_name: string }> {
-  const allIds = rows.flatMap((r) => [parseEntityId(r.subject_id), parseEntityId(r.object_id)]);
-  const names = batchResolveEntityNames(db, allIds);
+  input: UpsertRelationInput,
+): { relationId: number; isNew: boolean } {
+  const confidence = input.confidence ?? 0.5;
 
-  return rows.map((r) => {
-    const subjId = parseEntityId(r.subject_id);
-    const objId = parseEntityId(r.object_id);
-    const meta = safeParseMeta(r.metadata);
-    return {
-      id: Number(r.id),
-      scope_id: Number(r.scope_id ?? 1),
-      subject_entity_id: subjId,
-      predicate: String(r.detail ?? "relates_to"),
-      object_entity_id: objId,
-      confidence: Number(r.confidence),
-      source_type: String(meta.source_type ?? ""),
-      source_id: String(meta.source_id ?? ""),
-      created_at: String(r.created_at),
-      subject_name: names.get(subjId) ?? String(r.subject_id),
-      object_name: names.get(objId) ?? String(r.object_id),
-    } as RelationRow & { subject_name: string; object_name: string };
+  // Resolve entity names from numeric IDs (backward compat with all callers)
+  const subject = resolveEntity(db, input.subjectEntityId);
+  const object = resolveEntity(db, input.objectEntityId);
+
+  const predNorm = normalizePredicate(input.predicate);
+  const compositeId = `relation:${input.scopeId}:${input.subjectEntityId}:${predNorm}:${input.objectEntityId}`;
+  const content = `${subject.name} ${input.predicate} ${object.name}`;
+
+  const canonicalKey = buildCanonicalKey("relation", content, {
+    subjectName: subject.name,
+    predicate: input.predicate,
+    objectName: object.name,
   });
+
+  const mo: MemoryObject = {
+    id: compositeId,
+    kind: "relation",
+    content,
+    structured: {
+      subjectName: subject.name,
+      predicate: input.predicate,
+      objectName: object.name,
+      subjectCompositeId: subject.compositeId,
+      objectCompositeId: object.compositeId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+    },
+    canonical_key: canonicalKey ?? undefined,
+    provenance: {
+      source_kind: "extraction",
+      source_id: input.sourceId,
+      actor: "system",
+      trust: 0.5,
+    },
+    confidence,
+    freshness: 1.0,
+    provisional: false,
+    status: "active",
+    observed_at: new Date().toISOString(),
+    scope_id: input.scopeId,
+    influence_weight: "standard",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const result = upsertMemoryObject(db, mo);
+
+  logEvidence(db, {
+    scopeId: input.scopeId,
+    objectType: "relation",
+    objectId: result.moId,
+    eventType: result.isNew ? "create" : "update",
+    payload: { predicate: input.predicate },
+  });
+
+  return { relationId: result.moId, isNew: result.isNew };
 }
 
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+/**
+ * Get relations for an entity (as subject, object, or both).
+ */
 export function getRelationsForEntity(
   db: GraphDb,
   entityId: number,
   direction: "subject" | "object" | "both" = "both",
 ): Array<RelationRow & { subject_name: string; object_name: string }> {
-  const entityKey = `entity:${entityId}`;
+  // Resolve the entity's composite_id for matching
+  const entity = resolveEntity(db, entityId);
+
   let whereClause: string;
   let args: unknown[];
 
   if (direction === "subject") {
-    whereClause = "p.subject_id = ? AND p.predicate = 'relates_to'";
-    args = [entityKey];
+    whereClause = "kind = 'relation' AND status = 'active' AND json_extract(structured_json, '$.subjectCompositeId') = ?";
+    args = [entity.compositeId];
   } else if (direction === "object") {
-    whereClause = "p.object_id = ? AND p.predicate = 'relates_to'";
-    args = [entityKey];
+    whereClause = "kind = 'relation' AND status = 'active' AND json_extract(structured_json, '$.objectCompositeId') = ?";
+    args = [entity.compositeId];
   } else {
-    whereClause = "(p.subject_id = ? OR p.object_id = ?) AND p.predicate = 'relates_to'";
-    args = [entityKey, entityKey];
+    whereClause = "kind = 'relation' AND status = 'active' AND (json_extract(structured_json, '$.subjectCompositeId') = ? OR json_extract(structured_json, '$.objectCompositeId') = ?)";
+    args = [entity.compositeId, entity.compositeId];
   }
 
   const rows = db.prepare(`
-    SELECT p.id, p.subject_id, p.object_id, p.confidence, p.detail, p.scope_id, p.metadata, p.created_at
-    FROM provenance_links p WHERE ${whereClause} ORDER BY p.confidence DESC
+    SELECT * FROM memory_objects WHERE ${whereClause} ORDER BY confidence DESC
   `).all(...args) as Array<Record<string, unknown>>;
 
-  return mapProvLinksToRelations(db, rows);
+  return rows.map(moRowToRelationRow);
 }
 
 /**
@@ -194,22 +197,23 @@ export function getRelationGraph(
   scopeId: number,
   opts?: { predicate?: string; limit?: number },
 ): Array<RelationRow & { subject_name: string; object_name: string }> {
-  const limit = opts?.limit ?? 50;
+  const limit = opts?.limit ?? 500;
 
-  const where = ["p.predicate = 'relates_to'", "p.scope_id = ?"];
+  const where = ["kind = 'relation'", "status = 'active'", "scope_id = ?"];
   const args: unknown[] = [scopeId];
+
   if (opts?.predicate) {
-    where.push("p.detail = ?");
+    where.push("json_extract(structured_json, '$.predicate') = ?");
     args.push(opts.predicate);
   }
+
   args.push(limit);
 
   const rows = db.prepare(`
-    SELECT p.id, p.subject_id, p.object_id, p.confidence, p.detail, p.scope_id, p.metadata, p.created_at
-    FROM provenance_links p
+    SELECT * FROM memory_objects
     WHERE ${where.join(" AND ")}
-    ORDER BY p.confidence DESC LIMIT ?
+    ORDER BY confidence DESC LIMIT ?
   `).all(...args) as Array<Record<string, unknown>>;
 
-  return mapProvLinksToRelations(db, rows);
+  return rows.map(moRowToRelationRow);
 }

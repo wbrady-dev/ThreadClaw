@@ -485,7 +485,7 @@ export function createCcDiagnosticsTool(input: {
         const rbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND (json_extract(structured_json, '$.isNegative') IS NULL OR json_extract(structured_json, '$.isNegative') = 0)");
         const arbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND json_extract(structured_json, '$.isNegative') = 1");
         const evEvents = safe("SELECT COUNT(*) as cnt FROM evidence_log");
-        const rels = safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'relates_to'");
+        const rels = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'relation' AND status = 'active'");
         const n = (v: number) => v >= 0 ? String(v) : "n/a";
 
         sections.push(`[Evidence Graph]

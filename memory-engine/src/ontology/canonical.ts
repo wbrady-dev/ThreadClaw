@@ -44,7 +44,7 @@ const PREDICATE_ALIASES: Record<string, string> = {
   working_with: "works_with",
 };
 
-function normalizePredicate(predicate: string): string {
+export function normalizePredicate(predicate: string): string {
   const lower = predicate.toLowerCase().trim().replace(/\s+/g, "_");
   return PREDICATE_ALIASES[lower] ?? lower;
 }
@@ -67,6 +67,12 @@ interface StructuredProcedure {
 
 interface StructuredInvariant {
   key?: string;
+}
+
+interface StructuredRelation {
+  subjectName?: string;
+  predicate?: string;
+  objectName?: string;
 }
 
 interface StructuredCapability {
@@ -112,6 +118,16 @@ export function buildCanonicalKey(
       const name = normalize(content);
       if (!name) return undefined;
       return `entity::${name}`;
+    }
+
+    case "relation": {
+      // relation::subject::predicate::object (with predicate normalization)
+      const r = structured as StructuredRelation | undefined;
+      const subj = normalize(r?.subjectName);
+      const pred = r?.predicate ? normalizePredicate(r.predicate) : "";
+      const obj = normalize(r?.objectName);
+      if (!subj || !pred || !obj) return undefined;
+      return `relation::${subj}::${pred}::${obj}`;
     }
 
     case "loop": {

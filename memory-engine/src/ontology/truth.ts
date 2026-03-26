@@ -82,7 +82,7 @@ export interface ReconcileResult {
 const MIN_SUPERSESSION_CONFIDENCE = 0.3;
 
 const SUPERSESSION_KINDS = new Set<MemoryKind>([
-  "claim", "decision", "loop", "invariant", "procedure",
+  "claim", "decision", "loop", "invariant", "procedure", "relation",
 ]);
 
 function kindFamily(kind: MemoryKind): string {
@@ -92,6 +92,7 @@ function kindFamily(kind: MemoryKind): string {
     case "loop": return "loop";
     case "invariant": return "invariant";
     case "procedure": return "procedure";
+    case "relation": return "relation";
     default: return kind;
   }
 }
@@ -119,6 +120,10 @@ function extractValueFromRow(row: Record<string, unknown>): string | null {
   }
   if (kind === "claim" && typeof structured.objectText === "string") return structured.objectText;
   if (kind === "decision" && typeof structured.decisionText === "string") return structured.decisionText;
+  if (kind === "relation") {
+    const val = [structured.subjectName, structured.predicate, structured.objectName].filter(Boolean).join(" ");
+    return val || String(row.content ?? "");
+  }
   if (kind === "loop") return String(row.content ?? "");
   if (kind === "invariant" && typeof structured.description === "string") return structured.description;
   return String(row.content ?? "");
@@ -170,6 +175,10 @@ function extractValueForComparison(obj: MemoryObject): string | null {
   if (!s) return typeof obj.content === "string" ? obj.content : null;
   if (obj.kind === "claim" && typeof s.objectText === "string") return s.objectText;
   if (obj.kind === "decision" && typeof s.decisionText === "string") return s.decisionText;
+  if (obj.kind === "relation") {
+    const val = [s?.subjectName, s?.predicate, s?.objectName].filter(Boolean).join(" ");
+    return val || (typeof obj.content === "string" ? obj.content : null);
+  }
   if (obj.kind === "loop" && typeof obj.content === "string") return obj.content;
   if (obj.kind === "invariant" && typeof s.description === "string") return s.description as string;
   return typeof obj.content === "string" ? obj.content : null;

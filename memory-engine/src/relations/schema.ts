@@ -9,6 +9,7 @@
 
 import { chmodSync } from "fs";
 import type { GraphDb } from "./types.js";
+import { normalizePredicate } from "../ontology/canonical.js";
 
 // ---------------------------------------------------------------------------
 // Migration v1 DDL
@@ -1569,6 +1570,102 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
       db.exec("CREATE INDEX IF NOT EXISTS idx_prov_pred_obj ON provenance_links(predicate, object_id)");
     } catch {}
     markMigrationApplied(db, 24);
+  }
+
+  // Migration v25: Backfill entity-to-entity relations from provenance_links into memory_objects (kind='relation')
+  if (!isMigrationApplied(db, 25)) {
+    try {
+      const rows = db.prepare(
+        "SELECT id, subject_id, object_id, confidence, detail, scope_id, metadata, created_at FROM provenance_links WHERE predicate = 'relates_to'",
+      ).all() as Array<Record<string, unknown>>;
+
+      if (rows.length > 0) {
+        const insert = db.prepare(`
+          INSERT OR IGNORE INTO memory_objects
+            (composite_id, kind, canonical_key, content, structured_json, scope_id, branch_id,
+             status, confidence, trust_score, influence_weight, source_kind, source_id,
+             first_observed_at, last_observed_at, observed_at, provisional, created_at, updated_at)
+          VALUES (?, 'relation', ?, ?, ?, ?, 0,
+                  'active', ?, 0.5, 'standard', 'extraction', ?,
+                  ?, ?, ?, 0, ?, ?)
+        `);
+
+        const tx = db.transaction(() => {
+          for (const row of rows) {
+            const subjParts = String(row.subject_id ?? "").split(":");
+            const objParts = String(row.object_id ?? "").split(":");
+            const subjId = Number(subjParts[1]) || 0;
+            const objId = Number(objParts[1]) || 0;
+            const predicate = String(row.detail ?? "relates_to");
+            const scopeId = Number(row.scope_id ?? 1);
+            const confidence = Number(row.confidence ?? 0.5);
+            const createdAt = String(row.created_at ?? new Date().toISOString());
+
+            // Resolve entity names
+            let subjName = String(subjId);
+            let objName = String(objId);
+            let subjCompositeId = String(row.subject_id ?? `entity:${subjId}`);
+            let objCompositeId = String(row.object_id ?? `entity:${objId}`);
+
+            try {
+              const subjRow = db.prepare("SELECT composite_id, content, structured_json FROM memory_objects WHERE id = ? AND kind = 'entity'").get(subjId) as Record<string, unknown> | undefined;
+              if (subjRow) {
+                subjCompositeId = String(subjRow.composite_id);
+                try {
+                  const s = subjRow.structured_json ? JSON.parse(String(subjRow.structured_json)) : {};
+                  subjName = String(s.displayName ?? s.name ?? subjRow.content ?? subjId);
+                } catch { subjName = String(subjRow.content ?? subjId); }
+              }
+            } catch { /* use fallback */ }
+
+            try {
+              const objRow = db.prepare("SELECT composite_id, content, structured_json FROM memory_objects WHERE id = ? AND kind = 'entity'").get(objId) as Record<string, unknown> | undefined;
+              if (objRow) {
+                objCompositeId = String(objRow.composite_id);
+                try {
+                  const s = objRow.structured_json ? JSON.parse(String(objRow.structured_json)) : {};
+                  objName = String(s.displayName ?? s.name ?? objRow.content ?? objId);
+                } catch { objName = String(objRow.content ?? objId); }
+              }
+            } catch { /* use fallback */ }
+
+            const predNorm = normalizePredicate(predicate);
+            const compositeId = `relation:${scopeId}:${subjId}:${predNorm}:${objId}`;
+            const sn = subjName.toLowerCase().trim().replace(/\s+/g, " ");
+            const on = objName.toLowerCase().trim().replace(/\s+/g, " ");
+            const canonicalKey = (sn && predNorm && on) ? `relation::${sn}::${predNorm}::${on}` : undefined;
+            const content = `${subjName} ${predicate} ${objName}`;
+            const structured = JSON.stringify({
+              subjectName: subjName,
+              predicate,
+              objectName: objName,
+              subjectCompositeId: subjCompositeId,
+              objectCompositeId: objCompositeId,
+              sourceType: "migration",
+              sourceId: "v25",
+            });
+
+            let meta: Record<string, unknown> = {};
+            try { if (row.metadata) meta = JSON.parse(String(row.metadata)); } catch { /* empty */ }
+            const sourceId = String(meta.source_id ?? "migration-v25");
+
+            insert.run(
+              compositeId, canonicalKey ?? null, content, structured, scopeId,
+              confidence, sourceId,
+              createdAt, createdAt, createdAt, createdAt, createdAt,
+            );
+          }
+        });
+        tx();
+      }
+
+      // Expression indexes for fast relation lookups
+      try {
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_rel_subject ON memory_objects(json_extract(structured_json, '$.subjectCompositeId')) WHERE kind = 'relation'`);
+        db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_rel_object ON memory_objects(json_extract(structured_json, '$.objectCompositeId')) WHERE kind = 'relation'`);
+      } catch { /* expression indexes may not be supported on older SQLite */ }
+    } catch { /* non-fatal */ }
+    markMigrationApplied(db, 25);
   }
 
   // File permissions: chmod 600 on Unix/macOS, skip on Windows
