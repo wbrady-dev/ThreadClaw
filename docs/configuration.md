@@ -101,10 +101,18 @@ All configuration is via environment variables. Copy `.env.example` to `.env` an
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED` | `false` | Enable LLM-powered deep extraction |
+| `THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED` | `false` | Enable LLM-powered deep extraction. When enabled, invariant extraction is automatic (LLM-primary with regex fallback). |
 | `THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_MODEL` | `` | Model for deep extraction (falls back to summary model) |
 | `THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_PROVIDER` | `` | Provider for deep extraction |
 | `THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE` | `smart` | Extraction mode: `smart` (LLM-based semantic extraction) or `fast` (regex-only, no LLM, <5ms). Smart mode uses the same model as deep extraction. |
+
+### Awareness
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED` | `false` | Enable awareness notes injection. When enabled, includes proactive awareness (top entities surfaced when no specific matches found). |
+
+Note: `THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED` also appears in the main Awareness section above. The setting controls both reactive awareness (mismatches, staleness, connections) and proactive awareness (top entities when no matches).
 
 ### Extraction Quality Filters
 

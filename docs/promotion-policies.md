@@ -46,6 +46,12 @@ canPromote IF:
 
 **Invariant promotion**: Needs confidence >= 0.7 AND either user confirmation OR confidence >= 0.9. Most conservative policy — invariants affect all future actions.
 
+## Supersession Participation
+
+The following kinds participate in truth reconciliation supersession via `SUPERSESSION_KINDS`: claim, decision, loop, invariant, procedure, relation, entity, capability.
+
+Entity and capability were added in v0.3.3. This means that when a newer entity or capability object shares the same canonical key as an existing one, the TruthEngine will supersede the older object rather than creating a duplicate.
+
 ## Customization
 
 Policies are stored in the `promotion_policies` table. You can UPDATE them directly:

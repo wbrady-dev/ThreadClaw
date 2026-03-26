@@ -6,11 +6,11 @@ Runbooks and anti-runbooks are now stored as **procedures** (kind='procedure') i
 
 ## Runbooks (Success Patterns)
 
-Runbooks capture learned success patterns from tool execution history. When a tool succeeds N consecutive times with similar input, ThreadClaw auto-infers a runbook.
+Runbooks capture learned success patterns from tool execution history. When a tool succeeds 3+ consecutive times with similar input, ThreadClaw auto-infers a runbook. Runbook capsules are surfaced in CCL (context compiler) with success rate display.
 
 ### Lifecycle
 1. **Observe**: Tool attempts are recorded as MemoryObjects (kind='attempt')
-2. **Infer**: `inferRunbookFromAttempts()` detects success streaks (default: 3 consecutive)
+2. **Infer**: `inferRunbookFromAttempts()` detects success streaks (threshold: 3 consecutive)
 3. **Store**: Pattern stored as MemoryObject (kind='procedure', isNegative=false) with success/failure counts and confidence
 4. **Link**: Attempts are linked as evidence via `provenance_links` (predicate='supports')
 5. **Surface**: Context compiler includes procedures based on ROI scoring

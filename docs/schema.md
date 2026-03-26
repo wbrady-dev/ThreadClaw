@@ -1,6 +1,6 @@
 # Schema Reference
 
-All evidence tables live in `graph.db` (`~/.threadclaw/data/graph.db`). 19 migrations.
+All evidence tables live in `graph.db` (`~/.threadclaw/data/graph.db`). 25 migrations.
 
 ## Core Tables (Current)
 
@@ -12,7 +12,7 @@ The unified knowledge store. All structured knowledge (claims, decisions, entiti
 |--------|------|-------------|
 | id | INTEGER PK | Auto-increment |
 | composite_id | TEXT UNIQUE | Namespaced ID (e.g. `claim:42`, `decision:7`) |
-| kind | TEXT | claim, decision, entity, loop, attempt, procedure, invariant, delta, conflict |
+| kind | TEXT | claim, decision, entity, loop, attempt, procedure, invariant, delta, conflict, capability, runbook, relation, event, chunk, message |
 | canonical_key | TEXT | Dedup/supersession key (per-kind strategies) |
 | content | TEXT | Human-readable text |
 | structured_json | TEXT | Machine-readable JSON payload (StructuredClaim, StructuredDecision, etc.) |
@@ -43,15 +43,17 @@ Cross-object relationships. Replaces 7 legacy join tables (entity_mentions, clai
 |--------|------|-------------|
 | id | INTEGER PK | Auto-increment |
 | subject_id | TEXT | Source MemoryObject ID |
-| predicate | TEXT | derived_from, supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by |
+| predicate | TEXT | derived_from, supports, contradicts, supersedes, mentioned_in, resolved_by |
 | object_id | TEXT | Target MemoryObject ID |
 | confidence | REAL | 0.0-1.0 |
-| detail | TEXT | For relates_to: the specific relationship (e.g. "manages") |
+| detail | TEXT | Additional context for the link |
 | scope_id | INTEGER | Scope (default 1) |
 | metadata | TEXT | Optional JSON metadata |
 | created_at | TEXT | Millisecond ISO timestamp |
 
-Constraint: `UNIQUE(subject_id, predicate, object_id)`. Predicate is CHECK-constrained to the 7 valid values.
+Constraint: `UNIQUE(subject_id, predicate, object_id)`. Predicate is CHECK-constrained to the 6 valid values.
+
+**Note:** Relations (entity-to-entity relationships) were moved from `provenance_links` (predicate='relates_to') to `memory_objects` (kind='relation') in migration v25. Relations now have full lifecycle support (supersession, evidence chains, decay, archival) as first-class MemoryObjects.
 
 ## Infrastructure (Migration v1)
 
@@ -136,6 +138,7 @@ The following tables were renamed to `_legacy_*` in migration v18. They are reta
 | v17 | Copy all legacy data into memory_objects + provenance_links |
 | v18 | Rename legacy tables to _legacy_* |
 | v19 | UNIQUE constraint on composite_id, updated_at index |
+| v25 | Backfill relations from provenance_links (predicate='relates_to') to memory_objects (kind='relation') |
 
 ## Key Constraints
 
@@ -143,4 +146,4 @@ The following tables were renamed to `_legacy_*` in migration v18. They are reta
 - `evidence_log.idempotency_key` has UNIQUE constraint for race-safe dedup
 - `memory_objects.composite_id` has UNIQUE constraint (enforced in v19)
 - `provenance_links` has UNIQUE constraint on `(subject_id, predicate, object_id)`
-- `provenance_links.predicate` is CHECK-constrained to 7 valid values
+- `provenance_links.predicate` is CHECK-constrained to 6 valid values (relates_to removed in v25)

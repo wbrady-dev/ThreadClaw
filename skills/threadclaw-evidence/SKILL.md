@@ -5,7 +5,7 @@ description: ThreadClaw Evidence OS — structured memory for agents. Use cc_mem
 
 # ThreadClaw Evidence OS
 
-ThreadClaw automatically extracts and tracks structured knowledge from conversations. All knowledge is stored as `MemoryObject` instances in the unified `memory_objects` table with 8 agent-facing kinds (claim, decision, entity, loop, attempt, procedure, invariant, conflict). Cross-object evidence relationships are stored in `provenance_links` with typed predicates (supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by, derived_from).
+ThreadClaw automatically extracts and tracks structured knowledge from conversations. All knowledge is stored as `MemoryObject` instances in the unified `memory_objects` table with 9 agent-facing kinds (claim, decision, entity, loop, attempt, procedure, invariant, relation, conflict). Relations are first-class memory objects (`kind='relation'`) with full lifecycle support (creation, supersession, decay). Cross-object evidence relationships are stored in `provenance_links` with typed predicates (supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by, derived_from).
 
 **Most of RSMA is automatic. You do not need to call tools for it to work.**
 
@@ -13,21 +13,24 @@ ThreadClaw automatically extracts and tracks structured knowledge from conversat
 
 ThreadClaw uses one of two extraction modes (configured via `THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE`):
 
-- **Smart** (default when deep extraction model is configured): LLM-based semantic extraction. A single structured LLM call understands natural language without magic prefixes — "We're going with Postgres" is understood as a decision, "Actually no" as a correction. Uses the same model as deep extraction.
-- **Fast** (default when no model is configured): Regex-only extraction, no LLM calls, <5ms. Detects structured patterns like "Remember:", "We decided...", YAML frontmatter, tool results.
+- **Smart** (default when deep extraction model is configured): LLM-primary semantic extraction. A single structured LLM call understands natural language without magic prefixes — "We're going with Postgres" is understood as a decision, "Actually no" as a correction. Uses the same model as deep extraction. Includes LLM-powered invariant extraction (automatically detects invariants from conversation context).
+- **Fast** (default when no model is configured): Regex-only extraction with regex-based invariant detection as fallback, no LLM calls, <5ms. Detects structured patterns like "Remember:", "We decided...", YAML frontmatter, tool results.
 
 Both modes produce `MemoryObject` instances that are reconciled by the TruthEngine. Smart mode extracts more from natural language; fast mode requires more explicit patterns.
 
 Extraction quality is enforced by multiple filters: code block stripping (```blocks removed before LLM extraction), confidence floor (events below 0.35 rejected), and post-extraction junk filters (reject metadata, file paths, URLs, transient noise).
 
 ## What happens automatically (no tool call needed)
-- **Awareness notes** injected into your system prompt every turn — surfaces mismatches, stale references, and entity connections
+- **Awareness notes** injected into your system prompt every turn — surfaces mismatches, stale references, entity connections, and **proactive awareness** (top entities surfaced when no specific matches are found)
+- **Capability warnings** — unavailable or degraded capabilities are surfaced as warnings in the system prompt
 - **Named entity extraction** via spaCy NER — people, organizations, locations, dates extracted from all ingested content and conversations
 - **Claims** extracted from natural language (smart mode) or structured patterns like "Remember:" statements, tool results, document headings, YAML frontmatter (fast mode)
 - **Decisions** extracted from natural language (smart mode) or "We decided..." patterns (fast mode, user messages only)
 - **TruthEngine reconciliation** — new knowledge is automatically reconciled against existing beliefs (supersession, conflict detection, evidence accumulation)
 - **Tool outcomes** tracked from every tool execution (success/fail, duration, error)
-- **Procedures** learned automatically — success patterns (runbooks) and failure patterns (anti-runbooks)
+- **Procedures** learned automatically — success patterns (runbooks) and failure patterns (anti-runbooks). Runbook capsules auto-inferred in CCL after 3+ consecutive successes.
+- **Evidence belief propagation** — contradict/support links between claims automatically update confidence (contradictions lower confidence, support raises it)
+- **Relation lifecycle** — relations stored as `memory_objects` (kind='relation') with full creation, supersession, and decay (stale after 180 days via `decayRelations`)
 - **Context capsules** compiled and injected each turn (top claims, decisions, warnings, constraints) within a token budget
 - **Confidence decay** reduces stale evidence over time
 - **Evidence archival** when data exceeds 5000 events
@@ -61,6 +64,14 @@ cc_diagnostics { "verbose": true }
 - Shows internal RSMA health: memory stats, evidence counts, awareness metrics, compiler state, capabilities, recent events
 - Use `verbose: true` for event timeline and capsule content
 - Not for answering user questions
+
+### cc_synthesize — Cross-cutting analysis
+```json
+cc_synthesize { "query": "how do our caching decisions relate to performance issues?" }
+```
+- Synthesizes insights across multiple knowledge types (claims, decisions, entities, relations)
+- Use when a question spans multiple topics or needs cross-referencing
+- Returns a narrative synthesis, not raw data
 
 ## Specialist Tools (use when cc_memory isn't enough)
 
@@ -97,6 +108,8 @@ User asks something?
   |
   +-- Need tool history/patterns? --> cc_attempts / cc_procedures
   |
+  +-- Need cross-cutting synthesis? --> cc_synthesize
+  |
   +-- Debugging/health check? --> cc_diagnostics
 ```
 
@@ -105,6 +118,7 @@ User asks something?
 | Tool | Cost | Notes |
 |------|------|-------|
 | cc_memory | ~100-300 tokens | Searches everything automatically |
+| cc_synthesize | ~200-500 tokens | Cross-cutting analysis and synthesis |
 | cc_diagnostics | ~200 tokens | Health check (+verbose for events) |
 | cc_claims | ~100 tokens | Specific claims with evidence |
 | cc_decisions | ~50 tokens | Decision history |
@@ -123,6 +137,7 @@ Awareness notes are automatically injected into your system prompt. They surface
 - **Mismatches** — when the same entity appears with conflicting context across sources
 - **Stale references** — entities you mention that haven't been seen recently
 - **Connections** — entities that co-occur in the same documents
+- **Proactive awareness** — when no specific matches are found, the top relevant entities are surfaced automatically to maintain contextual grounding
 
 Entities are extracted using spaCy NER (people, organizations, locations, dates, events, products) and regex patterns. The entity cache refreshes immediately when new entities are added.
 

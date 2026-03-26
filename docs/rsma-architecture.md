@@ -10,14 +10,14 @@
 |-------|------|-------------|----------------|
 | **RAG** | Retrieval-Augmented Generation | Hybrid search (vector + BM25 + reranking) across documents and conversation history | 89 src tests (routes, parsers, chunking, CLI), full retrieval pipeline |
 | **DAG** | Directed Acyclic Graph | Summary lineage with provenance — compacted context traces back to source messages | `engine.test.ts`: compaction rounds, summary DAG traversal, grep across summaries |
-| **KG** | Knowledge Graph | Entity extraction, mention tracking, relationship mapping, mismatch detection | 1000 entities upserted in 56ms, re-ingestion atomicity verified, relation queries |
-| **AL** | Awareness Layer | Injects 1-3 contextual notes per turn — mismatches, stale refs, connections | Eval harness: 26% fire rate, p50=18ms, p95=28ms, ~30-80 tokens/turn |
-| **SL** | State Layer | Claims with evidence chains, decisions with auto-supersession, open loops with priority | 500 claims+evidence in 74ms, 10 rapid decision supersessions, loop lifecycle verified |
+| **KG** | Knowledge Graph | Entity extraction, mention tracking, relationship mapping (relations stored as memory_objects kind='relation'), mismatch detection | 1000 entities upserted in 56ms, re-ingestion atomicity verified, relation queries |
+| **AL** | Awareness Layer | Injects 1-3 contextual notes per turn — mismatches, stale refs, connections. Proactive awareness surfaces top entities when no matches in current turn | Eval harness: 26% fire rate, p50=18ms, p95=28ms, ~30-80 tokens/turn |
+| **SL** | State Layer | Claims with evidence chains, decisions with auto-supersession, open loops with priority. Invariant extraction: LLM primary with regex fallback ("invariant" is an LLM event type) | 500 claims+evidence in 74ms, 10 rapid decision supersessions, loop lifecycle verified |
 | **DE** | Delta Engine | Tracks state changes, confidence decay across 4 time windows | Decay formula verified: <7d=1.0, <30d=0.8, <90d=0.5, 90d+=0.3 |
-| **AOM** | Attempt & Outcome Memory | Records tool success/failure, learns runbooks and anti-runbooks | 300 attempts in 16ms, success rate calculation, evidence chains on both runbooks and anti-runbooks |
+| **AOM** | Attempt & Outcome Memory | Records tool success/failure, learns runbooks and anti-runbooks. Runbook auto-inference from 3+ consecutive successful tool uses | 300 attempts in 16ms, success rate calculation, evidence chains on both runbooks and anti-runbooks |
 | **BSG** | Branch & Scope Governance | Speculative branches with policy-validated promotion | Branch create→promote verified, policy thresholds enforced (confidence + evidence count) |
 | **EEL** | Evidence Event Log | Append-only audit trail, scope-local sequence ordering, idempotency | 1526 entries logged, scope_seq monotonic, UNIQUE constraint dedup, transaction rollback on crash |
-| **CCL** | Context Compiler | ROI-scored capsule compilation within token budgets | Lite=110, Standard=190, Premium=280 tokens enforced, 0.2ms/compile |
+| **CCL** | Context Compiler | ROI-scored capsule compilation within token budgets. CAPSULE_ORDER includes runbook (6) and relation (7). Runbook capsules show success rate. Capability warnings surfaced for unavailable/degraded tools | Lite=110, Standard=190, Premium=280 tokens enforced, 0.2ms/compile |
 
 ## What Changes With RSMA
 
@@ -32,7 +32,7 @@
 | Test Suite | Count | What It Verifies |
 |-----------|-------|-----------------|
 | ThreadClaw src tests | 89 | RAG pipeline, API routes, parsers, chunking, CLI |
-| Memory engine tests | 858 | DAG compaction, memory tools, assembler, expansion, auth, all 10 RSMA layers, stress, failure injection, ontology, mo-store, truth engine, semantic extraction |
+| Memory engine tests | 858 | DAG compaction, memory tools, assembler, expansion, auth, all 10 RSMA layers, stress, failure injection, ontology, mo-store, truth engine, semantic extraction (43 test files) |
 | **Total** | **947** | |
 
 ### What they do NOT cover
@@ -59,7 +59,7 @@
 | /analytics/diagnostics | HTTP endpoint for external monitoring (JSON) |
 | Search tuning | Configurable rerank threshold, top-K, smart skip, similarity gate, prefix mode, batch size |
 | "Has more" indicator | Truncated results signal availability of more data, guide agent to cc_claims/cc_decisions |
-| Unified ontology | MemoryObject type with 13 kinds, provenance_links table replacing 7 legacy join tables |
+| Unified ontology | MemoryObject type with 15 kinds, provenance_links table replacing 7 legacy join tables |
 | TruthEngine | 6 reconciliation rules with 5-point correction guard and first-class Conflict objects |
 | Smart extraction | LLM-based semantic extraction mode — single structured call understands natural language |
 | Fast extraction | Regex-only extraction mode — no LLM, <5ms, default when no model configured |
@@ -89,7 +89,7 @@
 
 ```
 memory-engine/src/ontology/           — RSMA unified ontology (new)
-  types.ts            — MemoryObject, MemoryKind (13 kinds), SourceKind, ProvenanceLink, RelevanceSignals, TaskMode weights
+  types.ts            — MemoryObject, MemoryKind (15 kinds), SourceKind, ProvenanceLink, RelevanceSignals, TaskMode weights
   canonical.ts        — per-kind canonical key generation (claim::subject::predicate, decision::topic, etc.)
   writer.ts           — regex-based message understanding (fast mode), produces MemoryObjects
   semantic-extractor.ts — LLM-based message understanding (smart mode), single structured LLM call
@@ -98,10 +98,10 @@ memory-engine/src/ontology/           — RSMA unified ontology (new)
   projector.ts        — provenance_links writer, supersession/conflict/evidence/mention recording
   correction.ts       — signal detection: correction, uncertainty, preference, temporal (regex, <1ms)
   migration.ts        — backfill legacy join tables → provenance_links (idempotent)
-  index.ts            — barrel exports
+  index.ts            — barrel exports (includes normalizePredicate)
 
 memory-engine/src/relations/          — Evidence OS stores + tools
-  schema.ts           — 19 migrations, memory_objects + provenance_links + infrastructure tables + _legacy_* renamed tables
+  schema.ts           — 25 migrations, memory_objects + provenance_links + infrastructure tables + _legacy_* renamed tables
   evidence-log.ts     — withWriteTransaction, writeWithIdempotency, logEvidence, nextScopeSeq
   entity-extract.ts   — extractFast (3 strategies: capitalized, terms-list, quoted)
   graph-store.ts      — upsertEntity, insertMention, deleteGraphDataForSource
@@ -122,12 +122,12 @@ memory-engine/src/relations/          — Evidence OS stores + tools
   timeline.ts         — getTimeline, formatTimelineEvent
   snapshot.ts         — getStateAtTime, getEvidenceAtTime
   relation-store.ts   — upsertRelation, getRelationsForEntity
-  deep-extract.ts     — extractClaimsDeep, extractRelationsDeep (LLM-powered)
+  deep-extract.ts     — extractClaimsDeep (wired), extractRelationsDeep (LLM-powered), recordStateDelta (wired)
   synthesis.ts        — synthesizeScope (LLM-powered evidence summary)
   decay.ts            — applyDecay (runbook staleness, anti-runbook confidence decay)
   terms.ts            — loadTerms (validated, cached 60s)
   eval.ts             — recordAwarenessEvent, getAwarenessStats (ring buffer, percentiles)
-  tools.ts            — 8 cc_* evidence tools (cc_memory, cc_claims, cc_decisions, cc_loops, cc_attempts, cc_branch, cc_procedures, cc_diagnostics)
+  tools.ts            — 9 cc_* evidence tools (cc_memory, cc_claims, cc_decisions, cc_loops, cc_attempts, cc_branch, cc_procedures, cc_synthesize, cc_diagnostics)
   index.ts            — exports
 ```
 

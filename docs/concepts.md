@@ -14,13 +14,13 @@ The implementation of RSMA's stateful layers. Tracks structured knowledge extrac
 
 ### Unified Ontology
 
-All knowledge types are MemoryObjects with one of 13 kinds: event, chunk, message, summary, claim, decision, entity, loop, attempt, procedure, invariant, delta, conflict. This replaced 13 legacy tables with one unified store (migration v16-v18).
+All knowledge types are MemoryObjects with one of 15 kinds: event, chunk, message, summary, claim, decision, entity, loop, attempt, procedure, invariant, delta, conflict, capability, relation. This replaced 13 legacy tables with one unified store (migration v16-v18). Relations were moved from provenance_links to memory_objects in migration v25.
 
 ### Entities & Awareness
-**Entities** (kind='entity') are named concepts extracted from text (people, tools, projects). ThreadClaw tracks where each entity appears via provenance_links (predicate='mentioned_in') and entity-to-entity relationships via provenance_links (predicate='relates_to'). **Awareness notes** surface relevant entity information in the system prompt -- mismatches across sources, stale references, and connections between entities.
+**Entities** (kind='entity') are named concepts extracted from text (people, tools, projects). ThreadClaw tracks where each entity appears via provenance_links (predicate='mentioned_in'). Entity-to-entity relationships are stored as **Relations** (kind='relation') in memory_objects, with full lifecycle support (supersession, evidence chains, decay after 180 days, archival). **Awareness notes** surface relevant entity information in the system prompt -- mismatches across sources, stale references, and connections between entities. **Proactive awareness** surfaces top entities when no matches are found in the current turn.
 
 ### Claims & Decisions
-**Claims** (kind='claim') are structured facts with StructuredClaim data: subject, predicate, objectText. Each claim has a confidence score, trust score, and evidence chain via provenance_links (predicate='supports' or 'contradicts'). **Decisions** (kind='decision') track active choices with automatic supersession -- when a new decision on the same topic is made, the old one is marked superseded.
+**Claims** (kind='claim') are structured facts with StructuredClaim data: subject, predicate, objectText, topic. Each claim has a confidence score, trust score, and evidence chain via provenance_links (predicate='supports' or 'contradicts'). Evidence belief propagation: contradicting evidence reduces confidence, supporting evidence boosts it. **Decisions** (kind='decision') track active choices with automatic supersession -- when a new decision on the same topic is made, the old one is marked superseded.
 
 ### Open Loops
 **Loops** (kind='loop') are pending items -- tasks, questions, follow-ups, dependencies. They have priority, owner, due date, and status (open, blocked, closed). The context compiler surfaces high-priority loops.
@@ -29,7 +29,7 @@ All knowledge types are MemoryObjects with one of 13 kinds: event, chunk, messag
 **Invariants** (kind='invariant') are durable constraints that must be respected -- "never force push to main", "always run tests before deploy". Ordered by severity (critical, error, warning, info).
 
 ### Capabilities
-**Capabilities** track known tools, services, and systems with their current status (available, unavailable, degraded). These remain in their own `capabilities` table.
+**Capabilities** track known tools, services, and systems with their current status (available, unavailable, degraded). These remain in their own `capabilities` table. **Capability warnings** are surfaced in the system prompt when tools are unavailable or degraded.
 
 ### State Deltas
 **Deltas** (kind='delta') record what changed, from what value to what value, and when. Provides a change log for the knowledge base.
@@ -44,7 +44,7 @@ All knowledge types are MemoryObjects with one of 13 kinds: event, chunk, messag
 **Leases** provide advisory coordination for multi-agent resource access. They expire naturally if an agent crashes.
 
 ### Evidence Decay
-Procedure confidence decays over time. Anti-runbooks (negative procedures) decay by 0.8x every 90 days of inactivity. Runbooks with high failure rates get demoted. Stale items are marked for review.
+Procedure confidence decays over time. Anti-runbooks (negative procedures) decay by 0.8x every 90 days of inactivity. Runbooks with high failure rates get demoted. Stale items are marked for review. Relations decay after 180 days of inactivity (decayRelations).
 
 ### Timeline & Snapshots
 The **timeline** is a chronological event log materialized from the append-only evidence log. **Snapshots** reconstruct the knowledge state at any point in time.
@@ -80,10 +80,10 @@ ThreadClaw extracts structured knowledge from every message using one of two mod
 Configure with: `THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE=smart|fast`
 
 ### Unified Ontology
-All extracted knowledge is represented as `MemoryObject` instances. There are 13 kinds: event, chunk, message, summary, claim, decision, entity, loop, attempt, procedure, invariant, delta, and conflict. Each MemoryObject carries provenance (where it came from), confidence, freshness, a lifecycle status, and an influence weight.
+All extracted knowledge is represented as `MemoryObject` instances. There are 15 kinds: event, chunk, message, summary, claim, decision, entity, loop, attempt, procedure, invariant, delta, conflict, capability, and relation. Each MemoryObject carries provenance (where it came from), confidence, freshness, a lifecycle status, and an influence weight.
 
 ### Provenance Links
-Cross-object relationships are stored in a single `provenance_links` table with typed predicates: derived_from, supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by. This replaces 7 legacy join tables (entity_mentions, claim_evidence, entity_relations, runbook_evidence, anti_runbook_evidence, and implicit summary/conflict linkage).
+Cross-object relationships are stored in a single `provenance_links` table with typed predicates: derived_from, supports, contradicts, supersedes, mentioned_in, resolved_by. This replaces 7 legacy join tables. Entity-to-entity relations (formerly predicate='relates_to') are now stored as memory_objects (kind='relation') with full lifecycle support. SUPERSESSION_KINDS includes claim, decision, entity, capability, and relation.
 
 ### TruthEngine
 When new MemoryObjects are extracted, the TruthEngine reconciles them against existing knowledge using 6 rules:

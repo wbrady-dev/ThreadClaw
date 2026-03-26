@@ -1,6 +1,6 @@
 # Agent Tools
 
-ThreadClaw provides 12 agent tools: 4 core conversation tools and 8 evidence tools from the RSMA ontology.
+ThreadClaw provides 13 agent tools: 4 core conversation tools and 9 evidence tools from the RSMA ontology.
 
 ## Tool Summary
 
@@ -17,9 +17,10 @@ ThreadClaw provides 12 agent tools: 4 core conversation tools and 8 evidence too
 | `cc_attempts` | Evidence | Tool outcome history with success rates |
 | `cc_branch` | Evidence | Speculative branch management and promotion |
 | `cc_procedures` | Evidence | Learned success and failure patterns |
+| `cc_synthesize` | Evidence | On-demand LLM scope synthesis |
 | `cc_diagnostics` | Evidence | Internal RSMA health and observability |
 
-The 4 core tools are always available. The 8 evidence tools require Evidence OS (`THREADCLAW_MEMORY_RELATIONS_ENABLED=true`).
+The 4 core tools are always available. The 9 evidence tools require Evidence OS (`THREADCLAW_MEMORY_RELATIONS_ENABLED=true`).
 
 ## Usage Patterns
 
@@ -217,6 +218,18 @@ Show learned success patterns (runbooks) and failure patterns (anti-runbooks) fr
 | `scope_id` | number | | 1 | Scope ID |
 | `type` | string | | `"all"` | `"success"` (runbooks), `"failure"` (anti-runbooks), or `"all"` |
 | `runbook_id` | number | | -- | Get a specific runbook with full evidence chain |
+
+### cc_synthesize
+
+Generate retrospective synthesis of evidence state. Requires LLM. On-demand only.
+
+**Parameters:**
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `scope_id` | number | | 1 | Scope ID (default: global) |
+
+**Returns:** LLM-generated narrative summarizing the current state of evidence for the scope.
 
 ### cc_diagnostics
 

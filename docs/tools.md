@@ -1,6 +1,6 @@
 # Agent Tools Reference
 
-ThreadClaw provides 12 agent tools. 4 are always available (memory engine core), and 8 are available when `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`. All tools are registered as OpenClaw plugin tools accessible by the agent during conversations.
+ThreadClaw provides 13 agent tools. 4 are always available (memory engine core), and 9 are available when `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`. All tools are registered as OpenClaw plugin tools accessible by the agent during conversations.
 
 ## Memory Engine Tools (Always Available)
 
@@ -64,6 +64,10 @@ List learned success and failure patterns (runbooks and anti-runbooks).
 - `tool_name`: Filter by tool
 - `scope_id`: Scope filter
 
+### cc_synthesize
+Generate retrospective synthesis of evidence state. Requires LLM. On-demand only.
+- `scope_id`: Scope ID (default: 1 = global)
+
 ### cc_diagnostics
 Show internal RSMA health: summary counts, claim counts, awareness stats, context compiler output, recent evidence events, and compaction state.
 - `scope_id`: Scope ID (default: 1 = global)
@@ -72,10 +76,10 @@ Show internal RSMA health: summary counts, claim counts, awareness stats, contex
 ## Tool Availability
 
 - **Always available** (4): `cc_grep`, `cc_describe`, `cc_expand`, `cc_recall`
-- **Requires `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`** (8): `cc_memory`, `cc_claims`, `cc_decisions`, `cc_loops`, `cc_attempts`, `cc_branch`, `cc_procedures`, `cc_diagnostics`
+- **Requires `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`** (9): `cc_memory`, `cc_claims`, `cc_decisions`, `cc_loops`, `cc_attempts`, `cc_branch`, `cc_procedures`, `cc_synthesize`, `cc_diagnostics`
 
 All tools handle empty results gracefully and wrap queries in try/catch for non-fatal error handling.
 
 ## Extraction Mode
 
-The extraction mode (`THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE=smart|fast`) is transparent to tools. The same 12 tools work regardless of whether smart (LLM) or fast (regex) extraction is active. The extraction mode only affects how incoming messages are processed into MemoryObjects — tools read from the same underlying stores either way.
+The extraction mode (`THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE=smart|fast`) is transparent to tools. The same 13 tools work regardless of whether smart (LLM) or fast (regex) extraction is active. The extraction mode only affects how incoming messages are processed into MemoryObjects — tools read from the same underlying stores either way.

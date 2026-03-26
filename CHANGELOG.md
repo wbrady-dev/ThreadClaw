@@ -2,6 +2,39 @@
 
 All notable changes to ThreadClaw are documented here.
 
+## [0.3.3] — 2026-03-25
+
+### Relation Lifecycle
+- **Relations as memory_objects** — relations moved to `memory_objects` (kind='relation') with full lifecycle: creation, supersession, confidence decay
+- **decayRelations** — stale relations decay after 180 days, matching existing claim/procedure decay patterns
+- **Entity and capability in SUPERSESSION_KINDS** — entity and capability kinds now participate in truth reconciliation supersession
+
+### New Tool: cc_synthesize
+- **Cross-cutting analysis** — new agent tool that synthesizes insights across multiple knowledge types (claims, decisions, entities, relations)
+- 9 agent tools total: cc_claims, cc_decisions, cc_loops, cc_attempts, cc_branch, cc_procedures, cc_diagnostics, cc_memory, cc_synthesize
+
+### LLM-Primary Invariant Extraction
+- **LLM-powered invariant extraction** — invariants extracted via structured LLM call when deep extraction model is available
+- **Regex fallback** — regex-based invariant detection as fallback when LLM unavailable
+
+### Evidence Belief Propagation
+- **Contradict/support propagation** — provenance links (contradicts, supports) now propagate confidence changes to linked claims automatically
+- Contradictions lower target confidence; supporting evidence raises it
+
+### Runbook Auto-Inference
+- **CCL runbook capsules** — runbooks auto-inferred in the Context Compilation Layer after 3+ consecutive tool successes
+- Capsules surface proven success patterns without manual runbook creation
+
+### Proactive Awareness
+- **Top entities on no-match** — when awareness finds no specific mismatches, stale references, or connections, it proactively surfaces top relevant entities to maintain contextual grounding
+
+### Capability Warnings
+- **Unavailable/degraded warnings** — capabilities with unavailable or degraded status are now surfaced as warnings in the agent's system prompt
+
+### Audit
+- **50-agent audit** with 49+ fixes across the full codebase
+- **858 tests passing** in memory-engine
+
 ## [0.3.2] — 2026-03-23
 
 ### One True Ontology Migration

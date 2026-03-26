@@ -2,7 +2,7 @@
 
 **Persistent, evidence-backed memory for AI agents.**
 
-![tests](https://img.shields.io/badge/tests-947%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-947%20passing-brightgreen) <!-- 858 memory-engine + 89 src -->
 ![build](https://img.shields.io/github/actions/workflow/status/wbrady-dev/ThreadClaw/ci.yml?branch=main&label=build)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-22%2B-green)
@@ -78,7 +78,7 @@ This is the key differentiator. Evidence OS listens to your conversations and au
 | **Facts** | "staging uses SQLite" | Remembers project details without you writing docs |
 | **Decisions** | "we're going with Redis" | Tracks what was decided and why |
 | **Corrections** | "actually, not MySQL — use Postgres" | Supersedes old facts automatically |
-| **Relationships** | "Cassidy is my wife", "Bob manages auth" | Understands your world |
+| **Relationships** | "Cassidy is my wife", "Bob manages auth" | Understands your world (full relation lifecycle with decay) |
 | **Preferences** | "I prefer short replies" | Personalizes responses |
 | **Tasks** | "need to rotate the API key by Friday" | Tracks open items |
 | **Negations** | "Nina does NOT report to Alex" | Correctly handles "not" statements |
@@ -87,8 +87,8 @@ This is the key differentiator. Evidence OS listens to your conversations and au
 
 You just talk naturally. No special commands or prefixes needed.
 
-- **Smart mode** (default): Uses an LLM to understand your messages. Catches nuance, corrections, sarcasm, and mixed intent.
-- **Fast mode**: Regex-only, no LLM needed. Under 5ms per message. Good for high-volume or offline use.
+- **Smart mode** (default): Uses an LLM to understand your messages. Catches nuance, corrections, sarcasm, and mixed intent. Includes LLM-powered invariant extraction.
+- **Fast mode**: Regex-only, no LLM needed. Under 5ms per message. Good for high-volume or offline use. Regex fallback for invariant detection.
 
 **How conflicts are resolved:**
 
@@ -178,17 +178,18 @@ All models run locally. Cloud providers (OpenAI, Cohere, Voyage AI, Google) also
 Evidence OS is the intelligence layer that makes ThreadClaw more than a search engine. Here's what each component does:
 
 ### Entity Awareness
-Extracts named entities (people, projects, tools, services) from text and tracks them. When you mention "Project Orion" and later say "Orion", it knows they're the same thing.
+Extracts named entities (people, projects, tools, services) from text and tracks them. When you mention "Project Orion" and later say "Orion", it knows they're the same thing. Includes **proactive awareness** — when no specific matches are found, top relevant entities are surfaced automatically.
 
 ### Claims & Decisions
 Every fact you state becomes a **claim** with a confidence score and evidence chain. Every choice you make becomes a **decision**. When facts change, old claims are superseded — not deleted — so you always have history.
 
 ### TruthEngine
 The reconciliation engine that decides what happens when new information conflicts with existing knowledge:
-- **Supersession** — new fact replaces old fact (same subject, same topic, different value)
+- **Supersession** — new fact replaces old fact (same subject, same topic, different value). Entity, capability, and relation kinds all participate in supersession.
 - **Conflict creation** — contradictory facts from different sources are flagged
 - **Confidence blending** — repeated confirmations increase confidence
 - **Correction guards** — explicit corrections ("actually, not X — use Y") get priority
+- **Belief propagation** — contradict/support provenance links automatically adjust confidence on linked claims
 
 ### Canonical Key System
 How ThreadClaw knows two facts are about the same thing. Uses LLM-generated **topic labels** (not hardcoded rules) to group related claims:
@@ -215,8 +216,8 @@ Not everything said should become a fact. ThreadClaw filters out:
 - Explicitly marked non-facts ("example only", "don't store this", "I'm not sure any of this is true")
 - Error messages and stack traces
 
-### Attempt Ledger & Anti-Runbooks
-Tracks what tools succeeded and failed. If a tool fails repeatedly with the same pattern, ThreadClaw creates an **anti-runbook** — a warning that says "don't try this approach, it failed 3 times already." This prevents the AI from repeating known mistakes.
+### Attempt Ledger & Runbooks
+Tracks what tools succeeded and failed. If a tool fails repeatedly with the same pattern, ThreadClaw creates an **anti-runbook** — a warning that says "don't try this approach, it failed 3 times already." Conversely, after 3+ consecutive successes, a **runbook** is auto-inferred and surfaced as a capsule in CCL. This prevents the AI from repeating known mistakes and reinforces proven patterns.
 
 ### Open Loops
 Tracks things that need follow-up: pending tasks, unanswered questions, things you said you'd do "by Friday." These surface in the context injection with priority ordering.
@@ -286,11 +287,12 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 - **Cross-Platform** — Windows (Task Scheduler), macOS (launchd), Linux (systemd --user)
 - **Local-First** — all models run on your hardware. No data leaves your machine.
 
-### Agent Tools (12)
+### Agent Tools (13)
 
 | Tool | What it does |
 |------|-------------|
 | `cc_memory` | Unified smart search — finds facts, decisions, relationships, and conversation history |
+| `cc_synthesize` | Cross-cutting analysis — synthesizes insights across multiple knowledge types |
 | `cc_grep` | Full-text search across conversation memory |
 | `cc_describe` | Describe the current knowledge state |
 | `cc_expand` | Deep-dive into a topic with recursive expansion |
@@ -487,7 +489,7 @@ cd memory-engine && npm test # 858 memory-engine tests
 [Install](docs/install.md) | [Quick Start](docs/quickstart.md) | [Configuration](docs/configuration.md) | [Migration](docs/migration.md)
 
 **Reference:**
-[Tools (12)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
+[Tools (13)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
 
 **Concepts:**
 [Core Concepts](docs/concepts.md) | [Architecture](docs/architecture.md) | [Scopes & Branches](docs/scopes-and-branches.md) | [Promotion Policies](docs/promotion-policies.md)

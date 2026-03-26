@@ -42,7 +42,13 @@ const tools = getCapabilities(db, 1, { type: "tool", status: "available" });
 
 ## Context Compilation
 
-Capabilities are not currently surfaced by the context compiler (they're informational, not action-driving). They can be queried programmatically via `getCapabilities()` or viewed through the `cc_diagnostics` tool.
+Capabilities with **unavailable** or **degraded** status are now surfaced as warnings in the agent's system prompt via the context compiler. This allows the agent to proactively account for degraded services when planning actions, rather than discovering failures at execution time.
+
+Available capabilities remain informational and are not injected into the prompt. All capabilities can be queried programmatically via `getCapabilities()` or viewed through the `cc_diagnostics` tool.
+
+## Supersession
+
+Capabilities now participate in truth reconciliation supersession via `SUPERSESSION_KINDS`. When a capability's status changes, the TruthEngine creates a supersession chain, preserving the full history of status transitions.
 
 ## Staleness
 

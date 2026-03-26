@@ -4,6 +4,10 @@
 
 Invariants are durable constraints -- rules that must be respected across all operations. They represent contract memory: things the agent should always or never do. Stored as MemoryObjects with kind='invariant' in the unified `memory_objects` table.
 
+## Extraction
+
+Invariants are extracted using **LLM-primary extraction** with regex patterns as fallback. In smart extraction mode, "invariant" is a recognized LLM event type -- the model identifies constraints from natural language (e.g., "never force push to main", "always run tests before deploy") and classifies them by severity and enforcement mode. When no LLM is available, regex patterns detect invariant signals from structured text.
+
 ## Properties
 
 Invariant-specific properties are stored in the `structured_json` field:
@@ -27,11 +31,10 @@ Invariants are always returned ordered by severity (most critical first):
 
 ## Enforcement Modes
 
-- **advisory**: Surfaced in context but not enforced
-- **warn**: Highlighted as warning if potentially violated
-- **block**: Would block operations that violate (future enforcement)
+- **strict**: Always surfaced in CCL with score 1.0 (never filtered out by token budget)
+- **advisory**: Surfaced in context based on ROI scoring but not enforced
 
-Currently all enforcement is advisory — the context compiler surfaces invariants for agent awareness. Active enforcement is planned for future releases.
+Strict invariants are guaranteed to appear in every compiled context. Advisory invariants compete for token budget like other capsules.
 
 ## Context Compilation
 

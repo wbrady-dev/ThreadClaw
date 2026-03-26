@@ -21,12 +21,12 @@ Both components can write to the shared evidence graph database (`graph.db`) via
 
 ### Evidence Graph (graph.db)
 
-19 migrations. Core tables:
+25 migrations. Core tables:
 
 | Table | Purpose |
 |-------|---------|
-| memory_objects | Unified knowledge store -- all claims, decisions, entities, loops, attempts, procedures, invariants, deltas, conflicts |
-| provenance_links | Cross-object relationships (derived_from, supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by) |
+| memory_objects | Unified knowledge store -- all claims, decisions, entities, loops, attempts, procedures, invariants, deltas, conflicts, relations (15 kinds). Relations (entity-to-entity) stored here with full lifecycle |
+| provenance_links | Cross-object relationships (derived_from, supports, contradicts, supersedes, mentioned_in, resolved_by) |
 | evidence_log | Append-only audit trail |
 | state_scopes | Scope containers |
 | branch_scopes | Speculative branches |
@@ -63,13 +63,19 @@ Both components can write to the shared evidence graph database (`graph.db`) via
 
 ## Background Jobs
 
-Currently none -- all processing is lazy (triggered by queries or compaction). Decay is applied on read, not on schedule.
+Currently none -- all processing is lazy (triggered by queries or compaction). Decay is applied on read, not on schedule. Decay functions include:
+- **applyDecay**: Runbook staleness, anti-runbook confidence decay
+- **decayRelations**: Relations stale after 180 days of inactivity
+
+## Capability Warnings
+
+When tools are unavailable or degraded (tracked in the `capabilities` table), capability warnings are surfaced in the system prompt so the agent knows which tools it cannot rely on.
 
 ## Module Structure
 
 ```
 memory-engine/src/ontology/           -- Unified ontology (primary write path)
-  types.ts            -- MemoryObject, MemoryKind (13 kinds), ProvenanceLink, RelevanceSignals
+  types.ts            -- MemoryObject, MemoryKind (15 kinds), ProvenanceLink, RelevanceSignals
   mo-store.ts         -- Single CRUD entry point for memory_objects table
   canonical.ts        -- Per-kind canonical key generation
   writer.ts           -- Regex-based message understanding (fast mode)
@@ -82,7 +88,7 @@ memory-engine/src/ontology/           -- Unified ontology (primary write path)
   index.ts            -- Barrel exports
 
 memory-engine/src/relations/          -- Evidence OS stores + tools
-  schema.ts           -- 19 migrations, all DDL
+  schema.ts           -- 25 migrations, all DDL
   types.ts            -- GraphDb interface, all type definitions
   evidence-log.ts     -- Append-only log, transactions, idempotency
   entity-extract.ts   -- Fast NER (3 regex strategies)
@@ -111,7 +117,7 @@ memory-engine/src/relations/          -- Evidence OS stores + tools
   relation-store.ts   -- Entity relationships
   deep-extract.ts     -- LLM-powered extraction
   synthesis.ts        -- Retrospective narrative
-  tools.ts            -- 8 cc_* evidence tool factories
+  tools.ts            -- 9 cc_* evidence tool factories (includes cc_synthesize)
   index.ts            -- Module exports
 ```
 

@@ -14,7 +14,8 @@ Ships with Horizon 1. Tracks awareness note quality, latency, and fire rate via 
 | `latencyP50` | Median awareness check latency |
 | `latencyP95` | 95th percentile latency |
 | `avgTokensWhenFired` | Average token cost when notes fire |
-| `noteTypeBreakdown` | Count per type: mismatch, staleness, connection |
+| `noteTypeBreakdown` | Count per type: mismatch, staleness, connection, proactive |
+| `proactiveFiredCount` | Times proactive awareness fired (top entities, no specific matches) |
 
 ### Access
 
@@ -41,7 +42,8 @@ const stats = getAwarenessStats(86_400_000); // 24-hour window
 
 | Component | Tokens | When |
 |-----------|--------|------|
-| Awareness notes | 30-80 | ~10-20% of turns |
+| Awareness notes (reactive) | 30-80 | ~10-20% of turns |
+| Awareness notes (proactive) | 20-50 | When no reactive matches found |
 | Evidence capsules | 0-280 | Every turn (budget-governed) |
 | Total overhead | 30-360 | Per turn |
 
@@ -51,6 +53,7 @@ const stats = getAwarenessStats(86_400_000); // 24-hour window
 - Minimum mention threshold (default: 2) filters noise
 - Word-boundary matching prevents substring false positives
 - 30-second entity cache TTL limits stale surfacing
+- Proactive mode surfaces top entities when no reactive matches found, increasing overall awareness fire rate
 
 ### Claim Extraction
 - Fast extraction only processes structured signals (no free-text parsing)
