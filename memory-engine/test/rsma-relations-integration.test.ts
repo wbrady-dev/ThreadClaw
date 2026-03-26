@@ -136,7 +136,7 @@ describe("RSMA Relations Integration: extraction → relation pipeline", () => {
     // Verify entity_relations table has the expected row
     const relations = db.prepare("SELECT * FROM memory_objects WHERE kind = 'relation' AND status = 'active'").all() as Array<Record<string, unknown>>;
     expect(relations.length).toBe(1);
-    expect(relations[0].content).toContain("works_for");
+    expect(relations[0].content).toContain("works_at"); // works_for normalizes to works_at via PREDICATE_ALIASES
   });
 
   it("'Project uses PostgreSQL' creates a relation (predicate != 'is')", () => {

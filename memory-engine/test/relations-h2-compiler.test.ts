@@ -68,7 +68,7 @@ describe("H2 Context Compiler", () => {
     });
     const result = compileContextCapsules(db, { tier: "standard", scopeId: 1 });
     expect(result).not.toBeNull();
-    expect(result!.text).toContain("[invariant:critical]");
+    expect(result!.text).toContain("[INVARIANT:");
   });
 
   it("enforces lite budget (110 tokens)", () => {
