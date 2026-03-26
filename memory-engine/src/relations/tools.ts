@@ -11,7 +11,7 @@ import type { LcmDependencies } from "../types.js";
 import type { AnyAgentTool } from "../tools/common.js";
 import { jsonResult } from "../tools/common.js";
 import { escapeLike } from "../store/full-text-fallback.js";
-import { getActiveClaims, getClaimsWithEvidence } from "./claim-store.js";
+import { getClaimsWithEvidence } from "./claim-store.js";
 import { getActiveDecisions, getDecisionHistory } from "./decision-store.js";
 import { getOpenLoops } from "./loop-store.js";
 import { getAttemptHistory, getToolSuccessRate } from "./attempt-store.js";
@@ -21,7 +21,7 @@ import { getBranches, createBranch, promoteBranch, discardBranch, checkPromotion
 import { getRunbooks, getRunbookWithEvidence } from "./runbook-store.js";
 import { getAwarenessStats } from "./eval.js";
 import { compileContextCapsules } from "./context-compiler.js";
-import { getRelationGraph, getRelationsForEntity } from "./relation-store.js";
+import { getRelationGraph } from "./relation-store.js";
 import { synthesizeScope } from "./synthesis.js";
 import type { LcmContextEngine } from "../engine.js";
 import type { LcmConfig } from "../db/config.js";
@@ -707,18 +707,6 @@ export function createCcMemoryTool(input: {
               if (tokenBudget - cost < 0) break;
               tokenBudget -= cost;
               lines.push(line);
-
-              // Pull relations for each matched entity
-              try {
-                const entityRels = getRelationsForEntity(db, e.id, "both");
-                for (const r of entityRels.slice(0, 3)) {
-                  const relLine = `    → ${r.subject_name} —[${r.predicate}]→ ${r.object_name} (conf=${r.confidence.toFixed(2)})`;
-                  const relCost = Math.ceil(relLine.length / 4);
-                  if (tokenBudget - relCost < 0) break;
-                  tokenBudget -= relCost;
-                  lines.push(relLine);
-                }
-              } catch { /* entity relation lookup non-fatal */ }
             }
             if (lines.length > 0) {
               sections.push("[Entities]\n" + lines.join("\n"));

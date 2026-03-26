@@ -727,9 +727,10 @@ const INVARIANT_PATTERNS: Array<{ re: RegExp; severity: string; enforcementMode:
   // Strict / critical: absolute prohibitions and requirements
   { re: /\b(?:never|must\s+not|must\s+never|do\s+not\s+ever)\s+(.{5,200})/i, severity: "critical", enforcementMode: "strict" },
   { re: /\b(?:always|must\s+always|must)\s+(.{5,200})/i, severity: "error", enforcementMode: "strict" },
-  // Advisory: preferences and suggestions
+  // Advisory: preferences and suggestions (require "you" or imperative context to avoid casual speech)
   { re: /\b(?:should\s+not|shouldn't|avoid)\s+(.{5,200})/i, severity: "warning", enforcementMode: "advisory" },
-  { re: /\b(?:should|prefer|try\s+to)\s+(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
+  { re: /\byou\s+should\s+(?:always\s+)?(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
+  { re: /\bprefer\s+to\s+(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
   // Explicit labels
   { re: /\b(?:rule|constraint|invariant):\s*(.{5,200})/i, severity: "error", enforcementMode: "strict" },
 ];

@@ -12,7 +12,7 @@ import type { GraphDb } from "./types.js";
 import type { MemoryObject } from "../ontology/types.js";
 import { logEvidence } from "./evidence-log.js";
 import { upsertMemoryObject } from "../ontology/mo-store.js";
-import { buildCanonicalKey, normalize, normalizePredicate } from "../ontology/canonical.js";
+import { buildCanonicalKey, normalizePredicate } from "../ontology/canonical.js";
 
 export interface UpsertRelationInput {
   scopeId: number;

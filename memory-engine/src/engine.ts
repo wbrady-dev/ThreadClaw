@@ -1698,7 +1698,13 @@ export class LcmContextEngine implements ContextEngine {
               // BUG 3 FIX: Actually supersede the old record in the physical table.
               // Without this, old claims stay status='active' forever.
               try {
-                const oldKindMatch = action.oldObjectId.match(/^(claim|decision|loop|invariant|relation):(\d+)$/);
+                // Handle relation supersession separately (composite_id format: relation:scope:subj:pred:obj)
+                if (action.oldObjectId.startsWith("relation:")) {
+                  graphDb.prepare(
+                    "UPDATE memory_objects SET status = 'superseded', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE composite_id = ? AND kind = 'relation'",
+                  ).run(action.oldObjectId);
+                }
+                const oldKindMatch = action.oldObjectId.match(/^(claim|decision|loop|invariant):(\d+)$/);  // relation handled above by composite_id
                 if (oldKindMatch) {
                   const oldKind = oldKindMatch[1];
                   const oldRawId = parseInt(oldKindMatch[2], 10);
@@ -1737,10 +1743,6 @@ export class LcmContextEngine implements ContextEngine {
                   } else if (oldKind === "invariant" && !isNaN(oldRawId)) {
                     graphDb.prepare(
                       "UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE kind = 'invariant' AND id = ?",
-                    ).run(oldRawId);
-                  } else if (oldKind === "relation" && !isNaN(oldRawId)) {
-                    graphDb.prepare(
-                      "UPDATE memory_objects SET status = 'superseded', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE kind = 'relation' AND id = ?",
                     ).run(oldRawId);
                   }
                 }
@@ -1881,8 +1883,13 @@ export class LcmContextEngine implements ContextEngine {
                 const { storeClaimExtractionResults } = await import("./relations/claim-store.js");
                 const deepClaims = await extractClaimsDeep(_content, _deps, _config);
                 if (deepClaims.length > 0) {
-                  wt(gdb, () => {
-                    storeClaimExtractionResults(gdb, deepClaims, 1);
+                  const { withWriteTransaction: wt2 } = await import("./relations/evidence-log.js");
+                  wt2(graphDb, () => {
+                    storeClaimExtractionResults(graphDb, deepClaims, {
+                      scopeId: 1,
+                      sourceType: "deep_extraction",
+                      sourceId: _messageId,
+                    });
                   });
                 }
               } catch (deepClaimErr) {
@@ -1890,6 +1897,28 @@ export class LcmContextEngine implements ContextEngine {
               }
             }
           }
+
+          // Invariant extraction runs in RSMA path too (not just legacy)
+          try {
+            const { extractInvariantsFromText } = await import("./relations/claim-extract.js");
+            const { upsertInvariant } = await import("./relations/invariant-store.js");
+            const invariants = extractInvariantsFromText(_content, _messageId);
+            if (invariants.length > 0) {
+              const { withWriteTransaction: wt3 } = await import("./relations/evidence-log.js");
+              wt3(graphDb, () => {
+                for (const inv of invariants) {
+                  upsertInvariant(graphDb, {
+                    scopeId: 1,
+                    invariantKey: inv.key,
+                    description: inv.description,
+                    severity: inv.severity as "critical" | "error" | "warning" | "info",
+                    enforcementMode: inv.enforcementMode as "strict" | "advisory",
+                    sourceId: inv.sourceId,
+                  });
+                }
+              });
+            }
+          } catch { /* non-fatal */ }
         // Health monitoring: track success
         _rsmaSuccessCount++;
         if (_rsmaSuccessCount % _RSMA_LOG_INTERVAL === 0) {
