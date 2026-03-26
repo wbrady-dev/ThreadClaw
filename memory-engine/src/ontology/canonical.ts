@@ -10,7 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { MemoryKind } from "./types.js";
+import type { MemoryKind, StructuredInvariant } from "./types.js";
 
 // ── Normalization ───────────────────────────────────────────────────────────
 
@@ -62,10 +62,6 @@ interface StructuredDecision {
 
 interface StructuredProcedure {
   toolName?: string;
-  key?: string;
-}
-
-interface StructuredInvariant {
   key?: string;
 }
 

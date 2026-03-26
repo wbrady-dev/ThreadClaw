@@ -47,7 +47,17 @@ export type EventType =
   | "observation"
   | "uncertainty"
   | "tool_outcome"
-  | "relationship";
+  | "relationship"
+  | "invariant";
+
+/** Structured data for invariant memory objects. */
+export interface StructuredInvariant {
+  key?: string;
+  category?: string | null;
+  description?: string;
+  severity?: "critical" | "error" | "warning" | "info";
+  enforcementMode?: "strict" | "advisory";
+}
 
 /** Object lifecycle status. */
 export type MemoryStatus =

@@ -1898,8 +1898,9 @@ export class LcmContextEngine implements ContextEngine {
             }
           }
 
-          // Invariant extraction runs in RSMA path too (not just legacy)
-          try {
+          // Invariant extraction: LLM is primary (via semanticExtract), regex is fallback
+          const llmInvariantCount = writerResult.objects.filter(o => o.kind === "invariant").length;
+          if (llmInvariantCount === 0) try {
             const { extractInvariantsFromText } = await import("./relations/claim-extract.js");
             const { upsertInvariant } = await import("./relations/invariant-store.js");
             const invariants = extractInvariantsFromText(_content, _messageId);

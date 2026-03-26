@@ -18,6 +18,12 @@ export function upsertInvariant(
 ): { invariantId: number; isNew: boolean } {
   const compositeId = `invariant:${input.scopeId}:${input.invariantKey}`;
 
+  // Validate severity and enforcement to known values — LLM may return unexpected strings
+  const validSeverities = new Set(["critical", "error", "warning", "info"]);
+  const severity = validSeverities.has(input.severity ?? "") ? input.severity! : "warning";
+  const validEnforcement = new Set(["strict", "advisory"]);
+  const enforcementMode = validEnforcement.has(input.enforcementMode ?? "") ? input.enforcementMode! : "advisory";
+
   const mo: MemoryObject = {
     id: compositeId,
     kind: "invariant",
@@ -26,8 +32,8 @@ export function upsertInvariant(
       key: input.invariantKey,
       category: input.category ?? null,
       description: input.description,
-      severity: input.severity ?? "warning",
-      enforcementMode: input.enforcementMode ?? "advisory",
+      severity,
+      enforcementMode,
     },
     canonical_key: `inv::${input.invariantKey.toLowerCase().trim()}`,
     provenance: {
