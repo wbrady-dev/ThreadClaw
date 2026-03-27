@@ -5,7 +5,7 @@ description: ThreadClaw Evidence OS — structured memory for agents. Use cc_mem
 
 # ThreadClaw Evidence OS
 
-ThreadClaw automatically extracts and tracks structured knowledge from conversations. All knowledge is stored as `MemoryObject` instances in the unified `memory_objects` table with 9 agent-facing kinds (claim, decision, entity, loop, attempt, procedure, invariant, relation, conflict). Relations are first-class memory objects (`kind='relation'`) with full lifecycle support (creation, supersession, decay). Cross-object evidence relationships are stored in `provenance_links` with typed predicates (supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by, derived_from).
+ThreadClaw automatically extracts and tracks structured knowledge from conversations. All knowledge is stored as `MemoryObject` instances in the unified `memory_objects` table with 9 agent-facing kinds (claim, decision, entity, loop, attempt, procedure, invariant, relation, conflict). Relations are first-class memory objects (`kind='relation'`) with full lifecycle support (creation, supersession, decay). Cross-object evidence relationships are stored in `provenance_links` with typed predicates (supports, contradicts, supersedes, mentioned_in, resolved_by, derived_from).
 
 **Most of RSMA is automatic. You do not need to call tools for it to work.**
 

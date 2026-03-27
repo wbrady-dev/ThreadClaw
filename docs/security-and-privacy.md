@@ -4,7 +4,7 @@
 
 ### Evidence Graph (graph.db)
 - **memory_objects table**: All structured knowledge as MemoryObjects (claims, decisions, entities, loops, attempts, procedures, invariants, deltas, conflicts) with confidence, trust, and provenance
-- **provenance_links table**: Cross-object relationships (supports, contradicts, mentioned_in, relates_to, derived_from, supersedes, resolved_by)
+- **provenance_links table**: Cross-object relationships (supports, contradicts, mentioned_in, derived_from, supersedes, resolved_by)
 - **evidence_log**: Append-only audit trail of all mutations
 - **Infrastructure tables**: Scopes, branches, promotion policies, capabilities, work leases
 

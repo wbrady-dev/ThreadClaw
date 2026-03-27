@@ -44,7 +44,7 @@ The installer will:
 All databases are created automatically on first run. Schema migrations run idempotently on every startup -- safe to upgrade in place.
 
 - Memory engine: 1 migration (conversation tables)
-- Evidence graph: 19 migrations (v1-v9: legacy tables + indexes, v10-v11: provenance_links, v12-v15: canonical key fixes, v16: memory_objects table, v17: data migration, v18: legacy table rename, v19: UNIQUE constraints)
+- Evidence graph: 25 migrations (v1-v9: legacy tables + indexes, v10-v11: provenance_links, v12-v15: canonical key fixes, v16: memory_objects table, v17: data migration, v18: legacy table rename, v19: UNIQUE constraints, v20-v25: scope sequences, evidence log, work leases, state deltas, indexes, cleanup)
 
 ## Cross-Platform Services
 
