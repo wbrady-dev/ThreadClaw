@@ -78,9 +78,11 @@ export async function startServer() {
 
   // Clean up orphaned chunks from interrupted ingests (chunks without embeddings).
   // Fast (<50ms) — prevents stale partial data from prior crash/restart.
+  // NOTE: chunk_vectors is a vec0 virtual table with chunk_id TEXT PRIMARY KEY.
+  // We must SELECT chunk_id (not rowid) to match against chunks.id (TEXT UUID).
   try {
     const orphaned = db.prepare(
-      `DELETE FROM chunks WHERE id NOT IN (SELECT rowid FROM chunk_vectors)`,
+      `DELETE FROM chunks WHERE id NOT IN (SELECT chunk_id FROM chunk_vectors)`,
     ).run();
     if (orphaned.changes > 0) {
       logger.info({ count: orphaned.changes }, "Cleaned up orphaned chunks from interrupted ingest");
