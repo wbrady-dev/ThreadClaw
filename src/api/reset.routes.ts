@@ -20,11 +20,10 @@ export function registerResetRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: "Forbidden — reset only allowed from localhost" });
     }
 
-    const { clearGraph = true, clearMemory = false, confirm = false } = (req.body as {
-      clearGraph?: boolean;
-      clearMemory?: boolean;
-      confirm?: boolean;
-    }) ?? {};
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const clearGraph = body.clearGraph === true;
+    const clearMemory = body.clearMemory === true;
+    const confirm = body.confirm === true;
 
     // Require explicit confirmation for this destructive operation
     if (!confirm) {

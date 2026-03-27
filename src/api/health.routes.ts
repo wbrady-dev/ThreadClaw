@@ -49,7 +49,8 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
       if (res.ok) {
         const ct = res.headers.get("content-type") ?? "";
         if (ct.includes("application/json")) {
-          const data = await res.json() as Record<string, unknown>;
+          let data: Record<string, unknown> = {};
+          try { data = await res.json() as Record<string, unknown>; } catch { /* malformed JSON */ }
           checks.embedding = { status: "ok", detail: config.embedding.model };
           checks.reranker = {
             status: (data as { models?: { rerank?: { ready?: boolean } } }).models?.rerank?.ready ? "ok" : "down",

@@ -21,9 +21,12 @@ const windows = new Map<string, WindowEntry>();
 // Cleanup stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
+  const cutoff = now - WINDOW_MS * 2;
   for (const [ip, entry] of windows) {
     entry.timestamps = entry.timestamps.filter((t) => now - t < WINDOW_MS);
-    if (entry.timestamps.length === 0) windows.delete(ip);
+    if (entry.timestamps.length === 0 || (entry.timestamps[0] < cutoff)) {
+      windows.delete(ip);
+    }
   }
 }, 5 * 60 * 1000).unref();
 

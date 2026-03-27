@@ -6,7 +6,7 @@ import { isLocalRequest } from "./guards.js";
 const MAX_TOP_K = 100;
 const MAX_TOKEN_BUDGET = 50000;
 const MAX_QUERY_BYTES = 8000; // 8KB byte limit for queries
-const COLLECTION_RE = /^[\w\-_.]{1,100}$/;
+const COLLECTION_RE = /^[\w\s\-_.]{1,100}$/;
 
 function clampTopK(v?: number): number | undefined {
   if (v == null || typeof v !== "number" || isNaN(v)) return undefined;
