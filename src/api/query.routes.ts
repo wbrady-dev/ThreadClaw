@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { query } from "../query/pipeline.js";
-import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
 import { isLocalRequest } from "./guards.js";
 
 const MAX_TOP_K = 100;
 const MAX_TOKEN_BUDGET = 50000;
 const MAX_QUERY_BYTES = 8000; // 8KB byte limit for queries
+const MAX_QUERY_LENGTH = 2000;
 const COLLECTION_RE = /^[\w\s\-_.]{1,100}$/;
 
 function clampTopK(v?: number): number | undefined {
@@ -57,8 +57,8 @@ export function registerQueryRoutes(server: FastifyInstance) {
       titles_only?: boolean;
     };
 
-    if (!queryText || typeof queryText !== "string" || queryText.length > config.query.maxLength) {
-      return reply.code(400).send({ error: `Invalid query (max ${config.query.maxLength} characters)` });
+    if (!queryText || typeof queryText !== "string" || queryText.length > MAX_QUERY_LENGTH) {
+      return reply.code(400).send({ error: `Invalid query (max ${MAX_QUERY_LENGTH} characters)` });
     }
 
     // Byte-length check to prevent oversized multi-byte payloads
@@ -103,8 +103,8 @@ export function registerQueryRoutes(server: FastifyInstance) {
       top_k?: number;
     };
 
-    if (!queryText || typeof queryText !== "string" || queryText.length > config.query.maxLength) {
-      return reply.code(400).send({ error: `Invalid query (max ${config.query.maxLength} characters)` });
+    if (!queryText || typeof queryText !== "string" || queryText.length > MAX_QUERY_LENGTH) {
+      return reply.code(400).send({ error: `Invalid query (max ${MAX_QUERY_LENGTH} characters)` });
     }
 
     // Byte-length check
