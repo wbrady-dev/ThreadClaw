@@ -24,6 +24,11 @@ export async function checkServicesAsync(root = getRootDir()): Promise<ServiceSt
 
   const platform = getPlatform();
 
+  // If port check didn't find a service, fall back to OS service manager queries.
+  // Note: On Windows, Task Scheduler may report "Running" before the port is open
+  // (process starting up) or after the port closes (graceful shutdown lag).
+  // The port check above is the source of truth for "healthy"; the task query
+  // below catches the "starting" state so the TUI shows activity.
   if (!result.models.running || !result.threadclaw.running) {
     if (platform === "windows") {
       const [modelsState, ragState] = await Promise.all([
@@ -55,6 +60,9 @@ export async function checkServicesAsync(root = getRootDir()): Promise<ServiceSt
     if (pid && isPidAlive(pid)) result.threadclaw = { running: true, pid };
   }
 
+  // Final port reachability check — intentionally redundant with the initial check.
+  // Covers race conditions where a service started between the first port check and
+  // the PID file / service manager queries above.
   if (!result.models.running) result.models.running = await isPortReachable(getModelPort());
   if (!result.threadclaw.running) result.threadclaw.running = await isPortReachable(getApiPort());
 

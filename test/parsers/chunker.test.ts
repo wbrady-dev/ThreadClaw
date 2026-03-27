@@ -3,6 +3,9 @@ import { chunkProse } from "../../src/ingest/chunker/strategies/prose.js";
 import { chunkMarkdown } from "../../src/ingest/chunker/strategies/markdown.js";
 import type { StructureHint } from "../../src/ingest/parsers/index.js";
 
+// TODO: Add chunking strategy tests for: code, table, html.
+// These strategies exist in src/ingest/chunker/strategies/ but have zero test coverage.
+
 // ─── Prose Chunking ─────────────────────────────────────────────────
 
 describe("chunkProse", () => {
@@ -64,6 +67,17 @@ describe("chunkProse", () => {
     const chunks = chunkProse(longSentences, 30, 50);
     expect(chunks.length).toBeGreaterThan(1);
   });
+
+  it("chunks do not have identical content (no full overlap)", () => {
+    const paragraphs = Array.from({ length: 5 }, (_, i) =>
+      `Paragraph ${i}: ${"word ".repeat(40)}`
+    ).join("\n\n");
+    const chunks = chunkProse(paragraphs, 30, 60);
+    // Verify no two adjacent chunks are identical
+    for (let i = 1; i < chunks.length; i++) {
+      expect(chunks[i].text).not.toBe(chunks[i - 1].text);
+    }
+  });
 });
 
 // ─── Markdown Chunking ──────────────────────────────────────────────
@@ -108,10 +122,9 @@ describe("chunkMarkdown", () => {
     // Find a chunk for Section A - should have context prefix
     const sectionAChunk = chunks.find((c) => c.text.includes("Section A content"));
     expect(sectionAChunk).toBeDefined();
-    if (sectionAChunk?.contextPrefix) {
-      // The prefix should contain the heading chain
-      expect(sectionAChunk.contextPrefix).toContain("Section A");
-    }
+    // Assert contextPrefix exists and contains expected heading — do not silently skip
+    expect(sectionAChunk!.contextPrefix).toBeDefined();
+    expect(sectionAChunk!.contextPrefix).toContain("Section A");
   });
 
   it("assigns sequential positions", () => {
@@ -143,11 +156,10 @@ describe("chunkMarkdown", () => {
     const chunks = chunkMarkdown(nested, structure, 2000);
     const deepChunk = chunks.find((c) => c.text.includes("Deep content"));
     expect(deepChunk).toBeDefined();
-    if (deepChunk?.contextPrefix) {
-      // Should chain: Top > Mid > Deep
-      expect(deepChunk.contextPrefix).toContain("Top");
-      expect(deepChunk.contextPrefix).toContain("Mid");
-      expect(deepChunk.contextPrefix).toContain("Deep");
-    }
+    // Assert contextPrefix exists — do not silently skip
+    expect(deepChunk!.contextPrefix).toBeDefined();
+    expect(deepChunk!.contextPrefix).toContain("Top");
+    expect(deepChunk!.contextPrefix).toContain("Mid");
+    expect(deepChunk!.contextPrefix).toContain("Deep");
   });
 });

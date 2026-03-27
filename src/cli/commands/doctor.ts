@@ -7,14 +7,11 @@
 
 import { Command } from "commander";
 import { existsSync, readFileSync, statSync } from "fs";
-import { resolve, dirname } from "path";
+import { resolve } from "path";
 import { homedir } from "os";
-import { fileURLToPath } from "url";
 import { t } from "../../tui/theme.js";
-import { getApiPort, getModelPort } from "../../tui/platform.js";
+import { getApiPort, getModelPort, getRootDir } from "../../tui/platform.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 import {
   readManifest, getAppVersion, detectLegacyDbLocations,
   detectVersionMismatches, THREADCLAW_DATA_DIR, THREADCLAW_HOME,
@@ -30,14 +27,14 @@ const dim = (msg: string) => console.log(`    ${t.dim(msg)}`);
 
 export const doctorCommand = new Command("doctor")
   .description("Diagnose ThreadClaw installation health")
-  .option("--json", "Output as JSON")
   .option("--fix", "Alias for 'threadclaw integrate --apply'")
-  .action(async (opts: { json?: boolean; fix?: boolean }) => {
+  .action(async (opts: { fix?: boolean }) => {
+    const rootDir = getRootDir();
+
     // --fix: alias for integrate --apply
     if (opts.fix) {
       try {
         const { applyOpenClawIntegration } = await import("../../integration.js");
-        const rootDir = resolve(__dirname, "..", "..", "..");
         const memoryEnginePath = resolve(rootDir, "memory-engine");
         applyOpenClawIntegration(memoryEnginePath);
         console.log(t.ok("Integration applied successfully."));
@@ -74,6 +71,9 @@ export const doctorCommand = new Command("doctor")
     // ── Data ──
     console.log(t.dim("── Data ──"));
 
+    // Stable name mapping for legacy DB detection
+    const legacyNameMap: Record<string, string> = { "rag db": "rag", "memory db": "memory", "graph db": "graph" };
+
     // Check new data locations
     const dbChecks = [
       { name: "RAG DB", path: resolve(THREADCLAW_DATA_DIR, "threadclaw.db") },
@@ -85,13 +85,13 @@ export const doctorCommand = new Command("doctor")
         const sizeMb = (statSync(db.path).size / 1024 / 1024).toFixed(1);
         pass(`${db.name}: ${db.path} (${sizeMb} MB)`);
       } else {
-        // Check if it's still in legacy location
-        const legacy = detectLegacyDbLocations().find((l) => l.name === db.name.split(" ")[0].toLowerCase());
+        // Check if it's still in legacy location using stable mapping
+        const legacyKey = legacyNameMap[db.name.toLowerCase()];
+        const legacy = detectLegacyDbLocations().find((l) => l.name === legacyKey);
         if (legacy?.exists) {
           warning(`${db.name}: still in legacy location (${legacy.legacyPath}). Run 'threadclaw upgrade' to consolidate.`);
         } else {
           // Check old install-relative path for RAG DB
-          const rootDir = resolve(__dirname, "..", "..", "..");
           const oldRagPath = resolve(rootDir, "data", "threadclaw.db");
           if (db.name === "RAG DB" && existsSync(oldRagPath)) {
             const sizeMb = (statSync(oldRagPath).size / 1024 / 1024).toFixed(1);
@@ -192,7 +192,6 @@ export const doctorCommand = new Command("doctor")
 
     for (const skill of ["threadclaw-evidence", "threadclaw-knowledge"]) {
       const skillPath = resolve(workspaceDir, "skills", skill, "SKILL.md");
-      const rootDir = resolve(__dirname, "..", "..", "..");
       const shippedPath = resolve(rootDir, "skills", skill, "SKILL.md");
 
       if (!existsSync(skillPath)) {

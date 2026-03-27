@@ -26,9 +26,15 @@ import { ingestFile } from "./ingest/pipeline.js";
 import { validateIngestPath } from "./api/ingest.routes.js";
 
 // ── Bootstrap database ──────────────────────────────────────────────
-const dbPath = resolve(config.dataDir, "threadclaw.db");
-const db = getDb(dbPath);
-runMigrations(db);
+let db!: ReturnType<typeof getDb>;
+try {
+  const dbPath = resolve(config.dataDir, "threadclaw.db");
+  db = getDb(dbPath);
+  runMigrations(db);
+} catch (err) {
+  console.error(`[mcp] Failed to initialize database: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(1);
+}
 
 // ── Create MCP server ───────────────────────────────────────────────
 const server = new McpServer({
@@ -152,9 +158,15 @@ server.tool(
 );
 
 // ── Start stdio transport ───────────────────────────────────────────
-const transport = new StdioServerTransport();
-await server.connect(transport);
+try {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+} catch (err) {
+  console.error(`[mcp] Failed to start MCP transport: ${err instanceof Error ? err.message : String(err)}`);
+  closeDb();
+  process.exit(1);
+}
 
-// Graceful shutdown
-process.on("SIGINT", () => { closeDb(); process.exit(0); });
-process.on("SIGTERM", () => { closeDb(); process.exit(0); });
+// Graceful shutdown — await server.close() to drain pending requests
+process.on("SIGINT", async () => { await server.close(); closeDb(); process.exit(0); });
+process.on("SIGTERM", async () => { await server.close(); closeDb(); process.exit(0); });

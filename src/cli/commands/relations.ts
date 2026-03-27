@@ -1,14 +1,56 @@
 import { Command } from "commander";
-import { resolve, dirname } from "path";
+import { resolve } from "path";
 import { homedir } from "os";
-import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 import { config } from "../../config.js";
-import { getDb } from "../../storage/index.js";
+import { getInitializedDb } from "../../storage/index.js";
 import { getGraphDb, closeGraphDb } from "../../storage/graph-sqlite.js";
 import { extractEntitiesFromDocument } from "../../relations/ingest-hook.js";
+import { getRootDir } from "../../tui/platform.js";
+
+/** Parse a day-count string, returning a default if NaN or <= 0 */
+function parseDays(raw: string, defaultVal: number): number {
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : defaultVal;
+}
+
+/** Run a script in the memory-engine via tsx subprocess */
+async function runMemoryEngineScript(
+  script: string,
+  env: Record<string, string>,
+  timeoutMs = 30000,
+): Promise<string> {
+  const { execFileSync } = await import("child_process");
+  const { writeFileSync: writeTmp, unlinkSync: unlinkTmp, mkdirSync } = await import("fs");
+  const { tmpdir } = await import("os");
+  const { join: joinTmp } = await import("path");
+
+  const rootDir = getRootDir();
+  const meDir = resolve(rootDir, "memory-engine");
+
+  // Use unique subdir to avoid world-readable temp file issues
+  const tmpSubdir = joinTmp(tmpdir(), `threadclaw-${process.pid}`);
+  mkdirSync(tmpSubdir, { recursive: true });
+  const tmpScript = joinTmp(tmpSubdir, `script-${Date.now()}.mts`);
+  writeTmp(tmpScript, script);
+
+  try {
+    const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+    const out = execFileSync(npxCmd, ["tsx", tmpScript], {
+      cwd: meDir,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: timeoutMs,
+      env: { ...process.env, ...env },
+    }).toString().trim();
+    return out;
+  } finally {
+    try { unlinkTmp(tmpScript); } catch {}
+    try {
+      const { rmdirSync } = await import("fs");
+      rmdirSync(tmpSubdir);
+    } catch {}
+  }
+}
 
 export const relationsCommand = new Command("relations")
   .description("Entity graph management");
@@ -22,7 +64,7 @@ relationsCommand
     console.log("Relations backfill: extracting entities from existing chunks...");
 
     if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
-    const db = getDb(config.dataDir + "/threadclaw.db");
+    const db = getInitializedDb();
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
 
@@ -86,7 +128,8 @@ relationsCommand
 relationsCommand
   .command("stats")
   .description("Show entity graph statistics")
-  .action(async () => {
+  .option("--json", "Output as JSON")
+  .action(async (opts: { json?: boolean }) => {
     if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
@@ -99,13 +142,17 @@ relationsCommand
       "SELECT json_extract(structured_json, '$.name') as name, json_extract(structured_json, '$.displayName') as display_name, json_extract(structured_json, '$.mentionCount') as mention_count FROM memory_objects WHERE kind = 'entity' ORDER BY json_extract(structured_json, '$.mentionCount') DESC LIMIT 10",
     ).all() as Array<{ name: string; display_name: string; mention_count: number }>;
 
-    console.log(`Evidence Graph Statistics`);
-    console.log(`  Entities: ${entities}`);
-    console.log(`  Mentions: ${mentions}`);
-    console.log(`  Evidence log events: ${events}`);
-    console.log(`\nTop entities by mention count:`);
-    for (const e of topEntities) {
-      console.log(`  ${e.display_name} (${e.mention_count} mentions)`);
+    if (opts.json) {
+      console.log(JSON.stringify({ entities, mentions, events, topEntities }, null, 2));
+    } else {
+      console.log(`Evidence Graph Statistics`);
+      console.log(`  Entities: ${entities}`);
+      console.log(`  Mentions: ${mentions}`);
+      console.log(`  Evidence log events: ${events}`);
+      console.log(`\nTop entities by mention count:`);
+      for (const e of topEntities) {
+        console.log(`  ${e.display_name} (${e.mention_count} mentions)`);
+      }
     }
 
     closeGraphDb();
@@ -124,10 +171,11 @@ relationsCommand
 
     const archivePath = resolve(homedir(), ".threadclaw", "data", "archive.db");
 
+    const claimDays = parseDays(opts.claimDays, 30);
+    const decisionDays = parseDays(opts.decisionDays, 90);
+    const eventDays = parseDays(opts.eventDays, 60);
+
     if (opts.dryRun) {
-      const claimDays = parseInt(opts.claimDays, 10);
-      const decisionDays = parseInt(opts.decisionDays, 10);
-      const eventDays = parseInt(opts.eventDays, 10);
       const claimCutoff = new Date(Date.now() - claimDays * 86_400_000).toISOString();
       const decCutoff = new Date(Date.now() - decisionDays * 86_400_000).toISOString();
       const evCutoff = new Date(Date.now() - eventDays * 86_400_000).toISOString();
@@ -142,34 +190,26 @@ relationsCommand
       console.log(`  Old evidence events (${eventDays}d): ${oldEvents}`);
       console.log(`  Archive path: ${archivePath}`);
     } else {
-      // Run archive via tsx subprocess (memory-engine has different rootDir)
-      const { execFileSync } = await import("child_process");
-      const { writeFileSync: writeTmp, unlinkSync: unlinkTmp } = await import("fs");
-      const { tmpdir } = await import("os");
-      const { join: joinTmp } = await import("path");
-      const rootDir = resolve(__dirname, "..", "..", "..");
-      const meDir = resolve(rootDir, "memory-engine");
       const script = [
         "import { runArchive, getArchiveStats } from './src/relations/archive.js';",
         "import { DatabaseSync } from 'node:sqlite';",
         "const db = new DatabaseSync(process.env.GRAPH_PATH);",
         `const r = runArchive(db, process.env.ARCHIVE_PATH, {`,
-        `  claimStaleDays: ${Math.max(1, parseInt(opts.claimDays, 10))},`,
-        `  decisionStaleDays: ${Math.max(1, parseInt(opts.decisionDays, 10))},`,
-        `  eventRetentionDays: ${Math.max(1, parseInt(opts.eventDays, 10))},`,
-        `  loopStaleDays: ${Math.max(1, parseInt(opts.claimDays, 10))},`,
+        `  claimStaleDays: ${claimDays},`,
+        `  decisionStaleDays: ${decisionDays},`,
+        `  eventRetentionDays: ${eventDays},`,
+        `  loopStaleDays: ${claimDays},`,
         "});",
         "const s = getArchiveStats(process.env.ARCHIVE_PATH);",
         "console.log(JSON.stringify({ result: r, stats: s }));",
         "db.close();",
       ].join("\n");
-      const tmpScript = joinTmp(tmpdir(), `threadclaw-archive-${Date.now()}.mts`);
-      writeTmp(tmpScript, script);
+
       try {
-        const out = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["tsx", tmpScript], {
-          cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
-          env: { ...process.env, GRAPH_PATH: config.relations.graphDbPath, ARCHIVE_PATH: archivePath },
-        }).toString().trim();
+        const out = await runMemoryEngineScript(script, {
+          GRAPH_PATH: config.relations.graphDbPath,
+          ARCHIVE_PATH: archivePath,
+        });
         const { result, stats } = JSON.parse(out);
         console.log("Archive complete:");
         console.log(`  Claims: ${result.claimsArchived}`);
@@ -182,8 +222,6 @@ relationsCommand
         console.log(`Archive: ${archivePath}`);
       } catch (e: any) {
         console.error("Archive failed:", e.message);
-      } finally {
-        try { unlinkTmp(tmpScript); } catch {}
       }
     }
 
@@ -201,12 +239,6 @@ relationsCommand
       return;
     }
 
-    const { execFileSync } = await import("child_process");
-    const { writeFileSync: writeTmp, unlinkSync: unlinkTmp } = await import("fs");
-    const { tmpdir } = await import("os");
-    const { join: joinTmp } = await import("path");
-    const rootDir = resolve(__dirname, "..", "..", "..");
-    const meDir = resolve(rootDir, "memory-engine");
     const script = [
       "import { getArchiveDb } from './src/relations/archive.js';",
       "const db = getArchiveDb(process.env.ARCHIVE_PATH);",
@@ -220,14 +252,11 @@ relationsCommand
       "  runs,",
       "}));",
     ].join("\n");
-    const tmpScript = joinTmp(tmpdir(), `threadclaw-archive-status-${Date.now()}.mts`);
-    writeTmp(tmpScript, script);
 
     try {
-      const out = execFileSync(process.platform === "win32" ? "npx.cmd" : "npx", ["tsx", tmpScript], {
-        cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 15000,
-        env: { ...process.env, ARCHIVE_PATH: archivePath },
-      }).toString().trim();
+      const out = await runMemoryEngineScript(script, {
+        ARCHIVE_PATH: archivePath,
+      }, 15000);
       const data = JSON.parse(out);
 
       console.log("Cold Archive Statistics");
@@ -246,7 +275,5 @@ relationsCommand
       }
     } catch (e: any) {
       console.error("Failed to read archive:", e.message);
-    } finally {
-      try { unlinkTmp(tmpScript); } catch {}
     }
   });

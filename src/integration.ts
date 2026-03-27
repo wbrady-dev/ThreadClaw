@@ -8,10 +8,10 @@
  *   - computeIntegrationHash() — SHA-256 of the managed block for drift detection
  */
 
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "fs";
 import { resolve } from "path";
 import { homedir } from "os";
-import { sha256 } from "./version.js";
+import { sha256, readManifest } from "./version.js";
 
 // ── Types ──
 
@@ -32,7 +32,8 @@ export interface IntegrationStatus {
 
 // ── Managed block definition ──
 
-function getExpectedBlock(memoryEnginePath: string): Record<string, unknown> {
+// memoryEnginePath parameter is reserved for future use (e.g., validating plugin load path)
+function getExpectedBlock(_memoryEnginePath: string): Record<string, unknown> {
   return {
     "plugins.slots.contextEngine": "threadclaw-memory",
     "plugins.slots.memory": "none",
@@ -82,7 +83,11 @@ export function checkOpenClawIntegration(memoryEnginePath?: string): Integration
       const actual = getNestedValue(oc, path);
 
       if (expectedValue === "__ABSENT__") {
-        if (actual !== undefined) {
+        // Use "in" operator to detect presence of key (catches falsy values like "" and 0)
+        const parentPath = path.split(".").slice(0, -1).join(".");
+        const key = path.split(".").pop()!;
+        const parent = parentPath ? getNestedValue(oc, parentPath) : oc;
+        if (parent && typeof parent === "object" && key in (parent as Record<string, unknown>)) {
           drifts.push({
             field: path,
             expected: "(should not exist)",
@@ -129,7 +134,16 @@ export function checkOpenClawIntegration(memoryEnginePath?: string): Integration
     const currentHash = computeIntegrationHash(oc);
     const ok = drifts.length === 0;
 
-    return { ok, openclawFound: true, configPath, drifts, hashMatch: ok };
+    // Compare current hash against the stored manifest hash to detect external drift
+    let storedHash = "";
+    try {
+      storedHash = readManifest().integrationHash ?? "";
+    } catch {
+      // manifest may not exist yet
+    }
+    const hashMatch = storedHash ? currentHash === storedHash : ok;
+
+    return { ok, openclawFound: true, configPath, drifts, hashMatch };
   } catch {
     return { ok: false, openclawFound: true, configPath, drifts: [{ field: "parse", expected: "valid JSON", actual: "parse error", severity: "error" }], hashMatch: false };
   }
@@ -224,7 +238,10 @@ export function applyOpenClawIntegration(memoryEnginePath: string): { applied: b
     }
 
     if (changes.length > 0) {
-      writeFileSync(configPath, JSON.stringify(oc, null, 2) + "\n");
+      // Atomic write: write to tmp file then rename to prevent corruption
+      const tmpPath = configPath + ".tmp";
+      writeFileSync(tmpPath, JSON.stringify(oc, null, 2) + "\n");
+      renameSync(tmpPath, configPath);
     }
 
     return { applied: changes.length > 0, changes };

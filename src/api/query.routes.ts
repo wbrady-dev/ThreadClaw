@@ -1,10 +1,12 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { query } from "../query/pipeline.js";
 import { logger } from "../utils/logger.js";
 import { isLocalRequest } from "./guards.js";
 
 const MAX_TOP_K = 100;
 const MAX_TOKEN_BUDGET = 50000;
+const MAX_QUERY_BYTES = 8000; // 8KB byte limit for queries
+const COLLECTION_RE = /^[\w\-_.]{1,100}$/;
 
 function clampTopK(v?: number): number | undefined {
   if (v == null || typeof v !== "number" || isNaN(v)) return undefined;
@@ -18,6 +20,15 @@ function clampBudget(v?: number): number | undefined {
   const clamped = Math.min(Math.max(100, v), MAX_TOKEN_BUDGET);
   if (clamped !== v) logger.warn({ requested: v, clamped }, "token_budget clamped to safe range");
   return clamped;
+}
+
+/** Shared error handler for query/search endpoints */
+function handleQueryError(err: unknown, reply: FastifyReply, label: string) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
+    return reply.status(503).send({ error: `Embedding service unavailable: ${msg}. Ensure the embedding model is running (threadclaw start).` });
+  }
+  return reply.status(500).send({ error: `${label} failed: ${msg}` });
 }
 
 export function registerQueryRoutes(server: FastifyInstance) {
@@ -49,8 +60,18 @@ export function registerQueryRoutes(server: FastifyInstance) {
       return reply.code(400).send({ error: "Invalid query (max 2000 characters)" });
     }
 
+    // Byte-length check to prevent oversized multi-byte payloads
+    if (Buffer.byteLength(queryText, "utf-8") > MAX_QUERY_BYTES) {
+      return reply.code(400).send({ error: `Query too large (max ${MAX_QUERY_BYTES} bytes)` });
+    }
+
+    // Validate collection parameter format
+    if (collection != null && (typeof collection !== "string" || !COLLECTION_RE.test(collection))) {
+      return reply.code(400).send({ error: "Invalid collection name (letters, numbers, hyphens, underscores, dots; max 100 chars)" });
+    }
+
     try {
-      return await query(queryText, {
+      const result = await query(queryText, {
         collection,
         topK: clampTopK(top_k),
         tokenBudget: clampBudget(token_budget),
@@ -60,12 +81,9 @@ export function registerQueryRoutes(server: FastifyInstance) {
         brief,
         titlesOnly: titles_only,
       });
+      return reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
-        return reply.status(503).send({ error: `Embedding service unavailable: ${msg}. Ensure the embedding model is running (threadclaw start).` });
-      }
-      return reply.status(500).send({ error: `Query failed: ${msg}` });
+      return handleQueryError(err, reply, "Query");
     }
   });
 
@@ -85,18 +103,25 @@ export function registerQueryRoutes(server: FastifyInstance) {
       return reply.code(400).send({ error: "Invalid query (max 2000 characters)" });
     }
 
+    // Byte-length check
+    if (Buffer.byteLength(queryText, "utf-8") > MAX_QUERY_BYTES) {
+      return reply.code(400).send({ error: `Query too large (max ${MAX_QUERY_BYTES} bytes)` });
+    }
+
+    // Validate collection parameter format
+    if (collection != null && (typeof collection !== "string" || !COLLECTION_RE.test(collection))) {
+      return reply.code(400).send({ error: "Invalid collection name (letters, numbers, hyphens, underscores, dots; max 100 chars)" });
+    }
+
     try {
-      return await query(queryText, {
+      const result = await query(queryText, {
         collection,
         topK: clampTopK(top_k),
         useReranker: false,
       });
+      return reply.send(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
-        return reply.status(503).send({ error: `Embedding service unavailable: ${msg}. Ensure the embedding model is running (threadclaw start).` });
-      }
-      return reply.status(500).send({ error: `Search failed: ${msg}` });
+      return handleQueryError(err, reply, "Search");
     }
   });
 }

@@ -87,9 +87,10 @@ export function findExistingDuplicates(
   const scan = db.transaction(() => {
     for (let i = 0; i < embeddings.length; i++) {
       try {
-        // Retrieve k=5 nearest neighbors to handle cross-collection near-duplicates
+        // Retrieve nearest neighbors to handle cross-collection near-duplicates
         // (the closest vector globally may be in a different collection)
-        const results = (stmt as any).all(new Float32Array(embeddings[i]), 5) as
+        const DEDUP_NEAREST_K = 5;
+        const results = (stmt as any).all(new Float32Array(embeddings[i]), DEDUP_NEAREST_K) as
           Array<{ chunk_id: string; distance: number }>;
 
         for (const result of results) {
@@ -117,6 +118,10 @@ export function findExistingDuplicates(
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
+  // Debug assertion: vectors must be the same length
+  if (process.env.NODE_ENV !== "production" && a.length !== b.length) {
+    throw new Error(`cosineSimilarity: vector length mismatch (${a.length} vs ${b.length})`);
+  }
   let dot = 0, normA = 0, normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];

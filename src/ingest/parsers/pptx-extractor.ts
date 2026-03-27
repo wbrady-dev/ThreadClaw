@@ -1,5 +1,3 @@
-import { readFile } from "fs/promises";
-
 /**
  * Lightweight PPTX text extractor.
  * PPTX files are ZIP archives containing XML slide files.
@@ -9,7 +7,17 @@ import { readFile } from "fs/promises";
  * - ppt/slides/slide1.xml, slide2.xml, etc.
  * - Pulls text from <a:t> tags (PowerPoint text elements)
  * - Preserves slide order
+ *
+ * TODO: Speaker notes are not extracted (ppt/notesSlides/). Add as enhancement.
+ * TODO: Consider migrating to AdmZip for more robust ZIP handling.
+ * The current data descriptor scanning approach can produce false positives
+ * when compressed data happens to contain the signature bytes.
  */
+
+/** Maximum decompressed size (200 MB) to guard against zip bombs */
+const MAX_DECOMPRESSED_SIZE = 200 * 1024 * 1024;
+/** Maximum number of ZIP entries to prevent resource exhaustion */
+const MAX_ENTRY_COUNT = 5000;
 
 interface ZipEntry {
   filename: string;
@@ -22,7 +30,7 @@ interface ZipEntry {
 export async function parseBuffer(buffer: Buffer): Promise<string[]> {
   const entries = await extractZipEntries(buffer);
 
-  // Find slide XML files and sort by slide number
+  // Filter to only slide XML files before decompressing others
   const slideEntries = entries
     .filter((e) => /^ppt\/slides\/slide\d+\.xml$/i.test(e.filename))
     .sort((a, b) => {
@@ -43,6 +51,20 @@ export async function parseBuffer(buffer: Buffer): Promise<string[]> {
 }
 
 /**
+ * Decode common XML entities in text content.
+ */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+/**
  * Extract text content from PowerPoint XML.
  * Looks for <a:t> tags which contain the actual text.
  * Groups text by <a:p> (paragraph) tags.
@@ -60,7 +82,7 @@ function extractTextFromXml(xml: string): string {
       const lineText = textMatches
         .map((m) => {
           const match = m.match(/<a:t[^>]*>([^<]*)<\/a:t>/);
-          return match ? match[1] : "";
+          return match ? decodeXmlEntities(match[1]) : "";
         })
         .join("")
         .trim();
@@ -78,13 +100,21 @@ function extractTextFromXml(xml: string): string {
  * Minimal ZIP file parser.
  * Reads local file headers and extracts entries.
  * Supports Store (no compression) and Deflate methods.
+ *
+ * Only extracts slide-related entries (ppt/slides/) to save memory.
  */
 async function extractZipEntries(buffer: Buffer): Promise<ZipEntry[]> {
   const { inflateRawSync } = await import("zlib");
   const entries: ZipEntry[] = [];
   let offset = 0;
+  let totalDecompressed = 0;
 
   while (offset < buffer.length - 4) {
+    // Enforce entry count limit
+    if (entries.length >= MAX_ENTRY_COUNT) {
+      break;
+    }
+
     // Look for local file header signature: PK\x03\x04
     if (
       buffer[offset] !== 0x50 ||
@@ -109,6 +139,14 @@ async function extractZipEntries(buffer: Buffer): Promise<ZipEntry[]> {
 
     const dataStart = filenameStart + filenameLength + extraLength;
 
+    // Path traversal check — reject entries with .. components
+    if (filename.includes("..") || filename.startsWith("/")) {
+      // Skip this entry entirely
+      offset = dataStart + compressedSize;
+      if (hasDataDescriptor) offset += 12;
+      continue;
+    }
+
     // If bit 3 is set, sizes in the local header may be zero;
     // the real sizes follow the compressed data in a data descriptor.
     if (hasDataDescriptor && compressedSize === 0) {
@@ -130,22 +168,31 @@ async function extractZipEntries(buffer: Buffer): Promise<ZipEntry[]> {
 
     const compressedData = buffer.subarray(dataStart, dataStart + compressedSize);
 
-    let data: Buffer;
-    if (compressionMethod === 0) {
-      // Stored (no compression)
-      data = Buffer.from(compressedData);
-    } else if (compressionMethod === 8) {
-      // Deflate
-      try {
-        data = inflateRawSync(compressedData);
-      } catch {
+    // Only decompress slide files (filter before decompressing to save resources)
+    const isSlide = /^ppt\/slides\/slide\d+\.xml$/i.test(filename);
+
+    if (isSlide && !filename.endsWith("/")) {
+      let data: Buffer;
+      if (compressionMethod === 0) {
+        // Stored (no compression)
+        data = Buffer.from(compressedData);
+      } else if (compressionMethod === 8) {
+        // Deflate
+        try {
+          data = inflateRawSync(compressedData);
+        } catch {
+          data = Buffer.alloc(0);
+        }
+      } else {
         data = Buffer.alloc(0);
       }
-    } else {
-      data = Buffer.alloc(0);
-    }
 
-    if (filename && !filename.endsWith("/")) {
+      // Zip bomb protection: check total decompressed size
+      totalDecompressed += data.length;
+      if (totalDecompressed > MAX_DECOMPRESSED_SIZE) {
+        throw new Error(`PPTX decompressed size exceeds ${MAX_DECOMPRESSED_SIZE / 1024 / 1024}MB limit — possible zip bomb`);
+      }
+
       entries.push({ filename, data });
     }
 

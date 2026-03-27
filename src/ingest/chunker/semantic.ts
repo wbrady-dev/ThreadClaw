@@ -22,6 +22,9 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
   const { text, structure, metadata } = doc;
   const { chunkMinTokens, chunkMaxTokens, chunkTargetTokens } = config.defaults;
 
+  // Early return for empty text — consistent across all strategies
+  if (!text || !text.trim()) return [];
+
   let chunks: Chunk[];
   const hasHeadings = structure.some((s) => s.type === "heading");
 
@@ -39,6 +42,10 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
       break;
 
     case "code":
+      // NOTE: Code fileType falls through to prose when there are no headings,
+      // ignoring any code_block structure hints. The code chunker requires heading
+      // hints for function/class boundaries. Consider using code_block hints for
+      // files without detected function definitions.
       chunks = hasHeadings
         ? chunkCode(text, structure, chunkMaxTokens)
         : chunkProse(text, chunkTargetTokens, chunkMaxTokens);
@@ -46,6 +53,8 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
 
     case "docx":
     case "pptx":
+      // NOTE: docx/pptx parsers output markdown text (mammoth/pptx-extractor),
+      // so using the markdown chunking strategy is correct here.
       chunks = hasHeadings
         ? chunkMarkdown(text, structure, chunkMaxTokens)
         : chunkProse(text, chunkTargetTokens, chunkMaxTokens);
@@ -68,6 +77,10 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
   chunks = mergeSmallChunks(chunks, chunkMinTokens);
 
   // Add overlap: prepend last N% of previous chunk's text for context preservation
+  // KNOWN LIMITATION: Overlap is applied AFTER merge, which can create cross-section
+  // overlap (a chunk from section A gets prepended to a chunk from section B).
+  // NOTE: Overlap splits on whitespace, which can destroy formatting for code/table chunks.
+  // TODO: Add file-type metadata on chunks as an enhancement.
   chunks = addOverlap(chunks, Math.floor(chunkTargetTokens * config.extraction.chunkOverlapRatio));
 
   // Re-number positions

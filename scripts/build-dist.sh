@@ -8,6 +8,8 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# NOTE: require() works here because node -e runs in CJS mode by default,
+# regardless of "type": "module" in package.json.
 VERSION=$(node -e "console.log(require('./package.json').version)")
 
 echo ""
@@ -53,7 +55,12 @@ mkdir -p "$DIST_DIR"
 
 echo "[build] Copying files to $DIST_DIR..."
 
-# Copy everything except exclusions
+# Copy everything except exclusions (requires rsync)
+if ! command -v rsync >/dev/null 2>&1; then
+  echo "[ERROR] rsync is required for build-dist.sh."
+  echo "        Install rsync or use build-dist.bat on Windows."
+  exit 1
+fi
 rsync -a \
   --exclude='.git' \
   --exclude='.venv' \

@@ -1,4 +1,4 @@
-import { basename, extname } from "path";
+import { basename, extname, resolve } from "path";
 import { config } from "../../config.js";
 import { logger } from "../../utils/logger.js";
 import type { ParsedDocument, StructureHint, DocMetadata } from "./index.js";
@@ -14,6 +14,17 @@ import type { ParsedDocument, StructureHint, DocMetadata } from "./index.js";
 export async function parseWithDocling(
   filePath: string,
 ): Promise<ParsedDocument | null> {
+  // Validate file path is within expected directories to prevent sending arbitrary paths
+  // to the external Docling service
+  const absPath = resolve(filePath);
+  const allowedBase = resolve(config.dataDir, "..");
+  if (!absPath.startsWith(allowedBase)) {
+    logger.warn({ filePath: absPath }, "Docling: file path outside allowed base directory, skipping");
+    return null;
+  }
+
+  // NOTE: Uses config.reranker.url because the Python model server hosts both
+  // the reranker and Docling endpoints on the same HTTP server.
   const url = `${config.reranker.url}/parse`;
 
   try {

@@ -7,6 +7,7 @@
 import { existsSync } from "fs";
 import { resolve } from "path";
 import { config } from "../../config.js";
+import { logger } from "../../utils/logger.js";
 import { ThreadClawWatcher } from "../../watcher/index.js";
 import type { SourceAdapter, SourceConfig, SourceStatus } from "../types.js";
 
@@ -50,8 +51,14 @@ export class LocalAdapter implements SourceAdapter {
     }
 
     // Filter to only paths that exist
+    // NOTE: TOCTOU — path could disappear between existsSync and watcher.start().
+    // Log a warning for dropped paths so the user knows which ones were skipped.
     const watchConfigs = cfg.collections
-      .filter((c) => existsSync(resolve(c.path)))
+      .filter((c) => {
+        const exists = existsSync(resolve(c.path));
+        if (!exists) logger.warn({ path: c.path }, "Watch path does not exist, skipping");
+        return exists;
+      })
       .map((c) => ({
         paths: [resolve(c.path)],
         collection: c.collection,
@@ -79,13 +86,19 @@ export class LocalAdapter implements SourceAdapter {
     await this.watcher.start();
     this.status = {
       state: "watching",
-      docCount: 0, // updated by collection stats
+      docCount: 0, // docCount is not tracked by the watcher — use collection stats API for actual count
     };
   }
 
   async stop(): Promise<void> {
     if (this.watcher) {
-      await this.watcher.stop();
+      // NOTE: watcher.stop() should not throw, but if it does the watcher
+      // reference is still cleared to prevent stale state.
+      try {
+        await this.watcher.stop();
+      } catch (err) {
+        logger.warn({ error: String(err) }, "Error stopping local watcher");
+      }
       this.watcher = null;
     }
     this.status = { state: "idle", docCount: 0 };

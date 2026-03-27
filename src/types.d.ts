@@ -2,6 +2,9 @@
  * Type declarations for untyped npm packages used by ThreadClaw.
  */
 
+// prompts typing is intentionally loose — the library's API uses dynamic
+// question objects with varying shapes. Tightening would require a full
+// re-typing effort that's better done upstream.
 declare module "prompts" {
   function prompts(
     questions: Record<string, any> | Record<string, any>[],
@@ -49,5 +52,7 @@ declare module "mammoth" {
   function convertToMarkdown(input: { buffer: Buffer } | { path: string }): Promise<ConvertResult>;
   function extractRawText(input: { buffer: Buffer } | { path: string }): Promise<ConvertResult>;
 
+  // mammoth's default export is typed loosely as an object literal.
+  // A more precise typing would require enumerating all mammoth methods.
   export default { convertToHtml, convertToMarkdown, extractRawText };
 }

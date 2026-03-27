@@ -42,11 +42,14 @@ function clamp(min: number, max: number, value: number): number {
 
 const hotConfig = {
   // Reranker tuning
+  // 0.0 effectively disables score-based filtering (all results pass). Set > 0 to filter.
   rerankScoreThreshold: clamp(0, 1, envFloat("RERANK_SCORE_THRESHOLD", 0.0)),
   rerankDisabled: envBool("RERANK_DISABLED", false),
   rerankTopK: clamp(1, 200, envInt("RERANK_TOP_K", 20)),
   rerankSmartSkip: envBool("RERANK_SMART_SKIP", true),
   // Embedding tuning
+  // 1.05 is intentionally above max cosine similarity (1.0) to effectively disable
+  // similarity-based pre-filtering. The reranker handles relevance filtering instead.
   similarityThreshold: envFloat("EMBEDDING_SIMILARITY_THRESHOLD", 1.05),
   prefixMode: (() => {
     const mode = env("EMBEDDING_PREFIX_MODE", "auto");
@@ -60,7 +63,12 @@ const hotConfig = {
   queryExpansionEnabled: envBool("QUERY_EXPANSION_ENABLED", false),
 };
 
-/** Re-read hot-reloadable settings from .env without restarting. */
+/**
+ * Re-read hot-reloadable settings from .env without restarting.
+ * Note: duplicates some env parsing logic from the top-level config init.
+ * This is intentional — the hot-reload path re-parses the .env file directly
+ * rather than going through process.env, to pick up changes immediately.
+ */
 function reloadHotConfig(): void {
   try {
     if (!existsSync(envPath)) return;
@@ -115,7 +123,9 @@ function reloadHotConfig(): void {
   }
 }
 
-// Watch .env for changes — reload hot config automatically (debounced to avoid mid-write reads)
+// Watch .env for changes — reload hot config automatically (debounced to avoid mid-write reads).
+// Uses fs.watchFile (polling at 3s) instead of fs.watch because fs.watch is unreliable on
+// network drives and some Windows setups. The 3s poll interval is a good tradeoff.
 let hotReloadTimer: ReturnType<typeof setTimeout> | null = null;
 if (existsSync(envPath)) {
   watchFile(envPath, { interval: 3000 }, () => {
@@ -125,6 +135,12 @@ if (existsSync(envPath)) {
 }
 
 // ── Main config (frozen at startup for model/port/path settings) ──
+
+// Warn if no API key is configured — the server will accept unauthenticated requests
+if (!process.env.THREADCLAW_API_KEY) {
+  // Use console.warn since logger may not be initialized yet
+  console.warn("[threadclaw] THREADCLAW_API_KEY is not set — API endpoints are unauthenticated");
+}
 
 export const config = {
   port: envInt("THREADCLAW_PORT", 18800),

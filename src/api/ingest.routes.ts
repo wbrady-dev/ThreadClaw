@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { resolve } from "path";
 import { realpathSync } from "fs";
+import { writeFile, unlink } from "fs/promises"; // static import instead of dynamic
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { ingestFile } from "../ingest/pipeline.js";
@@ -26,15 +27,23 @@ export function validateIngestPath(filePath: string): string | null {
   const segments = lower.split("/");
   const basename = segments[segments.length - 1] ?? "";
 
-  // Exact basename blocks
-  const blockedNames = new Set([".env", "credentials", "secrets", "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "id_xmss"]);
+  // Exact basename blocks (expanded blocklist)
+  const blockedNames = new Set([
+    ".env", "credentials", "secrets",
+    "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "id_xmss",
+    ".npmrc", ".netrc", ".pgpass", ".my.cnf",
+    ".htpasswd", ".boto", ".s3cfg",
+    "shadow", "passwd",
+    "known_hosts", "authorized_keys",
+    "token", "access_token",
+  ]);
   if (blockedNames.has(basename)) return `Blocked path: '${basename}'`;
 
   // .env variant prefix (.env.local, .env.production, etc.)
   if (basename.startsWith(".env.")) return `Blocked path: '${basename}'`;
 
   // Sensitive directory segments
-  const blockedSegments = new Set([".git", ".ssh", ".aws", ".docker", ".gnupg", ".kube", ".azure"]);
+  const blockedSegments = new Set([".git", ".ssh", ".aws", ".docker", ".gnupg", ".kube", ".azure", ".config/gcloud"]);
   for (const seg of segments) {
     if (blockedSegments.has(seg)) return `Blocked path: contains '${seg}/'`;
   }
@@ -62,7 +71,7 @@ export function registerIngestRoutes(server: FastifyInstance) {
 
     try {
       const result = await ingestFile(filePath, { collection, tags });
-      return result;
+      return { ok: true, ...result };
     } catch (err) {
       return reply.status(500).send({ error: `Ingest failed: ${err instanceof Error ? err.message : String(err)}` });
     }
@@ -85,16 +94,24 @@ export function registerIngestRoutes(server: FastifyInstance) {
       return reply.status(413).send({ error: `Text too large (${(text.length / 1_000_000).toFixed(1)} MB). Maximum: ${MAX_TEXT_SIZE / 1_000_000} MB` });
     }
 
-    // Write to temp file and ingest
-    const { writeFile, unlink } = await import("fs/promises");
+    // Sanitize title: trim whitespace and enforce length limit
+    const safeTitle = title ? title.trim().substring(0, 200) : undefined;
+
     const tmpPath = resolve(tmpdir(), `threadclaw_tmp_${randomUUID()}.md`);
 
-    const content = title ? `# ${title}\n\n${text}` : text;
-    await writeFile(tmpPath, content, "utf-8");
+    const content = safeTitle ? `# ${safeTitle.replace(/[#\n\r]/g, "")}\n\n${text}` : text;
+
+    try {
+      await writeFile(tmpPath, content, "utf-8");
+    } catch (err) {
+      return reply.status(500).send({ error: `Failed to write temp file: ${err instanceof Error ? err.message : String(err)}` });
+    }
 
     try {
       const result = await ingestFile(tmpPath, { collection });
-      return result;
+      return { ok: true, ...result };
+    } catch (err) {
+      return reply.status(500).send({ error: `Ingest failed: ${err instanceof Error ? err.message : String(err)}` });
     } finally {
       await unlink(tmpPath).catch((err) => {
         logger.warn({ tmpPath, error: String(err) }, "Failed to clean up temp file");

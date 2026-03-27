@@ -34,8 +34,9 @@ export function registerGraphRoutes(server: FastifyInstance) {
     try {
       const db = getGraphDb(graphDbPath);
 
-
       let entities;
+      let total: number;
+
       if (search && search.trim()) {
         const pattern = `%${escapeLike(search.toLowerCase().trim())}%`;
         entities = db.prepare(`
@@ -50,6 +51,11 @@ export function registerGraphRoutes(server: FastifyInstance) {
           ORDER BY json_extract(structured_json, '$.mentionCount') DESC
           LIMIT ? OFFSET ?
         `).all(pattern, limit, offset);
+
+        // Fix: total count respects search filter
+        total = (db.prepare(
+          "SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity' AND json_extract(structured_json, '$.name') LIKE ? ESCAPE '\\\\'",
+        ).get(pattern) as { cnt: number }).cnt;
       } else {
         entities = db.prepare(`
           SELECT id,
@@ -63,14 +69,19 @@ export function registerGraphRoutes(server: FastifyInstance) {
           ORDER BY json_extract(structured_json, '$.mentionCount') DESC
           LIMIT ? OFFSET ?
         `).all(limit, offset);
+
+        total = (db.prepare(
+          "SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'",
+        ).get() as { cnt: number }).cnt;
       }
 
-      const total = (db.prepare(
-        "SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'",
-      ).get() as { cnt: number }).cnt;
+      // Note: json_extract in ORDER BY prevents index usage on mentionCount.
+      // Acceptable for current data sizes; consider a materialized column if this
+      // becomes a bottleneck at scale.
 
       return { entities, total, limit, offset };
-    } catch {
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to list graph entities");
       return reply.status(503).send({ error: "Graph DB unavailable" });
     }
   });
@@ -90,7 +101,6 @@ export function registerGraphRoutes(server: FastifyInstance) {
 
     try {
       const db = getGraphDb(graphDbPath);
-
 
       const entity = db.prepare(`
         SELECT id,
@@ -119,7 +129,8 @@ export function registerGraphRoutes(server: FastifyInstance) {
       `).all(entityRow.composite_id) : [];
 
       return { entity, mentions };
-    } catch {
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get entity detail");
       return reply.status(503).send({ error: "Graph DB unavailable" });
     }
   });
@@ -151,20 +162,26 @@ export function registerGraphRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "Body must have a 'terms' array" });
     }
 
-    // Validate and sanitize
-    const cleaned = terms
-      .filter((t): t is string => typeof t === "string" && t.trim().length > 0 && t.length <= 100 && VALID_TERM_RE.test(t))
-      .map((t) => t.trim())
-      .slice(0, 500);
+    // Validate and sanitize — return count of rejected entries
+    const validEntries: string[] = [];
+    let rejectedCount = 0;
+    for (const t of terms.slice(0, 500)) {
+      if (typeof t === "string" && t.trim().length > 0 && t.length <= 100 && VALID_TERM_RE.test(t)) {
+        validEntries.push(t.trim());
+      } else {
+        rejectedCount++;
+      }
+    }
 
     try {
       mkdirSync(dirname(TERMS_PATH), { recursive: true });
-      writeFileSync(TERMS_PATH, JSON.stringify({ terms: cleaned }, null, 2));
-    } catch (e: any) {
-      logger.warn({ error: e?.message }, "Failed to save terms");
+      writeFileSync(TERMS_PATH, JSON.stringify({ terms: validEntries }, null, 2));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.warn({ error: msg }, "Failed to save terms");
       return reply.status(500).send({ error: "Failed to save terms" });
     }
 
-    return { terms: cleaned, count: cleaned.length };
+    return { terms: validEntries, count: validEntries.length, rejected: rejectedCount };
   });
 }

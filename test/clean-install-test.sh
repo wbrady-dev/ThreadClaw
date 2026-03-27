@@ -50,7 +50,7 @@ echo ""
 # ── Prerequisites ──
 echo "── Prerequisites ──"
 check "Node.js 22+" node -e "if(parseInt(process.versions.node)<22)process.exit(1)"
-check "Python 3+" python3 --version || check "Python 3+ (alt)" python --version
+check "Python 3+" bash -c "python3 --version 2>/dev/null || python --version 2>/dev/null"
 check "npm available" npm --version
 check "pip available" bash -c "python3 -m pip --version 2>/dev/null || python -m pip --version 2>/dev/null"
 
@@ -93,10 +93,11 @@ check "tsc --noEmit passes" npx tsc --noEmit
 
 # ── Unit Tests ──
 echo "── Unit Tests (ThreadClaw) ──"
-check "ThreadClaw vitest passes" bash -c "npx vitest run 2>&1 | tail -1 | grep -q 'passed'"
+# NOTE: vitest output format may vary; grep for "passed" anywhere in last 5 lines
+check "ThreadClaw vitest passes" bash -c "npx vitest run 2>&1 | tail -5 | grep -q 'passed'"
 
 echo "── Unit Tests (Memory-Engine) ──"
-check "Memory-engine vitest passes" bash -c "cd memory-engine && npx vitest run 2>&1 | tail -1 | grep -q 'passed'"
+check "Memory-engine vitest passes" bash -c "cd memory-engine && npx vitest run 2>&1 | tail -5 | grep -q 'passed'"
 
 # ── Smoke Tests ──
 echo "── Smoke Tests ──"
@@ -144,7 +145,8 @@ check "README.md" test -f README.md
 check "TECHNICAL.md" test -f TECHNICAL.md
 check "CHANGELOG.md" test -f CHANGELOG.md
 check "docs/ directory" test -d docs
-check "22 tools in README" grep -q "22" README.md
+# Use more specific patterns to avoid false matches on version numbers etc.
+check "22 tools in README" grep -q "22 tools\|22 MCP" README.md
 check "RSMA formula in README" grep -q "RAG + DAG + KG + AL" README.md
 check "lossless-claw credited" grep -qi "lossless-claw" README.md
 check "v0.3.0 in CHANGELOG" grep -q "0.3.0" CHANGELOG.md

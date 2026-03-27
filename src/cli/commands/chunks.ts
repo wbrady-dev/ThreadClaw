@@ -9,10 +9,17 @@ export const chunksCommand = new Command("chunks")
   .argument("<source>", "Source file path or partial match")
   .option("-c, --collection <name>", "Filter by collection")
   .option("--full", "Show full chunk text (default: truncated to 200 chars)")
+  .option("--json", "Output as JSON")
+  .addHelpText("after", `
+Examples:
+  $ threadclaw chunks report.pdf                      Show chunks for a document
+  $ threadclaw chunks auth -c backend                 Filter by collection
+  $ threadclaw chunks report.pdf --full               Show full chunk text
+  $ threadclaw chunks report.pdf --json               Machine-readable output`)
   .action(
     async (
       source: string,
-      opts: { collection?: string; full: boolean },
+      opts: { collection?: string; full: boolean; json: boolean },
     ) => {
       try {
         const db = getInitializedDb();
@@ -46,15 +53,56 @@ export const chunksCommand = new Command("chunks")
           return;
         }
 
+        if (opts.json) {
+          const jsonOutput = [];
+          for (const doc of docs) {
+            const meta = JSON.parse(doc.metadata_json || "{}");
+            const chunks = db
+              .prepare(
+                `SELECT id, text, context_prefix, position, token_count
+                 FROM chunks
+                 WHERE document_id = ?
+                 ORDER BY position`,
+              )
+              .all(doc.docId) as {
+              id: string;
+              text: string;
+              context_prefix: string | null;
+              position: number;
+              token_count: number;
+            }[];
+            jsonOutput.push({
+              docId: doc.docId,
+              sourcePath: doc.source_path,
+              contentHash: doc.content_hash,
+              collection: doc.collectionName,
+              metadata: meta,
+              chunks: chunks.map((c) => ({
+                id: c.id,
+                position: c.position,
+                tokenCount: c.token_count,
+                contextPrefix: c.context_prefix,
+                text: opts.full ? c.text : c.text.slice(0, 200),
+              })),
+            });
+          }
+          console.log(JSON.stringify(jsonOutput, null, 2));
+          return;
+        }
+
         for (const doc of docs) {
           const fileName = doc.source_path.replace(/\\/g, "/").split("/").pop();
           const meta = JSON.parse(doc.metadata_json || "{}");
+          // Guard: content_hash may be shorter than 16 chars
+          const hashPreview = doc.content_hash.length > 16
+            ? doc.content_hash.slice(0, 16) + "..."
+            : doc.content_hash;
 
           console.log(`\n${"=".repeat(60)}`);
           console.log(`Document: ${fileName}`);
           console.log(`Collection: ${doc.collectionName}`);
           console.log(`ID: ${doc.docId}`);
-          console.log(`Hash: ${doc.content_hash.slice(0, 16)}...`);
+          console.log(`Hash: ${hashPreview}`);
           if (meta.title) console.log(`Title: ${meta.title}`);
           if (meta.fileType) console.log(`Type: ${meta.fileType}`);
           if (meta.tags?.length) console.log(`Tags: ${meta.tags.join(", ")}`);

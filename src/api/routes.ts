@@ -9,8 +9,11 @@ import { registerAnalyticsRoutes, registerDiagnosticsRoute } from "./analytics.r
 import { registerDocumentRoutes } from "./document.routes.js";
 import { registerResetRoutes } from "./reset.routes.js";
 import { registerGraphRoutes } from "./graph.routes.js";
+import { registerEventStreamRoute } from "./event-stream.routes.js";
 
-export function registerRoutes(server: FastifyInstance, onShutdown?: () => Promise<void>) {
+// All routes are registered at the root prefix (no /api/v1 prefix).
+// If versioning is needed in the future, add a Fastify prefix option here.
+export async function registerRoutes(server: FastifyInstance, onShutdown?: () => Promise<void>) {
   registerHealthRoutes(server, onShutdown);
   registerIngestRoutes(server);
   registerQueryRoutes(server);
@@ -22,4 +25,5 @@ export function registerRoutes(server: FastifyInstance, onShutdown?: () => Promi
   registerDocumentRoutes(server);
   registerResetRoutes(server);
   registerGraphRoutes(server);
+  registerEventStreamRoute(server);
 }

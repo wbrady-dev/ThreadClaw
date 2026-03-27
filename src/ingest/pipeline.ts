@@ -1,5 +1,5 @@
 import { readFile, stat } from "fs/promises";
-import { resolve } from "path";
+import { resolve, sep } from "path";
 import { v4 as uuidv4 } from "uuid";
 
 import { config } from "../config.js";
@@ -92,12 +92,31 @@ async function ingestFileInner(
   // Ensure collection exists
   const collection = ensureCollection(db, collectionName);
 
+  // Path containment check — prevent directory traversal attacks
+  const allowedBase = resolve(config.dataDir, "..");
+  if (!absPath.startsWith(allowedBase + sep) && absPath !== allowedBase) {
+    logger.warn({ filePath: absPath, allowedBase }, "File path outside allowed base directory");
+    return {
+      documentsAdded: 0, documentsUpdated: 0, chunksCreated: 0,
+      duplicatesSkipped: 0, elapsedMs: Date.now() - start,
+    };
+  }
+
   // File size guard — prevent OOM on very large files
   const MAX_FILE_SIZE = config.extraction.ingestMaxFileSizeMb * 1024 * 1024;
   const fileStats = await stat(absPath).catch(() => null);
   const fileMtime = fileStats?.mtime.toISOString() ?? null;
 
-  if (fileStats && fileStats.size > MAX_FILE_SIZE) {
+  // If stat() failed, the file doesn't exist or is inaccessible — return error early
+  if (!fileStats) {
+    logger.warn({ filePath: absPath }, "File stat failed — file may not exist or is inaccessible");
+    return {
+      documentsAdded: 0, documentsUpdated: 0, chunksCreated: 0,
+      duplicatesSkipped: 0, elapsedMs: Date.now() - start,
+    };
+  }
+
+  if (fileStats.size > MAX_FILE_SIZE) {
     logger.warn({ filePath: absPath, sizeMB: Math.round(fileStats.size / 1024 / 1024) }, "File too large, skipping");
     return {
       documentsAdded: 0, documentsUpdated: 0, chunksCreated: 0,
@@ -105,7 +124,8 @@ async function ingestFileInner(
     };
   }
 
-  // Read file once as buffer, then try text decode. Avoids double I/O for binary files.
+  // TODO: Streaming — entire file is read into memory as a single buffer.
+  // For very large files (near the size limit), consider streaming to parsers.
   const fileBuf = await readFile(absPath);
   let raw: string;
   try {
@@ -162,8 +182,9 @@ async function ingestFileInner(
   }
 
   // Parse
-  // TODO(BUG 13): Binary parsers (pdf, pptx, docx) re-read the file from disk.
-  // Pass fileBuf to parsers that accept a buffer to avoid double I/O.
+  // KNOWN ISSUE (TOCTOU): Binary parsers (pdf, pptx, docx) re-read the file from disk.
+  // The file could change between our read above and the parser's read. Pass fileBuf
+  // to parsers that accept a buffer to avoid both double I/O and this race condition.
   const parser = getParser(absPath);
   let parsed;
   try {
@@ -182,7 +203,7 @@ async function ingestFileInner(
   // Enrich metadata with auto-tags
   const autoTags = generateAutoTags(absPath, parsed.metadata.fileType);
   const allTags = [...(options.tags ?? []), ...autoTags];
-  const metadata = await enrichMetadata(parsed.metadata, absPath, allTags);
+  const metadata = await enrichMetadata(parsed.metadata, absPath, allTags, fileStats);
 
   // Chunk
   const chunks = chunkDocument(parsed);
@@ -328,11 +349,11 @@ async function ingestFileInner(
   if (config.relations.enabled) {
     try {
       const graphDb = getGraphDb(config.relations.graphDbPath);
-      const chunkTexts = dedupedIndices.map((i) => ({
+      const relationChunkTexts = dedupedIndices.map((i) => ({
         text: chunks[i].text,
         position: chunks[i].position,
       }));
-      await extractEntitiesFromDocument(graphDb, documentId, chunkTexts);
+      await extractEntitiesFromDocument(graphDb, documentId, relationChunkTexts);
     } catch (graphErr) {
       logger.error(
         { documentId, error: graphErr instanceof Error ? graphErr.message : String(graphErr) },
@@ -342,6 +363,10 @@ async function ingestFileInner(
   }
 
   // Checkpoint WAL after large ingests to prevent unbounded growth
+  // NOTE: Threshold of 50 chunks is hardcoded. Consider making configurable via config.extraction.checkpointThreshold.
+  // NOTE: When chunks are deduped, parent-child linking uses dedupedIndices which may have gaps.
+  // This means parent_id chains can be broken when intermediate chunks are removed as duplicates.
+  // This is acceptable — the parent_id is used for context enrichment, not structural integrity.
   if (chunks.length >= 50) {
     checkpoint();
   }
@@ -372,7 +397,8 @@ async function ingestFileInner(
  * E.g., files in a "research" folder get tagged "research".
  */
 function generateAutoTags(filePath: string, fileType: string): string[] {
-  const tags: string[] = [fileType];
+  const tags: string[] = [];
+  if (fileType) tags.push(fileType);
 
   // Extract directory names as potential tags
   const parts = filePath.replace(/\\/g, "/").split("/");

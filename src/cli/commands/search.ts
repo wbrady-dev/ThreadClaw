@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { query } from "../../query/pipeline.js";
+import { formatConnectionHint } from "../cli-utils.js";
 
 export const searchCommand = new Command("search")
   .description("Simple search (no reranking, faster)")
@@ -19,7 +20,7 @@ Examples:
     ) => {
       try {
         let topK = opts.topK != null ? parseInt(opts.topK, 10) : 10;
-        if (!Number.isFinite(topK) || topK < 0) topK = 10;
+        if (!Number.isFinite(topK) || topK < 1) topK = 10;
 
         const result = await query(terms, {
           collection: opts.collection,
@@ -39,15 +40,14 @@ Examples:
           }
           console.log("");
           console.log(
-            `--- ${result.queryInfo.candidatesEvaluated} candidates | ${result.queryInfo.chunksReturned} chunks | ${result.queryInfo.elapsedMs}ms ---`,
+            `--- ${result.queryInfo.candidatesEvaluated ?? 0} candidates | ${result.queryInfo.chunksReturned ?? 0} chunks | ${result.queryInfo.elapsedMs ?? 0}ms ---`,
           );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`Error: ${msg}`);
-        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
-          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
-        }
+        const hint = formatConnectionHint(msg);
+        if (hint) console.error(hint);
         process.exit(1);
       }
     },

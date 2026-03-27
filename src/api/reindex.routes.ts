@@ -1,12 +1,16 @@
 import type { FastifyInstance } from "fastify";
-import { resolve } from "path";
+import { resolve, basename } from "path";
 import { existsSync } from "fs";
+import { stat } from "fs/promises";
 import { config } from "../config.js";
 import { getDb } from "../storage/index.js";
 import { logger } from "../utils/logger.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import { clearCache } from "../query/cache.js";
 import { isLocalRequest } from "./guards.js";
+
+/** Default batch limit to prevent unbounded sequential processing */
+const DEFAULT_BATCH_LIMIT = 500;
 
 /**
  * Re-indexing routes.
@@ -15,22 +19,25 @@ import { isLocalRequest } from "./guards.js";
  */
 export function registerReindexRoutes(server: FastifyInstance) {
   /**
-   * POST /reindex — re-ingest all documents in a collection (or all collections).
+   * POST /reindex — re-ingest documents in a collection (or all collections).
    * Documents are re-read from their original source_path, re-chunked, and re-embedded.
    * Skipped if source file no longer exists.
    *
-   * Body: { collection?: string, dry_run?: boolean }
-   * Returns: { reindexed, skipped, failed, elapsed_ms }
+   * Body: { collection?: string, dry_run?: boolean, limit?: number }
+   * Returns: { reindexed, skipped, failed, total, hasMore, elapsed_ms }
    */
   server.post("/reindex", async (req, reply) => {
     if (!isLocalRequest(req)) {
       return reply.status(403).send({ error: "Forbidden" });
     }
 
-    const { collection, dry_run } = req.body as {
+    const { collection, dry_run, limit: batchLimit } = req.body as {
       collection?: string;
       dry_run?: boolean;
+      limit?: number;
     } ?? {};
+
+    const maxDocs = (typeof batchLimit === "number" && batchLimit > 0) ? batchLimit : DEFAULT_BATCH_LIMIT;
 
     let db: ReturnType<typeof getDb>;
     let docs: { id: string; source_path: string; collection_name: string }[];
@@ -58,24 +65,31 @@ export function registerReindexRoutes(server: FastifyInstance) {
       return reply.code(500).send({ error: `Failed to fetch documents for reindex: ${err instanceof Error ? err.message : String(err)}` });
     }
 
+    const totalDocs = docs.length;
+
     if (dry_run) {
       const available = docs.filter((d) => d.source_path && existsSync(d.source_path));
       const missing = docs.filter((d) => !d.source_path || !existsSync(d.source_path));
       return {
         dry_run: true,
-        total: docs.length,
+        total: totalDocs,
         available: available.length,
         missing: missing.length,
-        missing_paths: missing.map((d) => d.source_path),
+        // Return basenames only — don't expose full source_path values
+        missing_paths: missing.map((d) => d.source_path ? basename(d.source_path) : "(no path)"),
       };
     }
+
+    // Apply batch limit
+    const batch = docs.slice(0, maxDocs);
+    const hasMore = docs.length > maxDocs;
 
     const start = Date.now();
     let reindexed = 0;
     let skipped = 0;
     let failed = 0;
 
-    for (const doc of docs) {
+    for (const doc of batch) {
       if (!doc.source_path || !existsSync(doc.source_path)) {
         skipped++;
         continue;
@@ -100,7 +114,9 @@ export function registerReindexRoutes(server: FastifyInstance) {
       reindexed,
       skipped,
       failed,
-      total: docs.length,
+      total: totalDocs,
+      processed: batch.length,
+      hasMore,
       elapsed_ms: Date.now() - start,
     };
   });
@@ -115,7 +131,6 @@ export function registerReindexRoutes(server: FastifyInstance) {
     }
 
     const { collection } = req.body as { collection?: string } ?? {};
-    const { stat } = await import("fs/promises");
 
     let docs: { id: string; source_path: string; collection_name: string; file_mtime: string | null }[];
     try {
@@ -152,11 +167,15 @@ export function registerReindexRoutes(server: FastifyInstance) {
 
       try {
         const st = await stat(doc.source_path);
-        const currentMtime = st.mtime.toISOString();
+        // Compare as epoch milliseconds (more robust than ISO string comparison)
+        const currentMtimeMs = st.mtime.getTime();
 
-        if (doc.file_mtime && currentMtime <= doc.file_mtime) {
-          upToDate++;
-          continue;
+        if (doc.file_mtime) {
+          const storedMtimeMs = new Date(doc.file_mtime).getTime();
+          if (!isNaN(storedMtimeMs) && currentMtimeMs <= storedMtimeMs) {
+            upToDate++;
+            continue;
+          }
         }
 
         await ingestFile(doc.source_path, {

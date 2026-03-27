@@ -123,7 +123,9 @@ export abstract class PollingAdapterBase implements SourceAdapter {
       return;
     }
 
-    logger.warn(`${this.name} manifest is in-memory — full re-sync will occur on restart`);
+    // NOTE: Manifest is in-memory only — full re-sync will occur on restart.
+    // Consider persisting manifest to disk for faster startup.
+    logger.info(`${this.name} starting — manifest is in-memory, full re-sync will occur on restart`);
 
     try {
       await this.initClient();
@@ -142,19 +144,27 @@ export abstract class PollingAdapterBase implements SourceAdapter {
       this.status = { state: "error", docCount: 0, error: `Initial sync failed: ${err}` };
     }
 
-    // Start polling
+    // Start polling with chained setTimeout to prevent overlap
+    // (setInterval can fire during an active sync if sync takes longer than interval)
     const intervalMs = (cfg.syncInterval || this.defaultSyncInterval) * 1000;
-    this.syncTimer = setInterval(() => {
-      this.sync().catch((err) => {
-        logger.error({ source: this.id, error: String(err) }, `${this.name} sync failed`);
-        this.status = { ...this.status, state: "error", error: String(err) };
-      });
-    }, intervalMs);
+    const scheduleNext = () => {
+      this.syncTimer = setTimeout(async () => {
+        try {
+          await this.sync();
+        } catch (err) {
+          logger.error({ source: this.id, error: String(err) }, `${this.name} sync failed`);
+          this.status = { ...this.status, state: "error", error: String(err) };
+        }
+        // Schedule next sync after the current one completes
+        if (this.syncTimer !== null) scheduleNext();
+      }, intervalMs);
+    };
+    scheduleNext();
   }
 
   async stop(): Promise<void> {
     if (this.syncTimer) {
-      clearInterval(this.syncTimer);
+      clearTimeout(this.syncTimer);
       this.syncTimer = null;
     }
     this.onStop();
@@ -240,7 +250,9 @@ export abstract class PollingAdapterBase implements SourceAdapter {
     for (const file of staged) {
       try {
         if (file.localPath && existsSync(file.localPath)) unlinkSync(file.localPath);
-      } catch {}
+      } catch (err) {
+        logger.debug({ file: file.localPath, error: String(err) }, "Cleanup failed for staged file");
+      }
     }
   }
 
@@ -270,6 +282,11 @@ export abstract class PollingAdapterBase implements SourceAdapter {
     );
 
     // Process removals — delete staging files, DB docs, and remove from manifest
+    // Hoist DB connection outside the loop to avoid repeated open/close
+    const db = changes.removed.length > 0
+      ? getDb(resolve(config.dataDir, "threadclaw.db"))
+      : null;
+
     for (const itemId of changes.removed) {
       const entry = this.manifest.get(itemId);
       const entryName = entry?.name ?? itemId;
@@ -282,7 +299,7 @@ export abstract class PollingAdapterBase implements SourceAdapter {
 
       // Clean up DB documents/chunks/vectors to prevent orphans
       try {
-        const db = getDb(resolve(config.dataDir, "threadclaw.db"));
+        if (!db) throw new Error("DB not initialized");
         const query = this.getRemovalDbQuery(itemId, entryName);
         const docs = db.prepare(query.sql).all(...query.params) as { id: string }[];
         for (const doc of docs) {
@@ -314,6 +331,9 @@ export abstract class PollingAdapterBase implements SourceAdapter {
           lastModified: file.remoteTimestamp ?? new Date().toISOString(),
         });
       } catch (err) {
+        // NOTE: Failed ingestions will be retried on every sync cycle since the file
+        // remains in the remote listing. Consider tracking failed file IDs to skip
+        // them after N consecutive failures.
         logger.error({ source: this.id, file: file.localPath, error: String(err) }, `Failed to ingest ${this.name} item`);
       }
     }

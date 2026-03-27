@@ -46,6 +46,9 @@ export function updateTask(
 ): void {
   const existing = tasks.find((task) => task.id === id);
   if (!existing) return;
+  // Silently ignore updates to tasks that have already reached a terminal state
+  // (success/error). This is intentional — finishTask calls updateTask, and a
+  // task that's already finished should not be mutated.
   if (TERMINAL_TASK_STATES.has(existing.state)) return;
 
   upsertTask({
@@ -55,6 +58,8 @@ export function updateTask(
   });
 }
 
+// Note: finishTask calls updateTask which will silently no-op if the task is
+// already in a terminal state. This is by design — double-finish is harmless.
 export function finishTask(id: string, detail: string): void {
   updateTask(id, { state: "success", detail });
 }

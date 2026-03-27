@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, openSync, readSync, readFileSync, statSync, writeFileSync, closeSync } from "fs";
 import { resolve } from "path";
 import { getRootDir } from "./platform.js";
 import { sanitizeCommandLine } from "./process.js";
@@ -19,7 +19,27 @@ export function readLatestServiceLogLine(name: ServiceLogName, root = getRootDir
   const logPath = getServiceLogPath(name, root);
   if (!existsSync(logPath)) return "";
 
-  const raw = readFileSync(logPath, "utf-8");
+  // Read only the tail of the file (last 4KB) to avoid reading multi-MB logs
+  let raw: string;
+  try {
+    const stat = statSync(logPath);
+    const tailBytes = 4096;
+    if (stat.size > tailBytes) {
+      const buf = Buffer.alloc(tailBytes);
+      const fd = openSync(logPath, "r");
+      try {
+        readSync(fd, buf, 0, tailBytes, stat.size - tailBytes);
+      } finally {
+        closeSync(fd);
+      }
+      raw = buf.toString("utf-8");
+    } else {
+      raw = readFileSync(logPath, "utf-8");
+    }
+  } catch {
+    return "";
+  }
+
   const lines = raw
     .split(/\r?\n/)
     .map((line) => sanitizeCommandLine(line))

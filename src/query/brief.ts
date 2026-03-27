@@ -117,7 +117,9 @@ export function extractBrief(
       // Final score: weighted retrieval relevance + term match
       const finalScore = (normalizedRelevance * config.brief.relevanceWeight + termScore * config.brief.termMatchWeight) * posMultiplier * lengthMultiplier;
 
-      if (finalScore > 0) {
+      // NOTE: Using > 0 excludes zero-scored sentences. This is intentional —
+    // zero-scored sentences have no term match and no retrieval relevance signal.
+    if (finalScore > 0) {
         allSentences.push({
           text: sent,
           score: finalScore,
@@ -146,7 +148,9 @@ export function extractBrief(
   // Select top sentences within token budget, with per-source diversity cap
   const selected: ScoredSentence[] = [];
   let tokenCount = 0;
-  const citationTokens = 10; // reserve for source line
+  // Dynamically estimate citation tokens based on number of unique sources
+  const uniqueSourceCount = new Set(allSentences.map((s) => s.source)).size;
+  const citationTokens = Math.max(5, 3 + uniqueSourceCount * 4); // ~4 tokens per source name
   const sourceSentCount = new Map<number, number>(); // sourceIdx -> count
   const maxPerSource = config.brief.maxPerSource; // prevent one large document from dominating
 

@@ -11,8 +11,10 @@ import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// __dirname derived from import.meta.url for ESM compatibility
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// createHash could live in utils/hash.ts but is kept here to avoid circular deps
+// with version.ts being imported early in the startup chain.
 import { createHash } from "crypto";
 
 // ── Paths ──
@@ -42,39 +44,48 @@ export interface ThreadClawManifest {
   skills: Record<string, string>;  // path → SHA-256 of shipped content
 }
 
-const DEFAULT_MANIFEST: ThreadClawManifest = {
-  appVersion: "0.0.0",
-  schemaVersion: 0,
-  evidenceSchemaVersion: 0,
-  configVersion: 0,
-  installedAt: new Date().toISOString(),
-  lastUpgradeAt: new Date().toISOString(),
-  openclawMinVersion: "2026.3.0",
-  openclawMaxVersion: "2026.12.99",
-  integrationHash: "",
-  features: {
-    managedIntegration: false,
-    consolidatedData: false,
-    noAutoMigrate: false,
-  },
-  skills: {},
-};
+/**
+ * Factory function for default manifest — generates fresh timestamps on each call
+ * instead of capturing a single timestamp at import time.
+ */
+function createDefaultManifest(): ThreadClawManifest {
+  return {
+    appVersion: "0.0.0",
+    schemaVersion: 0,
+    evidenceSchemaVersion: 0,
+    configVersion: 0,
+    installedAt: new Date().toISOString(),
+    lastUpgradeAt: new Date().toISOString(),
+    openclawMinVersion: "2026.3.0",
+    openclawMaxVersion: "2026.12.99",
+    integrationHash: "",
+    features: {
+      managedIntegration: false,
+      consolidatedData: false,
+      noAutoMigrate: false,
+    },
+    skills: {},
+  };
+}
 
 // ── Read/Write ──
 
 export function readManifest(): ThreadClawManifest {
+  const defaults = createDefaultManifest();
   if (!existsSync(MANIFEST_PATH)) {
-    return { ...DEFAULT_MANIFEST };
+    return defaults;
   }
   try {
     const raw = JSON.parse(readFileSync(MANIFEST_PATH, "utf-8"));
+    // Note: shallow spread does not deep-clone nested objects like `features`.
+    // This is safe because we spread `defaults.features` below to cover all keys.
     return {
-      ...DEFAULT_MANIFEST,
+      ...defaults,
       ...raw,
-      features: { ...DEFAULT_MANIFEST.features, ...raw.features },
+      features: { ...defaults.features, ...raw.features },
     };
   } catch {
-    return { ...DEFAULT_MANIFEST };
+    return defaults;
   }
 }
 

@@ -1,6 +1,30 @@
 import type { FastifyInstance } from "fastify";
+import { existsSync, statSync } from "fs";
+import { resolve } from "path";
+import { homedir } from "os";
+import { basename } from "path";
 import { isLocalRequest } from "./guards.js";
-import { type QueryRecord, getRecords, clearRecords } from "../analytics/query-recorder.js";
+import { getRecords, clearRecords } from "../analytics/query-recorder.js";
+import { config } from "../config.js";
+import { logger } from "../utils/logger.js";
+
+/** Cached memory DB connection for diagnostics (avoids opening a new connection per request) */
+let cachedMemDb: import("better-sqlite3").Database | null = null;
+let cachedMemDbPath: string | null = null;
+
+function getMemoryDb(memDbPath: string): import("better-sqlite3").Database | null {
+  if (cachedMemDb && cachedMemDbPath === memDbPath) return cachedMemDb;
+  try {
+    // Dynamic import is acceptable here — this is a lazily-loaded optional dependency
+    const Database = require("better-sqlite3");
+    if (cachedMemDb) try { cachedMemDb.close(); } catch {}
+    cachedMemDb = new Database(memDbPath, { readonly: true });
+    cachedMemDbPath = memDbPath;
+    return cachedMemDb;
+  } catch {
+    return null;
+  }
+}
 
 export function registerAnalyticsRoutes(server: FastifyInstance) {
   /**
@@ -10,7 +34,7 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
   server.get("/analytics", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
     try {
-      const records = getRecords() as QueryRecord[];
+      const records = getRecords();
       if (records.length === 0) {
         return { message: "No queries recorded yet", total: 0 };
       }
@@ -91,11 +115,15 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
    */
   server.get("/analytics/recent", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
-    const records = getRecords() as QueryRecord[];
-    const { limit } = req.query as { limit?: string };
-    const parsed = parseInt(limit ?? "20", 10);
-    const n = Math.min(isNaN(parsed) ? 20 : Math.max(1, parsed), 100);
-    return { queries: records.slice(-n).reverse() };
+    try {
+      const records = getRecords();
+      const { limit } = req.query as { limit?: string };
+      const parsed = parseInt(limit ?? "20", 10);
+      const n = Math.min(isNaN(parsed) ? 20 : Math.max(1, parsed), 100);
+      return { queries: records.slice(-n).reverse() };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to fetch recent analytics: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   /**
@@ -122,7 +150,9 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
     // memory-engine plugin is colocated. Try to access it.
     if (awarenessStatsGetter) {
       const { window } = req.query as { window?: string };
-      const windowMs = window ? (parseInt(window, 10) || 86400) * 1000 : 86_400_000;
+      const parsed = parseInt(window ?? "", 10);
+      // Use proper NaN check: parseInt("0") returns 0 which is valid
+      const windowMs = (!isNaN(parsed) && parsed > 0) ? parsed * 1000 : 86_400_000;
       return awarenessStatsGetter(windowMs);
     }
     return {
@@ -159,7 +189,10 @@ export function registerAwarenessStatsGetter(getter: AwarenessStatsGetter): void
 /**
  * GET /analytics/diagnostics — full RSMA health for external monitoring.
  * Returns evidence graph stats, awareness metrics, and config state.
- * Available to you (Wesley) via curl or browser.
+ *
+ * Note: This is registered separately from registerAnalyticsRoutes because
+ * it has heavier dependencies (graph DB, memory DB) that not all deployments need.
+ * Both are wired up in routes.ts.
  */
 export function registerDiagnosticsRoute(server: FastifyInstance) {
   server.get("/analytics/diagnostics", async (req, reply) => {
@@ -167,11 +200,6 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
       return reply.status(403).send({ error: "Forbidden" });
     }
     const records = getRecords();
-
-    const { config } = await import("../config.js");
-    const { existsSync, statSync } = await import("fs");
-    const { resolve } = await import("path");
-    const { homedir } = await import("os");
 
     const result: Record<string, unknown> = {};
 
@@ -185,38 +213,42 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
           try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
         };
         result.graphDb = {
-          path: graphDbPath,
+          path: basename(graphDbPath), // redact to basename — don't expose internal paths
           sizeMb: +(statSync(graphDbPath).size / 1024 / 1024).toFixed(2),
           entities: safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'"),
           mentions: safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'mentioned_in'"),
           evidenceEvents: safe("SELECT COUNT(*) as cnt FROM evidence_log"),
         };
-      } catch (e: any) {
-        result.graphDb = { error: e.message };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.graphDb = { error: msg };
       }
     } else {
       result.graphDb = { error: "not found" };
     }
 
-    // Memory DB stats (temporary connection — not the main DB singleton)
+    // Memory DB stats (reuse cached connection)
     const memDbPath = resolve(homedir(), ".threadclaw", "data", "memory.db");
     if (existsSync(memDbPath)) {
       try {
-        const Database = (await import("better-sqlite3")).default;
-        const db = new Database(memDbPath, { readonly: true });
-        const safe = (sql: string): number => {
-          try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
-        };
-        result.memoryDb = {
-          path: memDbPath,
-          sizeMb: +(statSync(memDbPath).size / 1024 / 1024).toFixed(2),
-          conversations: safe("SELECT COUNT(*) as cnt FROM conversations"),
-          messages: safe("SELECT COUNT(*) as cnt FROM messages"),
-          summaries: safe("SELECT COUNT(*) as cnt FROM summaries"),
-        };
-        db.close();
-      } catch (e: any) {
-        result.memoryDb = { error: e.message };
+        const db = getMemoryDb(memDbPath);
+        if (db) {
+          const safe = (sql: string): number => {
+            try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
+          };
+          result.memoryDb = {
+            path: basename(memDbPath), // redact to basename
+            sizeMb: +(statSync(memDbPath).size / 1024 / 1024).toFixed(2),
+            conversations: safe("SELECT COUNT(*) as cnt FROM conversations"),
+            messages: safe("SELECT COUNT(*) as cnt FROM messages"),
+            summaries: safe("SELECT COUNT(*) as cnt FROM summaries"),
+          };
+        } else {
+          result.memoryDb = { error: "could not open" };
+        }
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.memoryDb = { error: msg };
       }
     }
 
@@ -225,11 +257,11 @@ export function registerDiagnosticsRoute(server: FastifyInstance) {
       result.awareness = awarenessStatsGetter();
     }
 
-    // Config
+    // Config (redact full paths)
     result.config = {
       relationsEnabled: config.relations.enabled,
-      dataDir: config.dataDir,
-      graphDbPath: config.relations.graphDbPath,
+      dataDir: basename(config.dataDir),
+      graphDbPath: basename(config.relations.graphDbPath),
     };
 
     // Query analytics summary

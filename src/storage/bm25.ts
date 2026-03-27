@@ -20,6 +20,9 @@ function escapeFts5Query(query: string): string | null {
     .filter((w) => w.length > 0);
 
   if (words.length === 0) return null;
+  // NOTE: Double-quote wrapping prevents FTS5 operator interpretation but doesn't handle
+  // double-quote characters within words. The unicode61 tokenizer strips most special chars,
+  // so this is rarely an issue in practice. For full safety, consider escaping " as "".
   return words.map((w) => `"${w}"`).join(" ");
 }
 

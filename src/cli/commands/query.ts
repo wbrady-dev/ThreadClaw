@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { query } from "../../query/pipeline.js";
+import { formatConnectionHint } from "../cli-utils.js";
 
 export const queryCommand = new Command("query")
   .description("Query the knowledge base")
@@ -37,12 +38,18 @@ Examples:
       },
     ) => {
       try {
+        // Warn about mutually exclusive output flags
+        const outputFlags = [opts.brief, opts.titles, opts.full].filter(Boolean);
+        if (outputFlags.length > 1) {
+          console.warn("Warning: --brief, --titles, and --full are mutually exclusive. Using highest precedence: --full > --brief > --titles.");
+        }
+
         // --full overrides --brief and --titles (mutual exclusion)
         const brief = opts.brief && !opts.full;
         const titlesOnly = opts.titles && !opts.full && !opts.brief;
 
         let topK = opts.topK != null ? parseInt(opts.topK, 10) : 3;
-        if (!Number.isFinite(topK) || topK < 0) topK = 3;
+        if (!Number.isFinite(topK) || topK < 1) topK = 3;
         let tokenBudget = opts.budget != null ? parseInt(opts.budget, 10) : 1500;
         if (!Number.isFinite(tokenBudget) || tokenBudget < 0) tokenBudget = 1500;
 
@@ -83,9 +90,8 @@ Examples:
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`Error: ${msg}`);
-        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
-          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
-        }
+        const hint = formatConnectionHint(msg);
+        if (hint) console.error(hint);
         process.exit(1);
       }
     },

@@ -43,6 +43,8 @@ export function getCached<T>(key: string): T | null {
   cache.delete(key);
   cache.set(key, entry);
 
+  // structuredClone on every read ensures callers can't mutate cached data.
+  // This is correct but has a performance cost for large result objects.
   return structuredClone(entry.result) as T;
 }
 
@@ -71,8 +73,9 @@ export function clearCache(): void {
  * Call when a collection is deleted or modified.
  */
 export function invalidateCollection(collectionName: string): void {
-  // With hashed keys, we cannot inspect individual entries.
-  // Clear entire cache when any collection changes — safe since TTL is only 5 min.
+  // KNOWN LIMITATION: With hashed keys, we cannot identify which entries belong to
+  // a specific collection. Clear entire cache when any collection changes.
+  // This is safe since TTL is only 5 min and cache is memory-only.
   cache.clear();
 }
 

@@ -68,6 +68,7 @@ fi
 echo "[update] Pulling latest from GitHub..."
 if ! git pull; then
   echo "[ERROR] git pull failed. Auto-rolling back to $OLD_HASH..."
+  echo "[WARN]  git reset --hard will discard any local modifications to tracked files."
   git reset --hard "$OLD_HASH"
   exit 1
 fi

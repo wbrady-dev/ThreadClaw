@@ -11,6 +11,8 @@ setlocal enabledelayedexpansion
 set "BACKUP_ROOT=%~1"
 if "%BACKUP_ROOT%"=="" set "BACKUP_ROOT=%USERPROFILE%\backups\threadclaw"
 
+REM NOTE: Uses PowerShell for reliable date formatting (adds ~200ms startup cost).
+REM Alternatives (%date%) are locale-dependent and unreliable across Windows versions.
 for /f %%a in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set "TODAY=%%a"
 set "BACKUP_DIR=%BACKUP_ROOT%\%TODAY%"
 
@@ -63,6 +65,8 @@ if errorlevel 1 (
 REM Backup ThreadClaw knowledge DB
 if exist "!THREADCLAW_DB!" (
     echo   Backing up threadclaw.db...
+    REM NOTE: VACUUM INTO requires single-quoted path per SQLite syntax.
+    REM This means paths with single quotes will fail — not typical on Windows.
     sqlite3 "!THREADCLAW_DB!" "VACUUM INTO '%BACKUP_DIR%\threadclaw.db'"
     echo   Done
 ) else (

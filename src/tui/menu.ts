@@ -67,38 +67,54 @@ export function selectMenu(items: MenuItem[]): Promise<string | null> {
       process.stdout.write("\x1b[?25h");
     };
 
+    // Track pending ESC to distinguish lone ESC from arrow key sequences
+    let escTimer: ReturnType<typeof setTimeout> | null = null;
+
     const onKey = (key: Buffer) => {
-      const input = key.toString();
-      if (input === "\x1b[A" || input === "k") {
-        selected = (selected - 1 + activeItems.length) % activeItems.length;
-        render();
-      } else if (input === "\x1b[B" || input === "j") {
-        selected = (selected + 1) % activeItems.length;
-        render();
-      } else if (input === "\r" || input === "\n") {
-        cleanup();
-        resolve(activeItems[selected].value);
-      } else if (input === "\x1b" || input === "q") {
-        cleanup();
-        resolve(null);
-      } else if (input === "\x03") {
-        cleanup();
-        if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
-        process.stdin.removeAllListeners("data");
-        process.stdin.removeAllListeners("keypress");
-        process.stdin.pause();
-        process.stdout.write("\x1b[?25h");
-        process.exit(0);
+      try {
+        const input = key.toString();
+
+        // If we had a pending lone-ESC timer and new data arrived, cancel it —
+        // this is part of an arrow key sequence, not a quit gesture.
+        if (escTimer !== null) {
+          clearTimeout(escTimer);
+          escTimer = null;
+        }
+
+        if (input === "\x1b[A" || input === "k") {
+          // Vim 'k' may conflict with typing if a text field is ever mixed in;
+          // kept for power-user convenience in select menus only.
+          selected = (selected - 1 + activeItems.length) % activeItems.length;
+          render();
+        } else if (input === "\x1b[B" || input === "j") {
+          // Vim 'j' — same note as 'k' above.
+          selected = (selected + 1) % activeItems.length;
+          render();
+        } else if (input === "\r" || input === "\n") {
+          cleanup();
+          resolve(activeItems[selected].value);
+        } else if (input === "\x1b") {
+          // Lone ESC — delay 50ms to ensure it's not the start of an arrow sequence
+          escTimer = setTimeout(() => {
+            escTimer = null;
+            cleanup();
+            resolve(null);
+          }, 50);
+        } else if (input === "q") {
+          cleanup();
+          resolve(null);
+        } else if (input === "\x03") {
+          cleanup();
+          process.exit(0);
+        }
+      } catch {
+        // Ensure cursor is restored on any unhandled error in key handler
+        try { cleanup(); } catch {}
       }
     };
 
     const onSigint = () => {
       cleanup();
-      if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
-      process.stdin.removeAllListeners("data");
-      process.stdin.removeAllListeners("keypress");
-      process.stdin.pause();
-      process.stdout.write("\x1b[?25h");
       process.exit(0);
     };
 
@@ -117,7 +133,6 @@ async function promptPlainMenu(items: MenuItem[]): Promise<string | null> {
       title: item.label,
       value: item.value,
       description: item.description,
-      disabled: item.disabled,
     })),
     instructions: false,
   };

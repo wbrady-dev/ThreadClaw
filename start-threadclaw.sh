@@ -18,6 +18,15 @@ GREEN='\033[0;32m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Trap SIGINT/SIGTERM so `wait` does not block forever — clean up child processes
+cleanup() {
+  log "Shutting down..."
+  [ -n "${THREADCLAW_PID:-}" ] && kill "$THREADCLAW_PID" 2>/dev/null
+  [ -n "${OPENCLAW_PID:-}" ] && kill "$OPENCLAW_PID" 2>/dev/null
+  exit 0
+}
+trap cleanup SIGINT SIGTERM
+
 log() { echo -e "${GREEN}[threadclaw]${NC} $1"; }
 err() { echo -e "${RED}[threadclaw]${NC} $1"; }
 

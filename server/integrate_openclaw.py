@@ -16,27 +16,31 @@ Usage: python integrate_openclaw.py <openclaw_dir> <threadclaw_dir> <embed_model
 import sys
 import os
 import json
+import re
+import subprocess
+from typing import Optional
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 4:
         print("[ERROR] Usage: python integrate_openclaw.py <openclaw_dir> <threadclaw_dir> <embed_model> [summary_model]")
         sys.exit(1)
 
-    openclaw_dir = sys.argv[1]
-    threadclaw_dir = sys.argv[2]
-    embed_model = sys.argv[3]
-    summary_model = sys.argv[4] if len(sys.argv) >= 5 else None
+    openclaw_dir: str = sys.argv[1]
+    threadclaw_dir: str = sys.argv[2]
+    embed_model: str = sys.argv[3]
+    summary_model: Optional[str] = sys.argv[4] if len(sys.argv) >= 5 else None
 
-    threadclaw_dir_native = os.path.abspath(threadclaw_dir)
-    memory_engine_dir = os.path.join(threadclaw_dir_native, "memory-engine")
+    threadclaw_dir_native: str = os.path.abspath(threadclaw_dir)
+    memory_engine_dir: str = os.path.join(threadclaw_dir_native, "memory-engine")
 
     # Ensure threadclaw is available as a global command
     try:
-        import subprocess
         subprocess.run(["npm", "link"], cwd=threadclaw_dir_native, capture_output=True, timeout=30)
-    except Exception:
-        pass
+    except FileNotFoundError:
+        pass  # npm not installed
+    except subprocess.TimeoutExpired:
+        pass  # npm link timed out
 
     # 1. Install SKILL.md — document search routing (NOT conversation memory)
     skill_dir = os.path.join(openclaw_dir, "workspace", "skills", "knowledge")
@@ -120,7 +124,10 @@ exec: threadclaw ingest "path/to/file" --collection default
     print("[OK] Knowledge skill installed")
 
     # 2. Configure openclaw.json for RSMA
-    config_path = os.path.join(openclaw_dir, "openclaw.json")
+    config_path: str = os.path.join(openclaw_dir, "openclaw.json")
+    if not os.path.isfile(config_path):
+        print(f"[WARNING] openclaw.json not found at {config_path}")
+        return
     try:
         with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
@@ -181,26 +188,32 @@ exec: threadclaw ingest "path/to/file" --collection default
             f.write("\n")
         print("[OK] OpenClaw configured for RSMA (Memory Engine + contextEngine slot)")
 
-    except Exception as e:
+    except (json.JSONDecodeError, OSError, KeyError) as e:
         print(f"[WARNING] Could not update openclaw.json: {e}")
 
     # 3. Install Memory Engine plugin
     try:
-        import subprocess
-        subprocess.run(
+        result = subprocess.run(
             ["openclaw", "plugins", "install", "--link", memory_engine_dir],
             capture_output=True, timeout=60
         )
-        print("[OK] Memory Engine plugin linked")
-    except Exception as e:
-        print(f"[WARNING] Could not link Memory Engine plugin: {e}")
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
+            print(f"[WARNING] openclaw plugins install returned code {result.returncode}: {stderr}")
+        else:
+            print("[OK] Memory Engine plugin linked")
+    except FileNotFoundError:
+        print("[WARNING] 'openclaw' command not found — cannot link Memory Engine plugin")
+        print("         Run manually: openclaw plugins install --link " + memory_engine_dir)
+    except subprocess.TimeoutExpired:
+        print("[WARNING] openclaw plugins install timed out")
         print("         Run manually: openclaw plugins install --link " + memory_engine_dir)
 
     # 4. Configure auto-watch paths (Memory Engine owns conversation — no separate memory collection)
-    workspace_dir = os.path.join(openclaw_dir, "workspace")
-    skills_dir = os.path.join(workspace_dir, "skills")
-    threadclaw_files_dir = os.path.join(openclaw_dir, "threadclaw-files")
-    env_path = os.path.join(threadclaw_dir_native, ".env")
+    workspace_dir: str = os.path.join(openclaw_dir, "workspace")
+    skills_dir: str = os.path.join(workspace_dir, "skills")
+    threadclaw_files_dir: str = os.path.join(openclaw_dir, "threadclaw-files")
+    env_path: str = os.path.join(threadclaw_dir_native, ".env")
 
     try:
         if os.path.isfile(env_path):
@@ -216,9 +229,12 @@ exec: threadclaw ingest "path/to/file" --collection default
             # threadclaw-files may not exist yet — add anyway, watcher handles missing dirs
             watch_entries.append(f"{threadclaw_files_dir}|threadclaw-files")
 
+            # Normalize paths for idempotency (resolve symlinks and case)
+            watch_entries = [os.path.normpath(e) if "|" not in e else
+                            os.path.normpath(e.split("|")[0]) + "|" + e.split("|")[1]
+                            for e in watch_entries]
             watch_value = ",".join(watch_entries)
 
-            import re
             if "WATCH_PATHS=" in env_content:
                 # Use re.escape on replacement to prevent backslash interpretation on Windows paths
                 env_content = re.sub(r"WATCH_PATHS=.*", re.escape(f"WATCH_PATHS={watch_value}"), env_content)
@@ -235,7 +251,7 @@ exec: threadclaw ingest "path/to/file" --collection default
             print("[OK] Auto-watch configured (workspace + skills + threadclaw-files)")
         else:
             print("[WARNING] .env not found, skipping auto-watch setup")
-    except Exception as e:
+    except (OSError, re.error) as e:
         print(f"[WARNING] Could not configure auto-watch: {e}")
 
     # 5. Add unified routing to SOUL.md
@@ -274,7 +290,7 @@ You have two knowledge systems. Use the right one:
                 print("[OK] SOUL.md already has knowledge routing")
         else:
             print("[SKIP] No SOUL.md found, skipping routing guidance")
-    except Exception as e:
+    except OSError as e:
         print(f"[WARNING] Could not update SOUL.md: {e}")
 
     print()

@@ -22,7 +22,7 @@ function printLogLines(lines: string[], prefix: string): void {
 
 export const logsCommand = new Command("logs")
   .description("Show ThreadClaw service logs")
-  .option("-s, --service <name>", "Filter by service: models or api", "")
+  .option("-s, --service <name>", "Filter by service: models, api, or threadclaw (alias for api)", "")
   .option("-n, --lines <count>", "Number of lines to show", "50")
   .option("-f, --follow", "Follow log output (live tail)")
   .action(async (opts) => {
@@ -62,17 +62,26 @@ export const logsCommand = new Command("logs")
       console.log(t.dim("  Following logs... Press Ctrl+C to stop.\n"));
 
       const trackers = new Map<ServiceLogName, string[]>();
+      const watchedFiles: string[] = [];
 
-      function setupWatcher(name: ServiceLogName, prefix: string, show: boolean): void {
+      const setupWatcher = (name: ServiceLogName, prefix: string, show: boolean): void => {
         if (!show) return;
         // Seed with current content to detect new lines
         trackers.set(name, readServiceLogTail(name, 10000));
 
         const logPath = getServiceLogPath(name);
+        watchedFiles.push(logPath);
+        // fs.watchFile polling at 500ms is a trade-off: it works reliably across
+        // platforms (including networked/virtual filesystems) where fs.watch may
+        // miss events. The 500ms interval keeps CPU usage minimal while providing
+        // near-real-time log tailing.
         watchFile(logPath, { interval: 500 }, () => {
           const allLines = readServiceLogTail(name, 10000);
           const prev = trackers.get(name) ?? [];
-          const newLines = allLines.slice(prev.length);
+          // Detect log truncation/rotation: if new content is shorter, treat it as fresh
+          const newLines = allLines.length < prev.length
+            ? allLines
+            : allLines.slice(prev.length);
           trackers.set(name, allLines);
           for (const line of newLines) {
             console.log(`  ${prefix} ${colorLine(line)}`);
@@ -85,8 +94,10 @@ export const logsCommand = new Command("logs")
 
       // Keep alive until Ctrl+C
       process.on("SIGINT", () => {
-        unwatchFile(getServiceLogPath("models"));
-        unwatchFile(getServiceLogPath("threadclaw"));
+        // Only unwatch files that were actually watched
+        for (const filePath of watchedFiles) {
+          unwatchFile(filePath);
+        }
         console.log("");
         process.exit(0);
       });

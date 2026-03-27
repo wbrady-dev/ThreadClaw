@@ -37,10 +37,23 @@ export const serveCommand = new Command("serve")
     // Kill anything on our ports (cross-platform)
     for (const port of [getModelPort(), getApiPort()]) {
       try {
+        // Try graceful HTTP shutdown first (works on all platforms)
+        try {
+          await fetch(`http://127.0.0.1:${port}/shutdown`, {
+            method: "POST",
+            signal: AbortSignal.timeout(2000),
+          });
+          console.log(`${prefix.sys} ${t.dim(`Sent shutdown to port ${port}`)}`);
+        } catch {
+          // No server listening or no /shutdown endpoint — fall through to force-kill
+        }
+
         if (process.platform === "win32") {
           const out = execFileSync("netstat", ["-ano"], { stdio: "pipe" }).toString();
+          // Use word-boundary regex to avoid false positives (e.g. port 80 matching 8012)
+          const portRegex = new RegExp(`:${port}\\s`, "g");
           for (const line of out.split("\n")) {
-            if (line.includes(`:${port}`) && line.includes("LISTENING")) {
+            if (portRegex.test(line) && line.includes("LISTENING")) {
               const pid = line.trim().split(/\s+/).pop();
               if (pid && pid !== "0" && /^\d+$/.test(pid)) {
                 console.log(`${prefix.sys} ${t.warn(`Stopping existing process on port ${port} (PID ${pid})...`)}`);
@@ -63,7 +76,8 @@ export const serveCommand = new Command("serve")
       } catch {}
     }
 
-    // Brief pause for ports to release
+    // Brief pause for ports to release after killing processes.
+    // TODO: Could be replaced with a port-available poll loop for faster startup.
     await new Promise((r) => setTimeout(r, 2000));
 
     console.log(`${prefix.sys} Starting model server...`);
@@ -97,7 +111,7 @@ export const serveCommand = new Command("serve")
       console.error(`${prefix.sys}   Check logs above for errors. Common causes:`);
       console.error(`${prefix.sys}   - Model not downloaded yet (first run takes longer)`);
       console.error(`${prefix.sys}   - Insufficient VRAM/RAM for the selected model`);
-      console.error(`${prefix.sys}   - Port ${getModelPort()} already in use`);
+      console.error(`${prefix.sys}   - Another process is using port ${getModelPort()}`);
       modelsProcess.kill();
       process.exit(1);
     }
@@ -145,18 +159,48 @@ export const serveCommand = new Command("serve")
     console.log(`${prefix.sys} ${t.dim("Press Ctrl+C to stop.")}`);
     console.log("");
 
-    // Graceful shutdown
+    // Track child exit count for clean shutdown
+    let exitCount = 0;
+    const totalChildren = 2;
+
+    function onChildExit() {
+      exitCount++;
+      if (exitCount >= totalChildren) {
+        process.exit(0);
+      }
+    }
+
+    // Graceful shutdown — send HTTP /shutdown first (Windows-safe), then kill
     const cleanup = () => {
       console.log("");
       console.log(`${prefix.sys} Shutting down...`);
-      talProcess.kill("SIGTERM");
-      modelsProcess.kill("SIGTERM");
 
-      setTimeout(() => {
-        talProcess.kill("SIGKILL");
-        modelsProcess.kill("SIGKILL");
-        process.exit(0);
-      }, 5000);
+      // Try graceful HTTP shutdown first (works on Windows where SIGTERM is unreliable)
+      const shutdownViaHttp = async (port: number) => {
+        try {
+          await fetch(`http://127.0.0.1:${port}/shutdown`, {
+            method: "POST",
+            signal: AbortSignal.timeout(2000),
+          });
+        } catch {}
+      };
+
+      Promise.all([
+        shutdownViaHttp(getApiPort()),
+        shutdownViaHttp(getModelPort()),
+      ]).finally(() => {
+        // After HTTP attempt, also send kill signals as fallback
+        try { talProcess.kill("SIGTERM"); } catch {}
+        try { modelsProcess.kill("SIGTERM"); } catch {}
+
+        // Force-kill after timeout if children haven't exited
+        setTimeout(() => {
+          try { talProcess.kill("SIGKILL"); } catch {}
+          try { modelsProcess.kill("SIGKILL"); } catch {}
+          // If children still haven't exited after force-kill, exit anyway
+          setTimeout(() => process.exit(0), 1000);
+        }, 5000);
+      });
     };
 
     process.on("SIGINT", cleanup);
@@ -164,10 +208,12 @@ export const serveCommand = new Command("serve")
 
     modelsProcess.on("exit", (code) => {
       console.log(`${prefix.models} ${t.err("Process exited")} (code ${code})`);
+      onChildExit();
     });
 
     talProcess.on("exit", (code) => {
       console.log(`${prefix.tal} ${t.err("Process exited")} (code ${code})`);
+      onChildExit();
     });
 
     // Keep alive

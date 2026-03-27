@@ -20,6 +20,8 @@ __pycache__/
 bin/ThreadClaw_*.cmd
 bin/ThreadClaw_*.xml
 server/config.json
+# Intentionally gitignored: lockfile churn is noisy for this project.
+# Trade-off: installs are not perfectly reproducible. If needed, switch to npm ci.
 package-lock.json
 *.exe
 .DS_Store

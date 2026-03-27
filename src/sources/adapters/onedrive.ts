@@ -21,7 +21,7 @@ export class OneDriveAdapter implements SourceAdapter {
   type: "polling" = "polling";
 
   async isAvailable() { return false; }
-  availabilityReason() { return "OneDrive sync is not yet implemented"; }
+  availabilityReason() { return "OneDrive sync is not yet implemented. Use the Local Directories adapter with your OneDrive sync folder as a workaround."; }
 
   defaultConfig(): SourceConfig {
     return {

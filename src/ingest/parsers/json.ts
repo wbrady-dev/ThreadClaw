@@ -1,5 +1,6 @@
 import { readFile } from "fs/promises";
-import { basename } from "path";
+import { basename, extname } from "path";
+import { logger } from "../../utils/logger.js";
 import type { ParsedDocument, DocMetadata } from "./index.js";
 
 /**
@@ -15,7 +16,8 @@ export async function parseJson(filePath: string): Promise<ParsedDocument> {
 
   let text: string;
 
-  if (filePath.endsWith(".jsonl")) {
+  // Use case-insensitive extension check for JSONL detection
+  if (extname(filePath).toLowerCase() === ".jsonl") {
     // JSONL: each line is a JSON object
     const lines = raw.split("\n").filter((l) => l.trim());
     const parts: string[] = [];
@@ -33,11 +35,16 @@ export async function parseJson(filePath: string): Promise<ParsedDocument> {
     try {
       const obj = JSON.parse(raw);
       if (Array.isArray(obj)) {
+        // NOTE: Mixed arrays with both objects and primitives will lose primitive values
+        // because flattenObject returns them as bare strings. Consider wrapping primitives
+        // in a labeled format (e.g., "value: <primitive>") for better readability.
         text = obj.map((item) => flattenObject(item)).join("\n\n");
       } else {
         text = flattenObject(obj);
       }
-    } catch {
+    } catch (err) {
+      // Malformed JSON — return raw text but log a warning
+      logger.warn({ filePath, error: String(err) }, "Malformed JSON, falling back to raw text");
       text = raw;
     }
   }
@@ -46,7 +53,8 @@ export async function parseJson(filePath: string): Promise<ParsedDocument> {
 }
 
 function flattenObject(obj: unknown, prefix = ""): string {
-  if (obj === null || obj === undefined) return "";
+  if (obj === null) return prefix ? `${prefix}: null` : "null";
+  if (obj === undefined) return "";
   if (typeof obj !== "object") return `${prefix}${obj}`;
 
   const lines: string[] = [];

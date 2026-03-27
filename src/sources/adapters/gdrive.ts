@@ -27,7 +27,10 @@ const CREDENTIALS_FILE = resolve(CREDENTIALS_DIR, "gdrive-tokens.json");
 const STAGING_DIR = resolve(homedir(), ".threadclaw", "staging", "gdrive");
 
 // ThreadClaw's OAuth client — read-only Drive scope
-const DEFAULT_CLIENT_ID = ""; // Set during setup or via env
+// NOTE: Empty by default. User must provide their own OAuth client ID via GDRIVE_CLIENT_ID
+// in .env, or through the TUI setup flow. A bundled client ID could be added here for
+// zero-config setup, but would require managing API quota limits.
+const DEFAULT_CLIENT_ID = "";
 const SCOPES = ["https://www.googleapis.com/auth/drive.readonly"];
 const REDIRECT_PORT = 18801;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/oauth2callback`;
@@ -51,7 +54,11 @@ const EXPORT_MIME_MAP = new Map<string, { mimeType: string; ext: string }>([
   ["application/vnd.google-apps.presentation", { mimeType: "text/plain", ext: ".txt" }],
 ]);
 
-/** Saved OAuth tokens */
+/** Saved OAuth tokens.
+ * NOTE: Stored as plaintext JSON in ~/.threadclaw/credentials/gdrive-tokens.json.
+ * On Unix, file permissions are restricted to 0o600. On Windows, no equivalent protection.
+ * Future enhancement: use DPAPI (Windows) or Keychain (macOS) for encrypted storage.
+ */
 interface SavedTokens {
   access_token: string;
   refresh_token: string;
@@ -210,27 +217,36 @@ async function initDriveClient(): Promise<drive_v3.Drive> {
 
   // Auto-refresh and persist new tokens
   oauth2.on("tokens", (newTokens) => {
-    const updated: SavedTokens = {
-      ...tokens,
-      access_token: newTokens.access_token ?? tokens.access_token,
-      expiry_date: newTokens.expiry_date ?? tokens.expiry_date,
-    };
-    mkdirSync(CREDENTIALS_DIR, { recursive: true });
-    writeFileSync(CREDENTIALS_FILE, JSON.stringify(updated, null, 2));
-    // Restrict permissions on Unix (match initial OAuth write)
-    if (process.platform !== "win32") {
-      try { chmodSync(CREDENTIALS_FILE, 0o600); } catch {}
+    try {
+      const updated: SavedTokens = {
+        ...tokens,
+        access_token: newTokens.access_token ?? tokens.access_token,
+        expiry_date: newTokens.expiry_date ?? tokens.expiry_date,
+      };
+      mkdirSync(CREDENTIALS_DIR, { recursive: true });
+      writeFileSync(CREDENTIALS_FILE, JSON.stringify(updated, null, 2));
+      // Restrict permissions on Unix (match initial OAuth write)
+      if (process.platform !== "win32") {
+        try { chmodSync(CREDENTIALS_FILE, 0o600); } catch {}
+      }
+    } catch (err) {
+      logger.error({ error: String(err) }, "Failed to persist refreshed Google Drive tokens");
     }
   });
 
   return google.drive({ version: "v3", auth: oauth2 });
 }
 
-/** Find a folder by name and list its files */
+/** Find a folder by name and list its files.
+ * NOTE: This is not recursive — only files directly in the named folder are returned.
+ * Subfolders within the target folder are not traversed.
+ */
 async function listFolderFiles(drive: drive_v3.Drive, folderName: string): Promise<drive_v3.Schema$File[]> {
   // Find the folder
+  // Double-escape backslashes and single quotes for the Drive API query string
+  const safeName = folderName.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const folderRes = await drive.files.list({
-    q: `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    q: `name = '${safeName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: "files(id, name)",
     pageSize: 5,
   });
@@ -270,7 +286,9 @@ async function downloadFile(drive: drive_v3.Drive, fileId: string, destDir: stri
   // Google native docs → export
   if (EXPORT_MIME_MAP.has(mimeType)) {
     const exportInfo = EXPORT_MIME_MAP.get(mimeType)!;
-    const outPath = join(destDir, `${name}${exportInfo.ext}`);
+    // Sanitize the file name to prevent path traversal
+    const safeName = name.replace(/[/\\:*?"<>|]/g, "_");
+    const outPath = join(destDir, `${safeName}${exportInfo.ext}`);
 
     const res = await drive.files.export(
       { fileId, mimeType: exportInfo.mimeType },
@@ -394,6 +412,11 @@ function waitForOAuthCallback(): Promise<string | null> {
 
       res.writeHead(400);
       res.end("Missing code parameter");
+    });
+
+    server.on("error", (err) => {
+      console.error(`  OAuth server error: ${err.message}`);
+      resolve(null);
     });
 
     server.listen(REDIRECT_PORT, "127.0.0.1", () => {

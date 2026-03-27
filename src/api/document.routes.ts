@@ -1,22 +1,19 @@
 import type { FastifyInstance } from "fastify";
-import { resolve } from "path";
 import { config } from "../config.js";
-import { getDb } from "../storage/index.js";
+import { getMainDb } from "../storage/index.js";
 import { listDocuments, deleteDocument, getCollectionByName } from "../storage/collections.js";
 import { clearCache } from "../query/cache.js";
 import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
 
-function db() {
-  return getDb(resolve(config.dataDir, "threadclaw.db"));
-}
+const DOC_ID_RE = /^[\w\-]{1,128}$/;
 
 export function registerDocumentRoutes(server: FastifyInstance) {
   server.get("/documents", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
     try {
       const { collection } = req.query as { collection?: string };
-      const database = db();
+      const database = getMainDb();
 
       let collectionId: string | undefined;
       if (collection) {
@@ -34,30 +31,41 @@ export function registerDocumentRoutes(server: FastifyInstance) {
 
   server.delete("/documents/:id", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+
     const { id } = req.params as { id: string };
-    const database = db();
 
-    // Verify document exists
-    const doc = database.prepare("SELECT id, source_path FROM documents WHERE id = ?").get(id) as { id: string; source_path: string } | undefined;
-    if (!doc) {
-      return reply.status(404).send({ error: "Document not found" });
+    // Validate :id parameter format
+    if (!DOC_ID_RE.test(id)) {
+      return reply.status(400).send({ error: "Invalid document ID format" });
     }
 
-    const result = deleteDocument(database, id);
-    clearCache();
+    try {
+      const database = getMainDb();
 
-    // Clean up graph data if relations enabled
-    if (config.relations?.enabled) {
-      try {
-        const { getGraphDb } = await import("../storage/graph-sqlite.js");
-        const { deleteSourceData } = await import("../relations/ingest-hook.js");
-        const graphDb = getGraphDb(config.relations.graphDbPath);
-        deleteSourceData(graphDb, "document", id);
-      } catch (e) {
-        logger.warn({ documentId: id, error: String(e) }, "Graph cleanup failed during document deletion");
+      // Verify document exists
+      const doc = database.prepare("SELECT id, source_path FROM documents WHERE id = ?").get(id) as { id: string; source_path: string } | undefined;
+      if (!doc) {
+        return reply.status(404).send({ error: "Document not found" });
       }
-    }
 
-    return { deleted: true, chunksRemoved: result.chunksDeleted, source_path: doc.source_path };
+      const result = deleteDocument(database, id);
+      clearCache();
+
+      // Clean up graph data if relations enabled
+      if (config.relations?.enabled) {
+        try {
+          const { getGraphDb } = await import("../storage/graph-sqlite.js");
+          const { deleteSourceData } = await import("../relations/ingest-hook.js");
+          const graphDb = getGraphDb(config.relations.graphDbPath);
+          deleteSourceData(graphDb, "document", id);
+        } catch (e) {
+          logger.warn({ documentId: id, error: String(e) }, "Graph cleanup failed during document deletion");
+        }
+      }
+
+      return { deleted: true, chunksRemoved: result.chunksDeleted, source_path: doc.source_path };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to delete document: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 }

@@ -25,15 +25,26 @@ function detectDelimiter(filePath: string, raw: string): string {
  */
 export async function parseCsv(filePath: string): Promise<ParsedDocument> {
   const raw = await readFile(filePath, "utf-8");
+  // NOTE: Delimiter detection uses the first line only, which may be inaccurate
+  // for CSV files with quoted fields containing commas or tabs.
   const delimiter = detectDelimiter(filePath, raw);
 
-  const records = parse(raw, {
-    columns: true,
-    skip_empty_lines: true,
-    trim: true,
-    relax_column_count: true,
-    delimiter,
-  }) as Record<string, string>[];
+  let records: Record<string, string>[];
+  try {
+    records = parse(raw, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      relax_column_count: true,
+      delimiter,
+    }) as Record<string, string>[];
+  } catch (err) {
+    return {
+      text: raw.slice(0, 5000), // Fall back to raw text on parse failure
+      structure: [],
+      metadata: { fileType: delimiter === "\t" ? "tsv" : "csv", title: basename(filePath), source: filePath },
+    };
+  }
 
   if (records.length === 0) {
     return {
@@ -43,6 +54,9 @@ export async function parseCsv(filePath: string): Promise<ParsedDocument> {
     };
   }
 
+  // NOTE: Object.keys(records[0]) depends on the first row having all columns.
+  // Rows with more columns than the header will have extra columns silently dropped
+  // due to relax_column_count. This is a known limitation of the columns: true mode.
   const headers = Object.keys(records[0]);
   const headerLine = headers.join(" | ");
   const lines: string[] = [headerLine, "-".repeat(headerLine.length)];
@@ -54,6 +68,8 @@ export async function parseCsv(filePath: string): Promise<ParsedDocument> {
   const text = lines.join("\n");
 
   // Mark table regions for chunking (groups of ~20 rows)
+  // NOTE: A single structure hint covers the entire table. Enhancement: detect
+  // logical sections (e.g., by blank rows or category columns) for smarter chunking.
   const structure: StructureHint[] = [{
     type: "table",
     startOffset: 0,

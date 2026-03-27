@@ -14,16 +14,30 @@ export const updateCommand = new Command("update")
       : resolve(root, "scripts", "update.sh");
 
     if (!existsSync(script)) {
+      // Derive repo URL from git remote if available, fall back to generic message
+      let repoUrl = "";
+      try {
+        repoUrl = execFileSync("git", ["remote", "get-url", "origin"], {
+          cwd: root, stdio: "pipe", timeout: 5000,
+        }).toString().trim();
+      } catch {}
+
       console.error(`Update script not found: ${script}`);
-      console.error("Your installation may be incomplete. Try re-installing: git clone https://github.com/anthropics/threadclaw && cd threadclaw && npm install && npm run build");
+      if (repoUrl) {
+        console.error(`Your installation may be incomplete. Try: git pull && npm install && npm run build`);
+      } else {
+        console.error("Your installation may be incomplete. Try re-cloning and running npm install && npm run build.");
+      }
       process.exit(1);
     }
 
     try {
+      // Note: on macOS with old system bash (3.x), the update.sh script should use
+      // #!/usr/bin/env bash to pick up a newer bash from Homebrew if available.
       if (isWindows) {
-        execFileSync("cmd", ["/c", script], { stdio: "inherit", cwd: root });
+        execFileSync("cmd", ["/c", script], { stdio: "inherit", cwd: root, timeout: 300000 });
       } else {
-        execFileSync("bash", [script], { stdio: "inherit", cwd: root });
+        execFileSync("bash", [script], { stdio: "inherit", cwd: root, timeout: 300000 });
       }
     } catch (error) {
       console.error("Update failed: " + (error instanceof Error ? error.message : String(error)));

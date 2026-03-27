@@ -33,11 +33,17 @@ export function getDocumentIdsByMetadata(
   collectionId?: string,
 ): string[] {
   if (filters.length === 0) return [];
+  // NOTE: The self-join approach (one JOIN per filter) can cause query plan explosion
+  // with many filters. A GROUP BY + HAVING COUNT approach would be more scalable:
+  //   SELECT document_id FROM metadata_index WHERE (key, value) IN (...) GROUP BY document_id HAVING COUNT(*) = N
+  // The max 20 limit keeps the current approach performant enough.
   if (filters.length > 20) throw new Error("Too many metadata filters (max 20)");
 
   const conditions = filters.map(
     (_, i) => `(mi${i}.key = ? AND mi${i}.value = ?)`,
   );
+  // NOTE: Dynamic SQL construction for JOINs is safe here — the JOIN aliases (mi0, mi1, etc.)
+  // are generated from array indices, not user input. Filter values are parameterized.
   const joins = filters.map(
     (_, i) =>
       `JOIN metadata_index mi${i} ON mi${i}.document_id = d.id`,

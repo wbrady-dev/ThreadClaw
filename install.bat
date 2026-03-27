@@ -55,6 +55,9 @@ if "%NODE_MAJOR%"=="" (
     pause
     exit /b 1
 )
+:: NOTE: LSS does string comparison, but this works correctly for two-digit
+:: version numbers (22+). Would break if comparing e.g. "9" LSS "22" (string "9" > "2").
+:: The set /a numeric check above ensures NODE_MAJOR is valid.
 if "%NODE_MAJOR%" LSS "22" (
     echo [ERROR] Node.js %NODE_MAJOR% detected. ThreadClaw requires Node.js 22+.
     pause

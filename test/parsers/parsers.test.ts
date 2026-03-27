@@ -233,6 +233,17 @@ describe("parseCode", () => {
   });
 });
 
+// TODO: Missing parser tests for: pdf (pdfjs-dist), docx (mammoth), html (jsdom/readability),
+// eml (mailparser), epub, xlsx. Add fixtures and basic smoke tests for each.
+
+// ─── Error Paths ────────────────────────────────────────────────────
+
+describe("Parser error handling", () => {
+  it("throws for nonexistent file", async () => {
+    await expect(parsePlaintext("/nonexistent/file.txt")).rejects.toThrow();
+  });
+});
+
 // ─── Parser Registry ────────────────────────────────────────────────
 
 describe("getParser / getSupportedExtensions", () => {
@@ -258,6 +269,26 @@ describe("getParser / getSupportedExtensions", () => {
 
   it("returns a parser function for .js", () => {
     const parser = getParser("code.js");
+    expect(typeof parser).toBe("function");
+  });
+
+  it("returns a parser for .html", () => {
+    const parser = getParser("page.html");
+    expect(typeof parser).toBe("function");
+  });
+
+  it("returns a parser for .py", () => {
+    const parser = getParser("script.py");
+    expect(typeof parser).toBe("function");
+  });
+
+  it("returns a parser for .ts", () => {
+    const parser = getParser("module.ts");
+    expect(typeof parser).toBe("function");
+  });
+
+  it("returns a parser for .eml", () => {
+    const parser = getParser("mail.eml");
     expect(typeof parser).toBe("function");
   });
 

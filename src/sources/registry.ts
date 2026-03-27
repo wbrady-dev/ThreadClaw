@@ -39,6 +39,8 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   }
 
   // --- Local adapter: use canonical config (process.env via dotenv) ---
+  // NOTE: Local adapter uses the parsed config object while other adapters read from raw .env.
+  // This is intentional — WATCH_PATHS goes through dotenv/config normalization.
   if (config.watch.paths) {
     const collections = config.watch.paths
       .split(",")
@@ -166,7 +168,11 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
 }
 
 function envMatch(env: string, key: string): string {
-  const raw = env.match(new RegExp(`^${key}=(.*)`, "m"))?.[1]?.trim() ?? "";
+  // Escape special regex characters in key to prevent injection
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // NOTE: This doesn't handle inline comments (e.g., KEY=value # comment).
+  // Values with # will include the comment as part of the value.
+  const raw = env.match(new RegExp(`^${escapedKey}=(.*)`, "m"))?.[1]?.trim() ?? "";
   // Strip surrounding quotes (single or double)
   if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
     return raw.slice(1, -1);
@@ -174,7 +180,10 @@ function envMatch(env: string, key: string): string {
   return raw;
 }
 
-/** All registered adapters */
+/** All registered adapters.
+ * NOTE: All adapters are eagerly instantiated at import time. Consider dynamic import
+ * for adapters that require heavy dependencies (googleapis, @notionhq/client).
+ */
 const adapters: SourceAdapter[] = [
   new LocalAdapter(),
   new ObsidianAdapter(),
@@ -188,6 +197,9 @@ const adapters: SourceAdapter[] = [
  * Get a snapshot of all sources with their config and status.
  * Used by the TUI Sources screen.
  */
+// NOTE: getSourceEntries() re-reads .env on every call via loadSourceConfigs().
+// This ensures config changes are picked up without restart, but has I/O cost.
+// Consider caching with a short TTL if called frequently (e.g., TUI polling).
 export function getSourceEntries(): SourceEntry[] {
   const configs = loadSourceConfigs();
   return adapters.map((adapter) => {

@@ -1,4 +1,6 @@
 {
+  // NOTE: No path aliases configured. All imports use relative paths.
+  // If the project grows, consider adding paths like "@/..." -> "src/..."
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",

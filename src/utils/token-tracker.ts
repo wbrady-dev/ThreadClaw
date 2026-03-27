@@ -6,7 +6,7 @@
  * Writes are buffered in memory and flushed every 5 seconds
  * to avoid excessive file I/O during high-throughput ingestion.
  */
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "fs";
 import { resolve } from "path";
 import { homedir } from "os";
 
@@ -32,15 +32,29 @@ function ensureDir(): void {
 
 function readCounts(): TokenCounts {
   try {
-    return JSON.parse(readFileSync(TRACKER_FILE, "utf-8"));
-  } catch {
+    const raw = readFileSync(TRACKER_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    // Validate shape — corrupt JSON returns defaults with a warning
+    if (typeof parsed !== "object" || parsed === null) {
+      console.warn("[token-tracker] Corrupt token-counts.json (not an object), resetting to zero");
+      return { ingest: 0, embed: 0, rerank: 0, queryExpansion: 0 };
+    }
+    return parsed;
+  } catch (err) {
+    // Log warning for parse errors (not just missing file)
+    if (err instanceof SyntaxError) {
+      console.warn("[token-tracker] Corrupt JSON in token-counts.json, resetting to zero");
+    }
     return { ingest: 0, embed: 0, rerank: 0, queryExpansion: 0 };
   }
 }
 
 function writeCounts(counts: TokenCounts): void {
   ensureDir();
-  writeFileSync(TRACKER_FILE, JSON.stringify(counts));
+  // Atomic write: write to tmp file then rename to prevent corruption on crash
+  const tmpPath = TRACKER_FILE + ".tmp";
+  writeFileSync(tmpPath, JSON.stringify(counts));
+  renameSync(tmpPath, TRACKER_FILE);
 }
 
 function flush(): void {
@@ -72,6 +86,8 @@ function scheduleFlush(): void {
 }
 
 export function trackTokens(category: keyof TokenCounts, tokens: number): void {
+  // Validate tokens parameter to prevent NaN/Infinity from corrupting counts
+  if (!Number.isFinite(tokens) || tokens < 0) return;
   pending[category] += tokens;
   scheduleFlush();
 }

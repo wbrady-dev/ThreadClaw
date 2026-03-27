@@ -117,11 +117,14 @@ export class ObsidianAdapter implements SourceAdapter {
       return;
     }
 
+    // NOTE: readdirSync in detectObsidianVaults doesn't follow symlinks.
+    // Symlinked vaults won't be auto-detected but can be configured manually.
     const watchConfigs = cfg.collections
       .filter((c) => existsSync(resolve(c.path)))
       .map((c) => ({
         paths: [resolve(c.path)],
         collection: c.collection,
+        // TODO: debounceMs is hardcoded — consider using config.watch.debounceMs
         debounceMs: 3000,
       }));
 
@@ -131,6 +134,16 @@ export class ObsidianAdapter implements SourceAdapter {
     }
 
     this.watcher = new ThreadClawWatcher(watchConfigs);
+
+    // Surface watcher errors in status
+    this.watcher.onError = (err: Error) => {
+      this.status = {
+        ...this.status,
+        state: "error",
+        error: err.message || String(err),
+      };
+    };
+
     await this.watcher.start();
     this.status = { state: "watching", docCount: 0 };
   }

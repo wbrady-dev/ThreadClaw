@@ -9,11 +9,12 @@
  * Transcription is CPU/GPU intensive and can take 30-120s per file.
  */
 
-import { basename } from "path";
+// TODO: execFileSync blocks the event loop. Consider using execFile (async) with
+// util.promisify for better server responsiveness during transcription.
+import { basename, join } from "path";
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, rmSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
 import type { ParsedDocument, DocMetadata } from "./index.js";
 import { getSystemPythonCmd } from "../../tui/platform.js";
 
@@ -21,17 +22,23 @@ const WHISPER_MODELS = new Set([
   "tiny", "base", "small", "medium", "large", "large-v2", "large-v3", "turbo",
 ]);
 
+// Cache which whisper invocation method works (direct CLI vs python -m)
+// TODO: This cache never invalidates. Add a TTL (e.g., 5 minutes) to re-check
+// after user installs/uninstalls whisper.
 let _whisperAvailable: boolean | null = null;
+let _whisperMethod: "cli" | "python-m" | null = null;
 
 function isWhisperAvailable(): boolean {
   if (_whisperAvailable !== null) return _whisperAvailable;
   try {
     execFileSync("whisper", ["--help"], { stdio: "pipe", timeout: 10000 });
     _whisperAvailable = true;
+    _whisperMethod = "cli";
   } catch {
     try {
       execFileSync(getSystemPythonCmd(), ["-m", "whisper", "--help"], { stdio: "pipe", timeout: 10000 });
       _whisperAvailable = true;
+      _whisperMethod = "python-m";
     } catch {
       _whisperAvailable = false;
     }
@@ -78,18 +85,25 @@ export async function parseAudio(filePath: string): Promise<ParsedDocument> {
     const modelEnv = process.env.WHISPER_MODEL ?? "base";
     const model = WHISPER_MODELS.has(modelEnv) ? modelEnv : "base";
 
-    // Run Whisper transcription — execFileSync with args array prevents shell injection
-    execFileSync("whisper", [
+    // Use the method that succeeded during availability check
+    const args = [
       filePath,
       "--model", model,
       "--output_format", "txt",
       "--output_dir", outputDir,
       "--fp16", "False",
-    ], {
-      stdio: "pipe",
+    ];
+    const execOpts = {
+      stdio: "pipe" as const,
       timeout: 300000, // 5 min max for large files
       maxBuffer: 50 * 1024 * 1024,
-    });
+    };
+
+    if (_whisperMethod === "python-m") {
+      execFileSync(getSystemPythonCmd(), ["-m", "whisper", ...args], execOpts);
+    } else {
+      execFileSync("whisper", args, execOpts);
+    }
 
     // Whisper outputs to <basename>.txt in the output dir
     const baseName = basename(filePath).replace(/\.[^.]+$/, "");

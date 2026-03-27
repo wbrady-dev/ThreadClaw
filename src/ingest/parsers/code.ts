@@ -22,6 +22,10 @@ const LANG_MAP: Record<string, string> = {
   ".cs": "csharp",
   ".sh": "bash",
   ".ps1": "powershell",
+  ".sql": "sql",
+  ".lua": "lua",
+  ".r": "r",
+  ".scala": "scala",
 };
 
 // Regex patterns for function/class definitions by language
@@ -31,9 +35,10 @@ const DEFINITION_PATTERNS: Record<string, RegExp> = {
   python: /^(?:async\s+)?(?:def|class)\s+\w+/gm,
   go: /^func\s+(?:\(\w+\s+\*?\w+\)\s+)?\w+/gm,
   rust: /^(?:pub\s+)?(?:async\s+)?fn\s+\w+|^(?:pub\s+)?struct\s+\w+|^(?:pub\s+)?enum\s+\w+|^impl\s+/gm,
-  java: /^(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface|enum)\s+\w+|^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)+\w+\s*\(/gm,
-  c: /^(?:\w+\s+)+\w+\s*\([^)]*\)\s*\{/gm,
-  cpp: /^(?:class|struct)\s+\w+|^(?:\w+\s+)+\w+\s*\([^)]*\)\s*(?:const\s*)?\{/gm,
+  // Limit repetition groups to prevent catastrophic backtracking on pathological inputs
+  java: /^(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface|enum)\s+\w+|^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+){1,5}\w+\s*\(/gm,
+  c: /^(?:\w+\s+){1,5}\w+\s*\([^)]{0,200}\)\s*\{/gm,
+  cpp: /^(?:class|struct)\s+\w+|^(?:\w+\s+){1,5}\w+\s*\([^)]{0,200}\)\s*(?:const\s*)?\{/gm,
   ruby: /^(?:class|module|def)\s+(\w+)/gm,
   php: /^(?:class|function|interface|trait)\s+(\w+)/gm,
   swift: /^(?:class|struct|enum|protocol|func)\s+(\w+)/gm,
@@ -41,10 +46,18 @@ const DEFINITION_PATTERNS: Record<string, RegExp> = {
   csharp: /^(?:class|struct|interface|enum|void|static\s+\w+)\s+(\w+)/gm,
   bash: /^(?:function\s+)?(\w+)\s*\(\)/gm,
   powershell: /^function\s+(\w[\w-]*)/gim,
+  sql: /^CREATE\s+(?:TABLE|VIEW|INDEX|FUNCTION|PROCEDURE)\s+\w+/gim,
+  lua: /^(?:local\s+)?function\s+(\w+)/gm,
+  r: /^(\w+)\s*<-\s*function/gm,
+  scala: /^(?:class|object|trait|def)\s+(\w+)/gm,
 };
 
 /**
  * Parse source code files with language-aware structure detection.
+ *
+ * NOTE: No size guard here — the pipeline-level MAX_FILE_SIZE check handles this.
+ * For very large source files (e.g., generated code), the structure detection
+ * regex patterns may be slow. Consider adding a file-level size check if needed.
  */
 export async function parseCode(filePath: string): Promise<ParsedDocument> {
   const text = await readFile(filePath, "utf-8");

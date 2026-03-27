@@ -3,7 +3,7 @@ import { parsePlaintext } from "./plaintext.js";
 import { parsePdf } from "./pdf.js";
 import { parseHtml } from "./html.js";
 import { parseCsv } from "./csv.js";
-import { parseCode } from "./code.js";
+import { parseCode, isCodeFile } from "./code.js";
 import { parseJson } from "./json.js";
 import { parseEml } from "./eml.js";
 import { parseDocx } from "./docx.js";
@@ -68,26 +68,8 @@ const PARSER_MAP: Record<string, Parser> = {
   ".pptx": parsePptx,
   // .xlsx requires Docling (layout-aware parser) — no local fallback for binary Excel format
 
-  // Code
-  ".js": parseCode,
-  ".jsx": parseCode,
-  ".ts": parseCode,
-  ".tsx": parseCode,
-  ".py": parseCode,
-  ".go": parseCode,
-  ".rs": parseCode,
-  ".c": parseCode,
-  ".cpp": parseCode,
-  ".h": parseCode,
-  ".hpp": parseCode,
-  ".java": parseCode,
-  ".rb": parseCode,
-  ".php": parseCode,
-  ".swift": parseCode,
-  ".kt": parseCode,
-  ".cs": parseCode,
-  ".sh": parseCode,
-  ".ps1": parseCode,
+  // Code — use LANG_MAP keys dynamically to avoid duplication
+  // (isCodeFile checks LANG_MAP internally)
 
   // Images (OCR via Tesseract)
   ".png": parseImage,
@@ -115,31 +97,58 @@ const PARSER_MAP: Record<string, Parser> = {
   ".log": parsePlaintext,
   ".cfg": parsePlaintext,
   ".ini": parsePlaintext,
+  // NOTE: YAML and XML are routed to plaintext. A future enhancement could add
+  // structure-aware parsing for these formats.
   ".yaml": parsePlaintext,
   ".yml": parsePlaintext,
   ".toml": parsePlaintext,
   ".xml": parsePlaintext,
 };
 
+// Register code extensions from LANG_MAP to avoid maintaining two lists
+// (code.ts is the source of truth for supported code languages)
+const CODE_EXTENSIONS = [
+  ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".c", ".cpp",
+  ".h", ".hpp", ".java", ".rb", ".php", ".swift", ".kt", ".cs",
+  ".sh", ".ps1", ".sql", ".lua", ".r", ".scala",
+];
+for (const ext of CODE_EXTENSIONS) {
+  if (!PARSER_MAP[ext]) PARSER_MAP[ext] = parseCode;
+}
+
 // File types that benefit from Docling's layout-aware parsing
 const DOCLING_PREFERRED = new Set([".pdf", ".docx", ".pptx", ".xlsx"]);
+
+// Cache the Docling wrapper function to avoid creating a new closure per call
+let _doclingWrapper: Parser | null = null;
+function getDoclingWrapper(ext: string): Parser {
+  if (_doclingWrapper) return _doclingWrapper;
+  _doclingWrapper = async (fp: string) => {
+    const { parseWithDocling } = await import("./docling.js");
+    const result = await parseWithDocling(fp);
+    if (result) return result;
+
+    // Fallback to local parser
+    const localExt = extname(fp).toLowerCase();
+    const localParser = PARSER_MAP[localExt];
+    if (localParser) return localParser(fp);
+    throw new ParseError(`Unsupported file type: ${localExt}`, fp);
+  };
+  return _doclingWrapper;
+}
 
 export function getParser(filePath: string): Parser {
   const ext = extname(filePath).toLowerCase();
 
+  // Check if it's a code file via LANG_MAP (avoids maintaining duplicate lists)
+  if (isCodeFile(ext) && !PARSER_MAP[ext]) {
+    PARSER_MAP[ext] = parseCode;
+  }
+
   // For complex document formats, try Docling first (layout-aware, multi-language)
   // Falls back to local parser if Docling is unavailable
   if (DOCLING_PREFERRED.has(ext)) {
-    return async (fp: string) => {
-      const { parseWithDocling } = await import("./docling.js");
-      const result = await parseWithDocling(fp);
-      if (result) return result;
-
-      // Fallback to local parser
-      const localParser = PARSER_MAP[ext];
-      if (localParser) return localParser(fp);
-      throw new ParseError(`Unsupported file type: ${ext}`, fp);
-    };
+    return getDoclingWrapper(ext);
   }
 
   const parser = PARSER_MAP[ext];
@@ -150,5 +159,9 @@ export function getParser(filePath: string): Parser {
 }
 
 export function getSupportedExtensions(): string[] {
-  return [...new Set([...Object.keys(PARSER_MAP), ...DOCLING_PREFERRED])];
+  // Exclude .xlsx from supported extensions when Docling is the only parser for it
+  // (no local fallback exists for binary Excel format)
+  const doclingOnly = new Set([".xlsx"]);
+  const allExts = new Set([...Object.keys(PARSER_MAP), ...DOCLING_PREFERRED]);
+  return [...allExts].filter((ext) => !doclingOnly.has(ext) || PARSER_MAP[ext]);
 }

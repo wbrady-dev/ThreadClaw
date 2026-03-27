@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// ^ Shebang is for the compiled JavaScript output (dist/), not for tsx/ts-node.
 
 import { existsSync, writeFileSync } from "fs";
 import { resolve } from "path";
@@ -19,11 +20,18 @@ async function launchTui(): Promise<void> {
   const installed = hasConfig && hasEnv;
 
   if (!installed && capabilities.rich) {
-    const { runInkInstall } = await import("./ink/install-actions.js");
-    const completed = await runInkInstall();
-    if (!completed) return;
+    try {
+      const { runInkInstall } = await import("./ink/install-actions.js");
+      const completed = await runInkInstall();
+      if (!completed) return;
+    } catch {
+      // Rich (Ink) install path failed — fall through to plain install below
+    }
   }
 
+  // Safety net: re-check config/env even after rich install path, in case it
+  // silently failed or the user cancelled. This duplicates the hasConfig/hasEnv
+  // check above intentionally — the rich install may have created these files.
   if (!readConfig() || !existsSync(resolve(getRootDir(), ".env"))) {
     const { runInstall } = await import("./screens/install.js");
     await runInstall();
@@ -46,5 +54,5 @@ launchTui().catch((error) => {
   if (!process.env.DEBUG) console.error(t.dim("Run with DEBUG=1 for full error details."));
   console.error(t.dim("\nIf this is a fresh install, try running: npm install && npx tsx src/tui/index.ts"));
   // Keep terminal open briefly so user can read the error
-  setTimeout(() => process.exit(1), 5000);
+  setTimeout(() => process.exit(1), 2000);
 });

@@ -62,6 +62,7 @@ export class ThreadClawWatcher {
       const watcher = watch(wc.paths, {
         persistent: true,
         ignoreInitial: !wc.ingestExisting,
+        followSymlinks: false, // Prevent infinite loops from symlink cycles
         awaitWriteFinish: {
           stabilityThreshold: wc.debounceMs ?? DEFAULT_DEBOUNCE,
           pollInterval: 500,
@@ -69,7 +70,10 @@ export class ThreadClawWatcher {
         ignored: [
           "**/node_modules/**",
           "**/.git/**",
-          "**/.*",
+          "**/.DS_Store",
+          "**/.gitignore",
+          "**/.env",
+          "**/.env.*",
           "**/.venv/**",
           "**/venv/**",
           "**/__pycache__/**",
@@ -128,20 +132,26 @@ export class ThreadClawWatcher {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   private handleFile(filePath: string, wc: WatchConfig): void {
-    const ext = extname(filePath).toLowerCase();
+    // Normalize file path for consistent processing set lookups
+    const normalizedPath = resolve(filePath);
+    const ext = extname(normalizedPath).toLowerCase();
     if (!supportedExts.has(ext)) return;
     // If the watch config specifies allowed file types, enforce them
     if (wc.fileTypes?.length && !wc.fileTypes.some((ft) => ext === (ft.startsWith(".") ? ft.toLowerCase() : `.${ft.toLowerCase()}`))) return;
 
-    // Skip if already processing this file
-    if (this.processing.has(filePath)) return;
+    // Skip if already processing this file (check both to handle duplicate queue entries)
+    if (this.processing.has(normalizedPath)) return;
 
     // awaitWriteFinish already debounces — enqueue directly
+    // NOTE: When queue is full, files are silently dropped. Consider implementing
+    // backpressure signaling to the watcher (pause/resume) for heavy workloads.
     if (this.ingestQueue.length >= MAX_QUEUE_SIZE) {
-      logger.warn(`Watcher queue full (${MAX_QUEUE_SIZE}), dropping: ${filePath.split(/[\\/]/).pop()}`);
+      logger.warn(`Watcher queue full (${MAX_QUEUE_SIZE}), dropping: ${normalizedPath.split(/[\\/]/).pop()}`);
       return;
     }
-    this.ingestQueue.push({ filePath, wc });
+    // Check processing set to prevent duplicate queue entries
+    if (this.ingestQueue.some((q) => resolve(q.filePath) === normalizedPath)) return;
+    this.ingestQueue.push({ filePath: normalizedPath, wc });
     this.drainQueue();
   }
 
@@ -207,7 +217,8 @@ export class ThreadClawWatcher {
       this.ingestSafe(item.filePath, item.wc).finally(() => {
         this.processing.delete(item.filePath);
         this.activeIngests--;
-        queueMicrotask(() => this.drainQueue());
+        // Use setImmediate instead of queueMicrotask to avoid starving I/O
+        setImmediate(() => this.drainQueue());
       });
     }
   }
@@ -249,6 +260,8 @@ export class ThreadClawWatcher {
     this.ingestQueue.length = 0;
 
     // Wait for active ingests to finish (up to 10s)
+    // NOTE: This is a busy-wait with 100ms polling. An event-based approach
+    // (Promise that resolves when activeIngests hits 0) would be more efficient.
     const deadline = Date.now() + 10_000;
     while (this.activeIngests > 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 100));

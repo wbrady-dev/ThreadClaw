@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { resolve } from "path";
 import { config } from "../config.js";
-import { getDb } from "../storage/index.js";
+import { getMainDb } from "../storage/index.js";
 import {
   listCollections,
   createCollection,
@@ -15,7 +14,7 @@ import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
 
 function db() {
-  return getDb(resolve(config.dataDir, "threadclaw.db"));
+  return getMainDb();
 }
 
 export function registerCollectionRoutes(server: FastifyInstance) {
@@ -54,49 +53,61 @@ export function registerCollectionRoutes(server: FastifyInstance) {
       return reply.status(400).send({ error: "Description too long (max 1000 characters)" });
     }
 
-    const existing = getCollectionByName(db(), trimmedName);
+    // Use single db reference to avoid race condition
+    const database = db();
+    const existing = getCollectionByName(database, trimmedName);
     if (existing) {
       return reply.status(409).send({ error: "collection with this name already exists", collection: existing });
     }
 
-    const collection = createCollection(db(), trimmedName, description);
+    const collection = createCollection(database, trimmedName, description);
     return reply.status(201).send(collection);
   });
 
   server.delete("/collections/:id", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
-    const { id } = req.params as { id: string };
-    const collection = getCollection(db(), id);
-    if (!collection) {
-      return reply.status(404).send({ error: "Collection not found" });
-    }
-    if (collection.name === config.defaults.collection) {
-      return reply.status(400).send({ error: "Cannot delete the default collection" });
-    }
-    // Get document IDs BEFORE deletion (CASCADE will remove them)
-    const database = db();
-    const docIds = database.prepare(
-      "SELECT id FROM documents WHERE collection_id = ?",
-    ).all(id) as Array<{ id: string }>;
 
-    invalidateCollection(collection.name);
-    deleteCollection(database, id);
+    try {
+      const { id } = req.params as { id: string };
 
-    // Clean up graph data for deleted documents
-    if (config.relations?.enabled && docIds.length > 0) {
-      try {
-        const { getGraphDb } = await import("../storage/graph-sqlite.js");
-        const { deleteSourceData } = await import("../relations/ingest-hook.js");
-        const graphDb = getGraphDb(config.relations.graphDbPath);
-        for (const doc of docIds) {
-          deleteSourceData(graphDb, "document", doc.id);
-        }
-      } catch (e) {
-        logger.warn({ collectionId: id, error: String(e) }, "Graph cleanup failed during collection deletion");
+      // Use single db reference to avoid race condition from calling db() twice
+      const database = db();
+
+      const collection = getCollection(database, id);
+      if (!collection) {
+        return reply.status(404).send({ error: "Collection not found" });
       }
-    }
+      if (collection.name === config.defaults.collection) {
+        return reply.status(400).send({ error: "Cannot delete the default collection" });
+      }
 
-    return { deleted: true };
+      // Get document IDs BEFORE deletion (CASCADE will remove them)
+      const docIds = database.prepare(
+        "SELECT id FROM documents WHERE collection_id = ?",
+      ).all(id) as Array<{ id: string }>;
+
+      // Perform deletion before invalidating cache (reorder: delete first, then invalidate)
+      deleteCollection(database, id);
+      invalidateCollection(collection.name);
+
+      // Clean up graph data for deleted documents
+      if (config.relations?.enabled && docIds.length > 0) {
+        try {
+          const { getGraphDb } = await import("../storage/graph-sqlite.js");
+          const { deleteSourceData } = await import("../relations/ingest-hook.js");
+          const graphDb = getGraphDb(config.relations.graphDbPath);
+          for (const doc of docIds) {
+            deleteSourceData(graphDb, "document", doc.id);
+          }
+        } catch (e) {
+          logger.warn({ collectionId: id, error: String(e) }, "Graph cleanup failed during collection deletion");
+        }
+      }
+
+      return { deleted: true, collection: collection.name };
+    } catch (err) {
+      return reply.code(500).send({ error: `Failed to delete collection: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   server.get("/collections/:id/stats", async (req, reply) => {

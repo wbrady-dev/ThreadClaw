@@ -103,6 +103,10 @@ export class AppleNotesAdapter extends PollingAdapterBase {
     return items;
   }
 
+  // TODO: execFileSync blocks the event loop. Consider using execFile (async)
+  // for better server responsiveness.
+  // TODO: downloadItem writes synchronously with no size limit. Consider adding
+  // a max note size check before writing.
   async downloadItem(item: RemoteItem): Promise<string> {
     const body = getNoteBody(item.id);
     const outPath = join(STAGING_DIR, `${sanitizeFilename(item.id)}.html`);
@@ -134,8 +138,12 @@ function listNotesInFolder(folderName: string): AppleNote[] {
     ? `of folder "${escapeAppleScript(folderName)}"`
     : "";
 
+  // NOTE: Split on ||| could fail if a note name contains |||.
+  // This is extremely unlikely in practice but could be hardened with a more
+  // unique delimiter (e.g., Unicode private use area characters).
   const script = `
     tell application "Notes"
+      set oldDelims to AppleScript's text item delimiters
       set noteList to {}
       repeat with n in (every note ${folderClause})
         set noteId to id of n
@@ -144,7 +152,9 @@ function listNotesInFolder(folderName: string): AppleNote[] {
         set end of noteList to noteId & "|||" & noteName & "|||" & noteMod
       end repeat
       set AppleScript's text item delimiters to "\\n"
-      return noteList as text
+      set result to noteList as text
+      set AppleScript's text item delimiters to oldDelims
+      return result
     end tell
   `;
 
@@ -204,6 +214,7 @@ export function listNotesFolders(): { name: string; count: number }[] {
 
   const script = `
     tell application "Notes"
+      set oldDelims to AppleScript's text item delimiters
       set folderList to {}
       repeat with f in every folder
         set folderName to name of f
@@ -211,7 +222,9 @@ export function listNotesFolders(): { name: string; count: number }[] {
         set end of folderList to folderName & "|||" & noteCount
       end repeat
       set AppleScript's text item delimiters to "\\n"
-      return folderList as text
+      set result to folderList as text
+      set AppleScript's text item delimiters to oldDelims
+      return result
     end tell
   `;
 

@@ -65,6 +65,13 @@ robocopy "%ROOT%" "%DIST_DIR%" /E /NFL /NDL /NJH /NJS /NP ^
     /XD .git .venv build data logs __pycache__ .tui-test-build ^
     /XF .env *.db *.db-wal *.db-shm *.pid *.log package-lock.json >nul 2>&1
 
+:: Robocopy exit codes: 0-7 = success (various levels of copy), 8+ = error
+if %errorlevel% GEQ 8 (
+    echo [ERROR] robocopy failed with exit code %errorlevel%.
+    pause
+    exit /b 1
+)
+
 :: Ensure data dir exists with .gitkeep
 mkdir "%DIST_DIR%\data" 2>nul
 echo. > "%DIST_DIR%\data\.gitkeep"

@@ -14,6 +14,7 @@ import { packContext, packTitles, type PackedChunk } from "./packer.js";
 import { extractBrief, type BriefInput } from "./brief.js";
 import { cacheKey, getCached, setCached } from "./cache.js";
 import { recordQuery } from "../analytics/query-recorder.js";
+import { emitPipelineEvent } from "../analytics/event-stream.js";
 import {
   isExpansionEnabled,
   decomposeQuery,
@@ -112,6 +113,8 @@ export async function query(
     queryText = trimmed;
   }
 
+  emitPipelineEvent("query.start", { query: queryText, collection: options.collection, topK: options.topK, brief: options.brief });
+
   const collectionName = options.collection ?? config.defaults.collection;
   const topK = Math.min(options.topK ?? config.defaults.queryTopK, 100);
   const tokenBudget = Math.min(options.tokenBudget ?? config.defaults.queryTokenBudget, 50000);
@@ -182,6 +185,7 @@ export async function query(
 
   try {
     if (doExpand) {
+      emitPipelineEvent("query.expansion", { query: queryText });
       const [decomposed, hydeText, variants] = await Promise.all([
         decomposeQuery(queryText),
         generateHyDE(queryText),
@@ -191,7 +195,8 @@ export async function query(
       allQueryTexts = [...new Set([queryText, ...decomposed, ...variants])];
 
       // Parallelize query embeddings + HyDE embedding in a single Promise.all
-      if (hydeText) {
+      // Skip HyDE if the generated text is too short to be useful for embedding
+      if (hydeText && hydeText.length >= 20) {
         const [queryEmbeddings, hydeEmbeddings] = await Promise.all([
           embed(allQueryTexts, "query"),
           embed([hydeText], "passage"),
@@ -206,6 +211,7 @@ export async function query(
       const expansionTokens = allQueryTexts.reduce((s, q) => s + estimateTokens(q), 0);
       trackTokens("queryExpansion", expansionTokens);
     } else {
+      emitPipelineEvent("query.embed", { query: queryText, variants: 1 });
       allQueryEmbeddings = [await embedQuery(queryText)];
     }
   } catch (err) {
@@ -256,6 +262,8 @@ export async function query(
     }
   }
 
+  emitPipelineEvent("query.vector_search", { query: queryText, collections: searchCollections.length, embeddings: allQueryEmbeddings.length });
+
   for (const collId of searchCollections) {
     for (const emb of allQueryEmbeddings) {
       try {
@@ -264,8 +272,6 @@ export async function query(
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, "Vector search failed, continuing with BM25");
       }
     }
-    // BM25 on original query (or entity-boosted for short queries).
-    // Running BM25 on all variants adds noise without meaningful recall gain.
     if (useBm25) {
       try {
         allBm25Results.push(...searchBm25(db, entityBoostedQuery, retrieveCount, collId));
@@ -273,6 +279,9 @@ export async function query(
         logger.warn({ err: err instanceof Error ? err.message : String(err) }, "BM25 search failed");
       }
     }
+  }
+  if (useBm25) {
+    emitPipelineEvent("query.bm25", { query: entityBoostedQuery, hits: allBm25Results.length });
   }
 
   // === Deduplicate vector results by chunkId (keep best distance) ===
@@ -301,8 +310,7 @@ export async function query(
   } else {
     const seen = new Set<string>();
     candidateChunkIds = [];
-    const source = goodVectorResults;
-    for (const r of source) {
+    for (const r of goodVectorResults) {
       if (!seen.has(r.chunkId)) {
         seen.add(r.chunkId);
         candidateChunkIds.push(r.chunkId);
@@ -364,11 +372,12 @@ export async function query(
   let rankedChunks: PackedChunk[];
   let fallbackScores = false; // true when reranker scores are synthetic
   const noGoodVectors = goodVectorResults.length === 0;
-  const shouldSkipRerank = useReranker && config.reranker.smartSkip && chunkData.length >= 2 && shouldSkipReranking(dedupedVectorResults);
+  // Use post-gate (goodVectorResults) for skip decision — pre-gate results include irrelevant matches
+  const shouldSkipRerank = useReranker && config.reranker.smartSkip && chunkData.length >= 2 && shouldSkipReranking(goodVectorResults);
 
   if (useReranker && chunkData.length > 0 && !shouldSkipRerank && !noGoodVectors) {
-    // Include contextPrefix (heading chain) so reranker sees same context as embedder
     const rerankCandidateCount = Math.min(chunkData.length, config.reranker.topK);
+    emitPipelineEvent("query.rerank", { query: queryText, candidates: rerankCandidateCount });
     const rerankTexts = chunkData.slice(0, rerankCandidateCount).map((c) =>
       c.contextPrefix ? `${c.contextPrefix}\n\n${c.text}` : c.text,
     );
@@ -378,7 +387,8 @@ export async function query(
     const scoreThreshold = config.reranker.scoreThreshold;
     rankedChunks = rerankResults
       // Skip threshold filtering when using fallback scores (all scores are 1.0)
-      .filter((r) => r.index >= 0 && r.index < chunkData.length && (isFallback || r.score >= scoreThreshold))
+      // Filter out NaN scores from malformed reranker responses
+      .filter((r) => r.index >= 0 && r.index < chunkData.length && !isNaN(r.score) && (isFallback || r.score >= scoreThreshold))
       .map((r) => ({
         chunkId: chunkData[r.index].id,
         text: chunkData[r.index].text,
@@ -411,6 +421,8 @@ export async function query(
   }
 
   // === Confidence ===
+  // bestDistance is from post-gate (goodVectorResults) only — BM25 results don't have
+  // a comparable distance metric, so confidence for BM25-only queries relies on score spread.
   const bestDistance = goodVectorResults.length > 0
     ? Math.min(...goodVectorResults.map((r) => r.distance))
     : undefined;
@@ -465,7 +477,8 @@ export async function query(
     context = packed.context;
     tokensUsed = packed.tokensUsed;
     chunksReturned = packed.chunksUsed;
-    sources = packed.sources.map((s) => ({ ...s, collection: collectionName }));
+    // Preserve per-source collection from packer (don't overwrite with the query-level collectionName)
+    sources = packed.sources.map((s) => ({ ...s, collection: s.collection ?? collectionName }));
   }
 
   const elapsed = Date.now() - start;
@@ -522,6 +535,17 @@ export async function query(
     bm25Hits: allBm25Results.length,
     bestDistance: Math.round((bestDistance ?? 0) * 1000) / 1000,
     reranked: strategy.includes("+rerank") && !strategy.includes("skip-rerank") && !strategy.includes("rerank-fallback"),
+  });
+
+  emitPipelineEvent("query.done", {
+    query: queryText,
+    strategy,
+    elapsedMs: elapsed,
+    chunks: chunksReturned,
+    confidence,
+    vectorHits: dedupedVectorResults.length,
+    bm25Hits: allBm25Results.length,
+    sources: result.sources.map(s => s.source).slice(0, 5),
   });
 
   return result;

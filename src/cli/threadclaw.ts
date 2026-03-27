@@ -27,6 +27,7 @@ import { getAppVersion } from "../version.js";
 if (process.argv.length <= 2) {
   await import("../tui/index.js").catch((err) => {
     console.error("Failed to launch TUI:", err.message);
+    if (process.env.DEBUG) console.error(err.stack);
     process.exit(1);
   });
 } else {

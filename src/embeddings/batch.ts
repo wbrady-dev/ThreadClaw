@@ -2,8 +2,9 @@ import { embed } from "./client.js";
 import { logger } from "../utils/logger.js";
 import { config } from "../config.js";
 
-const BATCH_SIZE = config.embedding.batchSize;
-const MAX_CONCURRENT = config.extraction.embeddingMaxConcurrent;
+// Read config values inline to support hot-reload (not captured at module load)
+function getBatchSize(): number { return config.embedding.batchSize; }
+function getMaxConcurrent(): number { return config.extraction.embeddingMaxConcurrent; }
 
 export interface BatchProgress {
   completed: number;
@@ -21,9 +22,10 @@ export async function embedBatch(
 ): Promise<number[][]> {
   if (texts.length === 0) return [];
 
+  const batchSize = getBatchSize();
   const batches: { texts: string[]; startIdx: number }[] = [];
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    batches.push({ texts: texts.slice(i, i + BATCH_SIZE), startIdx: i });
+  for (let i = 0; i < texts.length; i += batchSize) {
+    batches.push({ texts: texts.slice(i, i + batchSize), startIdx: i });
   }
 
   const results: number[][] = new Array(texts.length);
@@ -33,8 +35,16 @@ export async function embedBatch(
   const queue = [...batches];
   const running = new Set<Promise<void>>();
 
+  let aborted = false;
   async function processBatch(batch: { texts: string[]; startIdx: number }) {
-    const embeddings = await embedWithRetry(batch.texts, type);
+    if (aborted) return;
+    let embeddings: number[][];
+    try {
+      embeddings = await embedWithRetry(batch.texts, type);
+    } catch (err) {
+      aborted = true;
+      throw err;
+    }
     for (let i = 0; i < embeddings.length; i++) {
       results[batch.startIdx + i] = embeddings[i];
     }
@@ -46,7 +56,7 @@ export async function embedBatch(
     const p = processBatch(item).finally(() => running.delete(p));
     running.add(p);
 
-    if (running.size >= MAX_CONCURRENT) {
+    if (running.size >= getMaxConcurrent()) {
       await Promise.race(running);
     }
   }

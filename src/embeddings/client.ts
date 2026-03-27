@@ -5,24 +5,30 @@ import { EmbeddingError } from "../utils/errors.js";
 // Circuit breaker: when embedding server is unreachable, stop trying for a cooldown
 let circuitOpen = false;
 let circuitOpenedAt = 0;
-const CIRCUIT_COOLDOWN_MS = config.extraction.embeddingCircuitCooldownMs;
+// Read inline to support hot-reload of config (not captured at module load)
+function getCircuitCooldownMs(): number { return config.extraction.embeddingCircuitCooldownMs; }
 
-function checkCircuit(): void {
-  if (circuitOpen && Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
+/** Shared helper: check and reset circuit breaker if cooldown elapsed */
+function maybeResetCircuit(): boolean {
+  if (circuitOpen && Date.now() - circuitOpenedAt > getCircuitCooldownMs()) {
     circuitOpen = false;
     logger.info("Embedding circuit breaker reset — retrying server");
+    return true; // was reset
   }
+  return false;
+}
+
+function checkCircuit(): void {
+  maybeResetCircuit();
   if (circuitOpen) {
     throw new EmbeddingError("Embedding server unreachable (circuit breaker open — will retry in " +
-      Math.ceil((CIRCUIT_COOLDOWN_MS - (Date.now() - circuitOpenedAt)) / 1000) + "s)");
+      Math.ceil((getCircuitCooldownMs() - (Date.now() - circuitOpenedAt)) / 1000) + "s)");
   }
 }
 
 /** Check if the embedding circuit breaker is currently open. */
 export function isCircuitBreakerOpen(): boolean {
-  if (circuitOpen && Date.now() - circuitOpenedAt > CIRCUIT_COOLDOWN_MS) {
-    circuitOpen = false;
-  }
+  maybeResetCircuit();
   return circuitOpen;
 }
 
@@ -113,14 +119,30 @@ export async function embed(
 
     // Success
     const data = (await response.json()) as EmbeddingResponse;
+
+    // Validate response structure
+    if (!data?.data || !Array.isArray(data.data)) {
+      throw new EmbeddingError(`Embedding response missing data array`);
+    }
+
     logger.debug(
       { count: texts.length, tokens: data.usage?.total_tokens },
       "Embedded texts",
     );
 
-    return data.data
-      .sort((a, b) => a.index - b.index)
-      .map((d) => d.embedding);
+    const sorted = data.data.sort((a, b) => a.index - b.index);
+
+    // Validate dimension of returned embeddings
+    const expectedDim = config.embedding.dimensions;
+    for (const item of sorted) {
+      if (item.embedding.length !== expectedDim) {
+        throw new EmbeddingError(
+          `Embedding dimension mismatch: expected ${expectedDim}, got ${item.embedding.length}. Check embedding model configuration.`,
+        );
+      }
+    }
+
+    return sorted.map((d) => d.embedding);
   }
 
   // If all retries failed with connection errors, trip the circuit breaker
@@ -135,6 +157,9 @@ export async function embed(
 const EMBED_CACHE_MAX = config.extraction.embeddingCacheMax;
 const queryEmbedCache = new Map<string, number[]>();
 
+// NOTE: Cache key includes the full text, which uses more memory for long queries.
+// Consider using a hash (sha256) for very long texts. For typical query lengths (<500 chars),
+// the overhead is negligible and the full-text key avoids hash collision risks.
 function embedCacheKey(text: string): string {
   return `${config.embedding.model}:${config.embedding.prefixMode}:${text}`;
 }

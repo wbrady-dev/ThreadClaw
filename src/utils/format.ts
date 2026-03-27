@@ -8,7 +8,9 @@
 export function estimateTokens(text: string): number {
   if (!text) return 0;
   // ~4 chars per token is the industry standard heuristic for BPE tokenizers
-  // (GPT, Claude, BGE, etc.). Add a small buffer for safety.
+  // (GPT, Claude, BGE, etc.). Using 3.8 instead of 4.0 adds a small buffer
+  // (~5% overestimate) for safety — better to slightly over-budget tokens than
+  // to truncate unexpectedly. For exact counts, use the model's tokenizer.
   return Math.ceil(text.length / 3.8);
 }
 

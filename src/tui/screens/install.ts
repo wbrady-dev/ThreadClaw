@@ -83,6 +83,7 @@ export const OFF_EVIDENCE: EvidenceConfig = {
  * Shell scripts handle venv + pip before this runs.
  */
 export async function runNonInteractiveInstall(): Promise<void> {
+  cancelled = false; // Reset module-level flag in case of prior call
   const python = getPythonCmd();
   const platform = getPlatform();
   const sourceRoot = getRootDir();
@@ -156,7 +157,13 @@ export async function runNonInteractiveInstall(): Promise<void> {
     huggingFaceToken: "",
   });
 
-  console.log(t.ok("\n  Installation complete. Run `threadclaw` to launch.\n"));
+  console.log(t.ok("\n  Installation complete. Run `threadclaw` to launch."));
+  if (platform === "windows") {
+    console.log(t.dim("  Note: Windows background services were not set up during non-interactive install."));
+    console.log(t.dim("  Use `threadclaw` → Services to configure auto-start.\n"));
+  } else {
+    console.log("");
+  }
 }
 
 export async function runInstall(): Promise<void> {
@@ -408,7 +415,8 @@ export async function runInstall(): Promise<void> {
     enableAudio,
     evidenceConfig,
     integrateOpenClaw: Boolean(openclawDir),
-    enableObsidian: !isRecommended,
+    // Obsidian prompt is only shown during advanced install; recommended skips it
+    enableObsidian: !isRecommended && !cancelled,
     installWindowsServices: !isRecommended && platform === "windows",
     huggingFaceToken: "",
   });
@@ -646,6 +654,19 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
   if (failures.length > 0) {
     console.log(t.warn("\n  Some components need attention:"));
     for (const f of failures) console.log(t.err(`    • ${f}`));
+    // If critical deps (node_modules, Python) are missing, offer to abort
+    const hasCritical = failures.some((f) => f.startsWith("Node.js:") || f.startsWith("Python:"));
+    if (hasCritical) {
+      console.log(t.err("\n  Critical dependencies are missing. Installation may not work."));
+      const { abort } = await prompts({
+        type: "confirm", name: "abort",
+        message: "Abort installation?", initial: false,
+      }, { onCancel });
+      if (abort && !cancelled) {
+        console.log(t.dim("\n  Installation aborted. Fix the issues above and retry.\n"));
+        return;
+      }
+    }
     console.log(t.dim("  These are non-fatal — ThreadClaw will work with reduced functionality.\n"));
   }
 
@@ -776,9 +797,12 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
             pathRegistered = true;
           }
         } catch {
-          // User PATH key may not exist yet — create it with just our dir
+          // User PATH key may not exist yet — append to current process PATH to avoid
+          // overwriting with just our directory (which would break other tools)
           try {
-            execFileSync("setx", ["PATH", cmdDir], { stdio: "pipe", timeout: 10000 });
+            const currentPath = process.env.PATH ?? "";
+            const newPath = currentPath ? `${currentPath};${cmdDir}` : cmdDir;
+            execFileSync("setx", ["PATH", newPath], { stdio: "pipe", timeout: 10000 });
             pathRegistered = true;
           } catch (setxError) {
             console.error(t.dim(`  setx failed: ${String(setxError).slice(0, 100)}`));
@@ -1253,6 +1277,7 @@ async function selectModel(models: ModelInfo[], gpu: GpuInfo, otherModelVram: nu
   console.log(t.dim(`  ${"Model".padEnd(26)} ${"VRAM".padEnd(9)} ${"Type".padEnd(10)}`));
 
   const modelId = await selectMenu(menuItems);
+  // __cloud__ returns null here — cloud config is handled post-install via Configure screen
   if (!modelId || modelId === "__back__" || modelId === "__cloud__") return null;
   if (modelId === "__custom__") return handleCustomModel(pythonCmd);
   return models.find((model) => model.id === modelId) ?? null;
@@ -1302,7 +1327,8 @@ function tierColorFn(score: number): (text: string) => string {
   if (score <= 6) return t.info;
   if (score <= 7) return t.ok;
   if (score <= 8) return t.warn;
-  return t.err;
+  // 9-10: premium tier — use highlight (green) rather than err (red)
+  return t.highlight;
 }
 
 export function getDiskProbeTarget(platform: ReturnType<typeof getPlatform>, installPath: string): string {

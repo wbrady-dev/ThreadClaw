@@ -34,7 +34,10 @@ if (distEntry) {
   process.on("SIGTERM", () => child.kill("SIGTERM"));
 } else {
   // Development fallback: use tsx to run TypeScript source directly
-  const tsxCli = resolve(root, "node_modules", "tsx", "dist", "cli.mjs");
+  // Prefer the .bin shim (works across tsx versions) over hardcoded internal path
+  const tsxBin = resolve(root, "node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
+  const tsxCliFallback = resolve(root, "node_modules", "tsx", "dist", "cli.mjs");
+  const tsxCli = existsSync(tsxBin) ? tsxBin : tsxCliFallback;
   const srcEntry = resolve(root, "src", "cli", "threadclaw.ts");
 
   if (!existsSync(tsxCli)) {
@@ -43,10 +46,11 @@ if (distEntry) {
     process.exit(1);
   }
 
-  const child = spawn(process.execPath, [tsxCli, srcEntry, ...process.argv.slice(2)], {
-    cwd: root,
-    stdio: "inherit",
-  });
+  // If using the .bin shim, spawn it directly; otherwise use node + cli.mjs
+  const useShim = tsxCli === tsxBin;
+  const child = useShim
+    ? spawn(tsxCli, [srcEntry, ...process.argv.slice(2)], { cwd: root, stdio: "inherit", shell: process.platform === "win32" })
+    : spawn(process.execPath, [tsxCli, srcEntry, ...process.argv.slice(2)], { cwd: root, stdio: "inherit" });
   child.on("exit", (code) => process.exit(code ?? 0));
   process.on("SIGINT", () => child.kill("SIGINT"));
   process.on("SIGTERM", () => child.kill("SIGTERM"));

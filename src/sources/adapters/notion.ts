@@ -131,6 +131,8 @@ async function queryDatabase(client: Client, databaseId: string): Promise<any[]>
   let cursor: string | undefined;
 
   do {
+    // NOTE: Cast to any because the @notionhq/client types don't expose databases.query
+    // as a public method in all versions. This is safe — the API exists and is documented.
     const res = await (client.databases as any).query({
       database_id: databaseId,
       page_size: 100,
@@ -175,7 +177,10 @@ async function exportPageAsMarkdown(client: Client, pageId: string): Promise<str
     const md = blockToMarkdown(block);
     if (md !== null) lines.push(md);
 
-    // Recursively fetch and render child blocks
+    // Recursively fetch and render child blocks (one level deep)
+    // NOTE: Only one level of child blocks is expanded. Deeply nested content
+    // (e.g., toggles inside toggles) will be truncated. Consider adding full
+    // recursive expansion with a depth limit for comprehensive extraction.
     if ((block as any).has_children) {
       const children = await getAllBlocks(client, block.id);
       for (const child of children) {
@@ -293,7 +298,12 @@ export function hasNotionApiKey(): boolean {
   return !!process.env.NOTION_API_KEY;
 }
 
-/** List all databases shared with the integration (for TUI browser) */
+/** List all databases shared with the integration (for TUI browser).
+ * NOTE: Uses raw fetch instead of the @notionhq/client because this function
+ * is called from the TUI before a full client is initialized.
+ * NOTE: No explicit rate limiting here — Notion returns 429 on excess requests.
+ * The sleep(350) in queryDatabase provides basic rate limiting for the main sync.
+ */
 export async function listNotionDatabases(): Promise<{ id: string; title: string }[]> {
   const apiKey = process.env.NOTION_API_KEY;
   if (!apiKey) return [];

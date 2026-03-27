@@ -28,18 +28,30 @@ Examples:
       const tags = opts.tags?.split(",").map((t) => t.trim()) ?? [];
       const resolvedPaths = paths.map((p) => resolve(p));
 
+      // Warn about non-existent paths and filter them out
+      const validPaths: string[] = [];
       for (const p of resolvedPaths) {
         if (!existsSync(p)) {
-          console.warn(`Warning: path does not exist: ${p}`);
+          console.warn(`Warning: path does not exist, skipping: ${p}`);
+        } else {
+          validPaths.push(p);
         }
       }
 
+      if (validPaths.length === 0) {
+        console.error("Error: no valid paths to watch.");
+        process.exit(1);
+      }
+
+      // Default debounce is 2000ms (matches the CLI option default)
+      const debounceMs = parseInt(opts.debounce, 10) || 2000;
+
       console.log(`Watching for changes:`);
-      for (const p of resolvedPaths) {
+      for (const p of validPaths) {
         console.log(`  ${p}`);
       }
       console.log(`Collection: ${opts.collection}`);
-      console.log(`Debounce: ${opts.debounce}ms`);
+      console.log(`Debounce: ${debounceMs}ms`);
       if (opts.existing) console.log(`Ingesting existing files on startup`);
       console.log("");
       console.log("Press Ctrl+C to stop.");
@@ -47,28 +59,36 @@ Examples:
 
       const watcher = new ThreadClawWatcher([
         {
-          paths: resolvedPaths,
+          paths: validPaths,
           collection: opts.collection,
           tags,
-          debounceMs: parseInt(opts.debounce, 10) || 300,
+          debounceMs,
           ingestExisting: opts.existing,
         },
       ]);
 
-      await watcher.start();
+      try {
+        await watcher.start();
+      } catch (err) {
+        console.error(`Error starting watcher: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
 
       // Keep the process alive — chokidar events are async
       // Without this, Node exits after the action resolves
       const keepAlive = setInterval(() => {}, 60000);
 
-      process.on("SIGINT", async () => {
+      const shutdown = async () => {
         console.log("\nStopping watcher...");
         clearInterval(keepAlive);
         await watcher.stop();
         process.exit(0);
-      });
+      };
 
-      // Never resolve — keep running until SIGINT
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+
+      // Never resolve — keep running until SIGINT/SIGTERM
       await new Promise(() => {});
     },
   );

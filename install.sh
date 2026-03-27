@@ -81,6 +81,9 @@ fi
 # ── Step 3: Node.js dependencies ──
 if [ ! -f "$SCRIPT_DIR/node_modules/.install-ok" ]; then
   echo ""
+  # NOTE: Using `npm install` instead of `npm ci` because package-lock.json
+  # is gitignored for this project. If lockfile is ever committed, switch to
+  # `npm ci` for reproducible installs with integrity checking.
   echo "[install] Installing Node.js dependencies..."
   set +e
   npm install --loglevel=http --no-audit --no-fund 2>&1 | tee -a "$LOG"

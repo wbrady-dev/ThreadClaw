@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { config } from "../../config.js";
-import { getDb, getInitializedDb, deleteVectors } from "../../storage/index.js";
+import { getInitializedDb, deleteVectors } from "../../storage/index.js";
 
 import { escapeLike } from "../../utils/sql.js";
 
@@ -10,17 +10,19 @@ export const deleteCommand = new Command("delete")
   .option("--source <path>", "Delete by source file path (partial match)")
   .option("--id <id>", "Delete by document ID")
   .option("--all-collection <name>", "Delete ALL documents in a collection")
+  .option("--force", "Skip confirmation for destructive operations")
   .addHelpText("after", `
 Examples:
   $ threadclaw delete --source report.pdf                   Delete by filename match
   $ threadclaw delete --id abc123                           Delete by document ID
-  $ threadclaw delete --all-collection scratch              Wipe an entire collection`)
+  $ threadclaw delete --all-collection scratch --force      Wipe an entire collection`)
   .action(
     async (opts: {
       collection?: string;
       source?: string;
       id?: string;
       allCollection?: string;
+      force?: boolean;
     }) => {
       try {
         const db = getInitializedDb();
@@ -35,6 +37,11 @@ Examples:
 
           if (!coll) {
             console.error(`Collection not found: ${opts.allCollection}. Run 'threadclaw collections list' to see available.`);
+            process.exit(1);
+          }
+
+          if (!opts.force) {
+            console.error(`This will delete ALL documents in "${coll.name}". Re-run with --force to confirm.`);
             process.exit(1);
           }
 
@@ -107,7 +114,7 @@ Examples:
             console.log(
               "Use --id <id> to delete a specific one, or re-run with a more specific --source path.",
             );
-            return;
+            process.exit(1);
           }
 
           const chunks = await deleteDocument(db, docs[0].id);
@@ -128,7 +135,7 @@ Examples:
   );
 
 async function deleteDocument(
-  db: ReturnType<typeof getDb>,
+  db: ReturnType<typeof getInitializedDb>,
   documentId: string,
 ): Promise<number> {
   const chunkIds = db

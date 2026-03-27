@@ -7,6 +7,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   prettier,
   {
+    // shared/ is ignored because it is a symlinked submodule with its own lint config
     ignores: ["dist/", "build/", "node_modules/", "memory-engine/", "shared/"],
   },
   {

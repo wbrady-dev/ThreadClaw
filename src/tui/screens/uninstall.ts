@@ -267,9 +267,11 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
       const match = regOut.match(/PATH\s+REG_(?:EXPAND_)?SZ\s+(.*)/i);
       if (match) {
         const currentPath = match[1].trim();
+        // Match the exact ThreadClaw directory path, not just a substring
+        const tcDir = resolve(process.env.LOCALAPPDATA ?? resolve(homedir(), "AppData", "Local"), "ThreadClaw").toLowerCase();
         const cleaned = currentPath
           .split(";")
-          .filter((p) => !p.toLowerCase().includes("threadclaw"))
+          .filter((p) => p.toLowerCase() !== tcDir)
           .join(";");
         if (cleaned !== currentPath) {
           execFileSync("setx", ["PATH", cleaned], { stdio: "pipe", timeout: 5000 });
@@ -312,7 +314,11 @@ export async function performUninstall(options: { deleteData: boolean }): Promis
 
   console.log(t.ok("  ThreadClaw has been completely removed."));
   console.log(t.ok("  OpenClaw restored to its original state."));
-  console.log(t.ok("  All data, config, dependencies, and model cache deleted."));
+  if (deleteData) {
+    console.log(t.ok("  All data, config, dependencies, and model cache deleted."));
+  } else {
+    console.log(t.ok("  Config and dependencies removed. Data preserved."));
+  }
   console.log("");
   console.log(t.dim("  Source code (git repo) preserved at:"));
   console.log(t.dim(`    ${root}`));

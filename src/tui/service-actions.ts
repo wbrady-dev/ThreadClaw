@@ -79,6 +79,8 @@ export async function performServiceAction(
     await sleep(2000);
   }
 
+  // Clear logs on start (not stop) so log viewers see only output from the new
+  // session. On stop, logs are preserved for post-mortem debugging.
   clearServiceLogs(root);
 
   options.onStatus?.("Launching model server...");
@@ -141,11 +143,17 @@ async function waitForHealthWithLogs(
 
   while (Date.now() - start < timeoutMs) {
     try {
-      // Any HTTP response (200, 503, etc.) means the server process is running.
-      // Only connection errors (fetch throws) mean "not started yet".
-      await fetch(`http://127.0.0.1:${port}/health`, {
+      // Connection errors (fetch throws) mean "not started yet".
+      // A 200 means healthy; other codes (503, etc.) mean the process is up
+      // but not yet ready — log the status for debugging but still consider it started.
+      const resp = await fetch(`http://127.0.0.1:${port}/health`, {
         signal: AbortSignal.timeout(1200),
       });
+      if (resp.status !== 200) {
+        onStatus?.(`${prefix} (status ${resp.status}, waiting for healthy...)`);
+        await sleep(700);
+        continue;
+      }
       return { success: true, message: prefix.replace(/^Waiting for /, "").replace(/\.\.\.$/, "") };
     } catch {
       // Connection refused / timeout — server not up yet

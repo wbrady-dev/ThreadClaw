@@ -44,14 +44,14 @@ export async function runStreamedCommand(
     let stdoutBuffer = "";
     let stderrBuffer = "";
     let settled = false;
-    let timeout: NodeJS.Timeout | null = null;
+    let timeoutHandle: NodeJS.Timeout | null = null;
     let lastActivity = Date.now();
     let activityCheck: NodeJS.Timeout | null = null;
 
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       if (activityCheck) clearInterval(activityCheck);
       fn();
     };
@@ -65,6 +65,8 @@ export async function runStreamedCommand(
         const idle = Date.now() - lastActivity;
         if (idle > activityLimit) {
           try { child.kill(); } catch {}
+          // Follow up with SIGKILL if the process doesn't exit after SIGTERM
+          setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 3000);
           finish(() => reject(new Error(`Command stalled: no output for ${Math.round(idle / 1000)}s`)));
         }
       }, 10_000);
@@ -113,15 +115,17 @@ export async function runStreamedCommand(
           return;
         }
         const message = lastStderr || lastStdout || `Command failed with exit code ${code ?? "unknown"}`;
-        reject(new Error(message));
+        const error = new Error(message) as Error & { exitCode?: number | null };
+        error.exitCode = code;
+        reject(error);
       });
     });
 
     if (options.timeoutMs) {
-      timeout = setTimeout(() => {
-        try {
-          child.kill();
-        } catch {}
+      timeoutHandle = setTimeout(() => {
+        try { child.kill(); } catch {}
+        // Follow up with SIGKILL if process doesn't exit after SIGTERM
+        setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 3000);
         finish(() => reject(new Error(`Command timed out after ${options.timeoutMs}ms`)));
       }, options.timeoutMs);
     }
@@ -130,7 +134,8 @@ export async function runStreamedCommand(
 
 export function sanitizeCommandLine(line: string): string {
   return line
-    .replace(/\x1b\[[0-9;]*m/g, "")
+    // Strip all ANSI escape sequences (SGR, cursor movement, erase, OSC, etc.)
+    .replace(/\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07]*\x07|\(B)/g, "")
     .replace(/\r/g, "")
     .trim()
     .slice(0, 160);

@@ -6,23 +6,19 @@
  */
 
 import { Command } from "commander";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-import { t } from "../../tui/theme.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-import { checkOpenClawIntegration, applyOpenClawIntegration } from "../../integration.js";
-import { readManifest, writeManifest } from "../../version.js";
-import { findOpenClawConfigPath, computeIntegrationHash } from "../../integration.js";
+import { resolve } from "path";
 import { readFileSync } from "fs";
+import { t } from "../../tui/theme.js";
+import { getRootDir } from "../../tui/platform.js";
+import { checkOpenClawIntegration, applyOpenClawIntegration, findOpenClawConfigPath, computeIntegrationHash } from "../../integration.js";
+import { readManifest, writeManifest } from "../../version.js";
 
 export const integrateCommand = new Command("integrate")
   .description("Check or apply OpenClaw integration")
   .option("--apply", "Re-apply the managed integration block")
   .option("--check", "Check for drift without applying (default)")
   .action(async (opts: { apply?: boolean; check?: boolean }) => {
-    const rootDir = resolve(__dirname, "..", "..", "..");
+    const rootDir = getRootDir();
     const memoryEnginePath = resolve(rootDir, "memory-engine");
 
     if (opts.apply) {
@@ -30,29 +26,34 @@ export const integrateCommand = new Command("integrate")
       console.log(t.brand("ThreadClaw Integration — Apply"));
       console.log("");
 
-      const { applied, changes } = applyOpenClawIntegration(memoryEnginePath);
-      if (applied) {
-        for (const c of changes) {
-          console.log(`  ${t.ok("✓")} ${c}`);
-        }
-
-        // Update manifest hash
-        const manifest = readManifest();
-        const configPath = findOpenClawConfigPath();
-        if (configPath) {
-          try {
-            const oc = JSON.parse(readFileSync(configPath, "utf-8"));
-            manifest.integrationHash = computeIntegrationHash(oc);
-            writeManifest(manifest);
-          } catch (e) {
-            console.warn(`  Warning: failed to update manifest hash: ${e}`);
+      try {
+        const { applied, changes } = applyOpenClawIntegration(memoryEnginePath);
+        if (applied) {
+          for (const c of changes) {
+            console.log(`  ${t.ok("✓")} ${c}`);
           }
-        }
 
-        console.log("");
-        console.log(t.ok("  Integration applied."));
-      } else {
-        console.log(`  ${t.ok("✓")} Integration already correct. No changes needed.`);
+          // Update manifest hash
+          const manifest = readManifest();
+          const configPath = findOpenClawConfigPath();
+          if (configPath) {
+            try {
+              const oc = JSON.parse(readFileSync(configPath, "utf-8"));
+              manifest.integrationHash = computeIntegrationHash(oc);
+              writeManifest(manifest);
+            } catch (e) {
+              console.warn(`  Warning: failed to update manifest hash: ${e}`);
+            }
+          }
+
+          console.log("");
+          console.log(t.ok("  Integration applied."));
+        } else {
+          console.log(`  ${t.ok("✓")} Integration already correct. No changes needed.`);
+        }
+      } catch (err) {
+        console.error(`  ${t.err("✗")} Apply failed: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
       }
       console.log("");
     } else {

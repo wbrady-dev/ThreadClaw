@@ -71,34 +71,34 @@ export const statusCommand = new Command("status")
           `  ${c.name} — ${stats?.documentCount ?? 0} docs, ${stats?.chunkCount ?? 0} chunks`,
         );
       }
-    } catch {
-      console.log("\nCollections: unable to read database");
+    } catch (err) {
+      console.log(`\nCollections: unable to read database${err instanceof Error ? ` (${err.message})` : ""}`);
     }
 
     // Evidence OS
     console.log(`\nEvidence OS:`);
-    if (!config.relations) {
+    if (!config.relations?.enabled) {
       console.log(`  Relations: not configured`);
     } else {
-    console.log(`  Relations: ${config.relations.enabled ? "enabled" : "disabled"}`);
-    const graphPath = config.relations.graphDbPath;
-    if (existsSync(graphPath)) {
-      try {
-        const graphDb = getGraphDb(graphPath);
+      console.log(`  Relations: enabled`);
+      const graphPath = config.relations?.graphDbPath;
+      if (graphPath && existsSync(graphPath)) {
+        try {
+          const graphDb = getGraphDb(graphPath);
 
-        const sz = statSync(graphPath).size;
-        const entities = (graphDb.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as { cnt: number }).cnt;
-        const events = (graphDb.prepare("SELECT COUNT(*) as cnt FROM evidence_log").get() as { cnt: number }).cnt;
-        console.log(`  Graph DB:  ${(sz / 1024 / 1024).toFixed(2)} MB`);
-        console.log(`  Entities:  ${entities}`);
-        console.log(`  Evidence:  ${events} events`);
-        closeGraphDb();
-      } catch {
-        console.log(`  Graph DB:  exists but unreadable`);
+          const sz = statSync(graphPath).size;
+          const entities = (graphDb.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as { cnt: number }).cnt;
+          const events = (graphDb.prepare("SELECT COUNT(*) as cnt FROM evidence_log").get() as { cnt: number }).cnt;
+          console.log(`  Graph DB:  ${(sz / 1024 / 1024).toFixed(2)} MB`);
+          console.log(`  Entities:  ${entities}`);
+          console.log(`  Evidence:  ${events} events`);
+          closeGraphDb();
+        } catch {
+          console.log(`  Graph DB:  exists but unreadable`);
+        }
+      } else {
+        console.log(`  Graph DB:  not created yet`);
       }
-    } else {
-      console.log(`  Graph DB:  not created yet`);
-    }
     }
 
     console.log(`\nEndpoints:`);

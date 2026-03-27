@@ -11,14 +11,12 @@
  */
 
 import { Command } from "commander";
-import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, unlinkSync, statSync, readdirSync, rmSync } from "fs";
-import { resolve, dirname } from "path";
+import { existsSync, readFileSync, writeFileSync, copyFileSync, mkdirSync, unlinkSync, statSync, readdirSync, rmSync, openSync, closeSync, constants as fsConstants } from "fs";
+import { resolve } from "path";
 import { homedir } from "os";
-import { fileURLToPath } from "url";
 import { t } from "../../tui/theme.js";
+import { getRootDir } from "../../tui/platform.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 import {
   readManifest, writeManifest, getAppVersion, ensureThreadClawHome,
   THREADCLAW_DATA_DIR, THREADCLAW_BACKUPS_DIR, THREADCLAW_HOME,
@@ -71,10 +69,19 @@ function acquireLock(): boolean {
     }
   }
   mkdirSync(THREADCLAW_HOME, { recursive: true });
-  writeFileSync(LOCK_PATH, JSON.stringify({
-    pid: process.pid,
-    timestamp: new Date().toISOString(),
-  }));
+  // Use O_CREAT | O_EXCL (wx) to atomically create — prevents TOCTOU race
+  try {
+    const fd = openSync(LOCK_PATH, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL);
+    const lockContent = JSON.stringify({
+      pid: process.pid,
+      timestamp: new Date().toISOString(),
+    });
+    writeFileSync(fd, lockContent);
+    closeSync(fd);
+  } catch (e: any) {
+    if (e.code === "EEXIST") return false; // another process won the race
+    throw e;
+  }
   return true;
 }
 
@@ -172,11 +179,14 @@ async function postUpgradeSmoke(): Promise<{ ok: boolean; checks: string[] }> {
     try {
       const { DatabaseSync } = await import("node:sqlite");
       const db = new DatabaseSync(graphPath);
-      const entityCount = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as any).cnt;
-      const evidenceCount = (db.prepare("SELECT COUNT(*) as cnt FROM evidence_log").get() as any).cnt;
-      const migrationCount = (db.prepare("SELECT COUNT(*) as cnt FROM _evidence_migrations").get() as any).cnt;
-      db.close();
-      checks.push(`evidence graph query OK (${entityCount} entities, ${evidenceCount} events, ${migrationCount} migrations)`);
+      try {
+        const entityCount = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as any).cnt;
+        const evidenceCount = (db.prepare("SELECT COUNT(*) as cnt FROM evidence_log").get() as any).cnt;
+        const migrationCount = (db.prepare("SELECT COUNT(*) as cnt FROM _evidence_migrations").get() as any).cnt;
+        checks.push(`evidence graph query OK (${entityCount} entities, ${evidenceCount} events, ${migrationCount} migrations)`);
+      } finally {
+        db.close();
+      }
     } catch (e: any) {
       checks.push(`FAIL: evidence graph query failed: ${e.message}`);
       allOk = false;
@@ -195,7 +205,7 @@ function cleanOldBackups(): number {
     if (!existsSync(THREADCLAW_BACKUPS_DIR)) return 0;
 
     const dirs = readdirSync(THREADCLAW_BACKUPS_DIR)
-      .filter((d) => /^\d{4}-\d{2}-\d{2}T/.test(d))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}T/.test(d) || /^upgrade-\d{4}/.test(d))
       .sort()
       .reverse();
 
@@ -222,10 +232,11 @@ export const upgradeCommand = new Command("upgrade")
   .action(async (opts: { dryRun?: boolean }) => {
     const manifest = readManifest();
     const appVersion = getAppVersion();
-    const rootDir = resolve(__dirname, "..", "..", "..");
+    const rootDir = getRootDir();
     const isDryRun = opts.dryRun ?? false;
     const now = new Date();
-    const backupDirName = now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    // Prefix with "upgrade-" to avoid filename collision with other backup tools
+    const backupDirName = "upgrade-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const backupDir = resolve(THREADCLAW_BACKUPS_DIR, backupDirName);
 
     console.log("");
@@ -240,6 +251,8 @@ export const upgradeCommand = new Command("upgrade")
     info(`RAG schema: v${manifest.schemaVersion}`);
     info(`Config: v${manifest.configVersion}`);
 
+    // Note: this check may miss upgrades that only change schema or features.
+    // A future upgradeVersion field in the manifest could make this more precise.
     if (manifest.appVersion === appVersion && manifest.features.consolidatedData && manifest.features.managedIntegration) {
       console.log("");
       ok("Already up to date. Nothing to upgrade.");
@@ -299,6 +312,7 @@ export const upgradeCommand = new Command("upgrade")
         } else {
           try {
             const filename = target.src.split(/[\\/]/).pop()!;
+            // Prefix backup filenames to avoid collision (e.g. multiple threadclaw.db from different locations)
             const dest = resolve(backupDir, filename);
             copyFileSync(target.src, dest);
             backedUpFiles.push(filename);
@@ -338,6 +352,8 @@ export const upgradeCommand = new Command("upgrade")
               const walSrc = legacyMemory.legacyPath + ext;
               if (existsSync(walSrc)) copyFileSync(walSrc, legacyMemory.newPath + ext);
             }
+            // Remove legacy file after successful copy
+            try { unlinkSync(legacyMemory.legacyPath); } catch {}
             ok(`Moved memory DB to ${legacyMemory.newPath}`);
           } catch (e: any) {
             warn(`Could not move memory DB: ${e.message}`);
@@ -356,6 +372,8 @@ export const upgradeCommand = new Command("upgrade")
               const walSrc = legacyGraph.legacyPath + ext;
               if (existsSync(walSrc)) copyFileSync(walSrc, legacyGraph.newPath + ext);
             }
+            // Remove legacy file after successful copy
+            try { unlinkSync(legacyGraph.legacyPath); } catch {}
             ok(`Moved graph DB to ${legacyGraph.newPath}`);
           } catch (e: any) {
             warn(`Could not move graph DB: ${e.message}`);
@@ -373,6 +391,8 @@ export const upgradeCommand = new Command("upgrade")
               const walSrc = oldRagPath + ext;
               if (existsSync(walSrc)) copyFileSync(walSrc, resolve(THREADCLAW_DATA_DIR, "threadclaw.db") + ext);
             }
+            // Remove legacy file after successful copy
+            try { unlinkSync(oldRagPath); } catch {}
             ok(`Moved RAG DB to ${resolve(THREADCLAW_DATA_DIR, "threadclaw.db")}`);
           } catch (e: any) {
             warn(`Could not move RAG DB: ${e.message}`);
@@ -394,21 +414,23 @@ export const upgradeCommand = new Command("upgrade")
 
       let ragSchemaV = manifest.schemaVersion;
       if (existsSync(ragDbPath)) {
+        let ragDb: any = null;
         try {
           const { DatabaseSync } = await import("node:sqlite");
-          const db = new DatabaseSync(ragDbPath);
+          ragDb = new DatabaseSync(ragDbPath);
           if (!isDryRun) {
             const { runMigrations } = await import("../../storage/index.js");
-            runMigrations(db as any);
+            runMigrations(ragDb as any);
             ok("RAG DB migrations applied (idempotent)");
           } else {
             info("Would run RAG DB migrations");
           }
-          ragSchemaV = (db.prepare("SELECT MAX(version) as v FROM _migrations").get() as any)?.v ?? ragSchemaV;
+          ragSchemaV = (ragDb.prepare("SELECT MAX(version) as v FROM _migrations").get() as any)?.v ?? ragSchemaV;
           info(`RAG DB schema version: ${ragSchemaV}`);
-          db.close();
         } catch (e: any) {
           warn(`RAG DB migration: ${e.message}`);
+        } finally {
+          try { ragDb?.close(); } catch {}
         }
       }
 
@@ -421,30 +443,45 @@ export const upgradeCommand = new Command("upgrade")
         if (!isDryRun) {
           try {
             const { execFileSync } = await import("child_process");
-            const { writeFileSync: writeTmp, unlinkSync: unlinkTmp } = await import("fs");
+            const { writeFileSync: writeTmp, unlinkSync: unlinkTmp, mkdirSync: mkdirTmp } = await import("fs");
             const { tmpdir } = await import("os");
             const { join: joinTmp } = await import("path");
             const meDir = resolve(rootDir, "memory-engine");
-            const escapedPath = graphDbPath.replace(/\\/g, "/").replace(/'/g, "\\'");
+            // Use JSON.stringify for safe path interpolation (handles backslashes, quotes)
             const script = [
               "import { DatabaseSync } from 'node:sqlite';",
               "import { runGraphMigrations } from './src/relations/schema.js';",
-              `const db = new DatabaseSync('${escapedPath}');`,
+              `const db = new DatabaseSync(${JSON.stringify(graphDbPath)});`,
               "runGraphMigrations(db);",
               "const v = db.prepare('SELECT MAX(version) as v FROM _evidence_migrations').get();",
               "console.log(JSON.stringify({ version: v?.v ?? 0 }));",
               "db.close();",
             ].join("\n");
-            const tmpScript = joinTmp(tmpdir(), `threadclaw-upgrade-${Date.now()}.mts`);
+            // Use unique subdir to avoid world-readable temp file
+            const tmpSubdir = joinTmp(tmpdir(), `threadclaw-upgrade-${process.pid}`);
+            mkdirTmp(tmpSubdir, { recursive: true });
+            const tmpScript = joinTmp(tmpSubdir, `migrate-${Date.now()}.mts`);
             writeTmp(tmpScript, script);
             let result: string;
             try {
               const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
-              result = execFileSync(npxCmd, ["tsx", tmpScript], {
-                cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
-              }).toString().trim();
+              try {
+                result = execFileSync(npxCmd, ["tsx", tmpScript], {
+                  cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
+                }).toString().trim();
+              } catch (npxErr: any) {
+                // Handle npx.cmd not found on some Windows setups
+                if (npxErr.code === "ENOENT" && process.platform === "win32") {
+                  result = execFileSync("npx", ["tsx", tmpScript], {
+                    cwd: meDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30000,
+                  }).toString().trim();
+                } else {
+                  throw npxErr;
+                }
+              }
             } finally {
               try { unlinkTmp(tmpScript); } catch {}
+              try { const { rmdirSync } = await import("fs"); rmdirSync(tmpSubdir); } catch {}
             }
             try {
               const parsed = JSON.parse(result);
@@ -460,13 +497,16 @@ export const upgradeCommand = new Command("upgrade")
           info("Would run evidence graph migrations");
         }
 
+        let evDb: any = null;
         try {
           const { DatabaseSync } = await import("node:sqlite");
-          const db = new DatabaseSync(graphDbPath);
-          evidenceSchemaV = (db.prepare("SELECT MAX(version) as v FROM _evidence_migrations").get() as any)?.v ?? evidenceSchemaV;
+          evDb = new DatabaseSync(graphDbPath);
+          evidenceSchemaV = (evDb.prepare("SELECT MAX(version) as v FROM _evidence_migrations").get() as any)?.v ?? evidenceSchemaV;
           info(`Evidence schema version: ${evidenceSchemaV}`);
-          db.close();
-        } catch {}
+        } catch {
+        } finally {
+          try { evDb?.close(); } catch {}
+        }
       }
 
       // ── Step 4: Integration ──

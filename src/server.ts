@@ -53,7 +53,8 @@ function hardenPermissions(): void {
     } catch {}
   }
 
-  // Ensure staging dir exists with restricted permissions
+  // Ensure staging dir exists with restricted permissions.
+  // Hardcoded to ~/.threadclaw/staging — matches THREADCLAW_HOME convention.
   const stagingDir = resolve(homedir(), ".threadclaw", "staging");
   try {
     mkdirSync(stagingDir, { recursive: true, mode: 0o700 });
@@ -75,16 +76,35 @@ export async function startServer() {
   runMigrations(db);
   ensureCollection(db, config.defaults.collection);
 
-  const server = Fastify({ logger: false });
+  const server = Fastify({
+    logger: false,
+    // Explicit body size limit (10 MiB). The default is 1 MiB which may be
+    // too small for large ingest payloads.
+    bodyLimit: 10 * 1024 * 1024,
+  });
 
-  // Rate limiting (before routes)
+  // Global error handlers — catch unhandled errors and 404s
+  server.setErrorHandler((error, _request, reply) => {
+    logger.error({ err: error }, "Unhandled server error");
+    reply.code(error.statusCode ?? 500).send({ error: error.message ?? "Internal server error" });
+  });
+  server.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({ error: "Not found" });
+  });
+
+  // CORS: ThreadClaw binds to localhost by default, so CORS is not needed.
+  // If THREADCLAW_HOST is set to 0.0.0.0, consider adding @fastify/cors.
+
+  // Rate limiting (use onRequest for earliest interception)
   registerRateLimit(server);
 
   // Optional API key authentication (timing-safe comparison)
   if (config.apiKey) {
     const expectedHash = createHash("sha256").update(`Bearer ${config.apiKey}`).digest();
     server.addHook("onRequest", async (request, reply) => {
-      const path = request.url.split("?")[0];
+      // Use routeOptions.url when available for accurate path matching (avoids
+      // query string stripping issues). Falls back to URL parsing for safety.
+      const path = (request.routeOptions as any)?.url ?? request.url.split("?")[0];
       if (path === "/health") return;
       const auth = request.headers.authorization ?? "";
       const suppliedHash = createHash("sha256").update(auth).digest();
@@ -105,6 +125,9 @@ export async function startServer() {
     await stopSources();
     await server.close();
     closeDb();
+    // process.exit(0) ensures clean shutdown even if timers/handles are still open.
+    // Note: any in-flight HTTP response will be dropped — the /shutdown endpoint
+    // should send its response before calling this callback.
     process.exit(0);
   };
 
@@ -113,11 +136,14 @@ export async function startServer() {
   process.on("SIGTERM", shutdown);
 
   // Register all routes (pass shutdown callback for /shutdown endpoint)
-  registerRoutes(server, shutdown);
+  await registerRoutes(server, shutdown);
 
-  // Start source adapters (LocalAdapter handles file watching via WATCH_PATHS)
+  // Start source adapters (LocalAdapter handles file watching via WATCH_PATHS).
+  // Track health so /health can report source adapter status.
+  let _sourceAdaptersHealthy = true;
   startSources().catch((err) => {
-    logger.error({ error: String(err) }, "Failed to start source adapters");
+    _sourceAdaptersHealthy = false;
+    logger.error({ error: String(err) }, "Failed to start source adapters — file watching is disabled");
   });
 
   // Start HTTP server

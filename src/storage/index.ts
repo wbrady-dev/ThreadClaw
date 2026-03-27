@@ -11,6 +11,11 @@ export function getInitializedDb(): ReturnType<typeof _getDb> {
   _runMigrations(db);
   return db;
 }
+
+/** Get the main ThreadClaw DB (cached singleton via getDb). No migrations. For API route handlers. */
+export function getMainDb(): ReturnType<typeof _getDb> {
+  return _getDb(resolve(config.dataDir, "threadclaw.db"));
+}
 export { insertVector, searchVectors, deleteVectors } from "./vectors.js";
 export type { VectorSearchResult } from "./vectors.js";
 export { searchBm25 } from "./bm25.js";

@@ -1,4 +1,11 @@
 /**
+ * SQL utility functions for ThreadClaw's SQLite layer.
+ *
+ * Currently only contains LIKE escaping. Additional helpers (e.g., parameterized
+ * query builders, batch insert helpers) should be added here as the query layer grows.
+ */
+
+/**
  * Escape a string for use in SQLite LIKE patterns.
  * Escapes backslash, underscore, and optionally percent.
  *

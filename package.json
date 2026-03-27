@@ -8,14 +8,15 @@
     "dev": "tsx src/index.ts",
     "cli": "tsx src/cli/threadclaw.ts",
     "typecheck": "tsc --noEmit",
-    "test": "cd memory-engine && npx vitest run && cd .. && npx vitest run --config vitest.config.ts",
+    "test": "npx vitest run --config vitest.config.ts && npm run test:memory-engine",
+    "test:memory-engine": "node -e \"process.chdir('memory-engine'); require('child_process').execSync('npx vitest run', {stdio:'inherit'})\"",
     "test:src": "npx vitest run --config vitest.config.ts",
     "test:tui": "npx tsc --outDir .tui-test-build --module nodenext --moduleResolution nodenext --target es2022 --skipLibCheck --allowImportingTsExtensions true --rewriteRelativeImportExtensions true test/tui/run.ts && node .tui-test-build/test/tui/run.js",
-    "test:stress": "cd memory-engine && npx vitest run test/rsma-stress.test.ts",
+    "test:stress": "node -e \"process.chdir('memory-engine'); require('child_process').execSync('npx vitest run test/rsma-stress.test.ts', {stdio:'inherit'})\"",
     "smoke": "node bin/threadclaw.mjs --version",
-    "lint": "eslint src/",
-    "format": "prettier --write src/",
-    "format:check": "prettier --check src/"
+    "lint": "eslint src/ bin/ test/",
+    "format": "prettier --write src/ bin/ test/",
+    "format:check": "prettier --check src/ bin/ test/"
   },
   "bin": {
     "threadclaw": "./bin/threadclaw.mjs"
@@ -38,7 +39,8 @@
     "sqlite"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "npm": ">=10"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -63,7 +65,7 @@
     "pino": "^10.3.1",
     "prompts": "^2.4.2",
     "react": "^19.2.4",
-    "sqlite-vec": "^0.1.7-alpha.2",
+    "sqlite-vec": "0.1.7-alpha.2",
     "uuid": "^13.0.0",
     "xxhash-wasm": "^1.1.0",
     "zod": "^4.3.6"

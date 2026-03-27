@@ -10,6 +10,9 @@ import { basename } from "path";
 import AdmZip from "adm-zip";
 import type { ParsedDocument, DocMetadata, StructureHint } from "./index.js";
 
+/** Maximum total decompressed size (200 MB) to guard against zip bombs */
+const MAX_EPUB_DECOMPRESSED = 200 * 1024 * 1024;
+
 export async function parseEpub(filePath: string): Promise<ParsedDocument> {
   const metadata: DocMetadata = {
     fileType: "epub",
@@ -20,6 +23,19 @@ export async function parseEpub(filePath: string): Promise<ParsedDocument> {
   try {
     const zip = new AdmZip(filePath);
     const entries = zip.getEntries();
+
+    // Zip bomb protection: check total decompressed size before extracting
+    let totalUncompressed = 0;
+    for (const e of entries) {
+      totalUncompressed += e.header.size;
+      if (totalUncompressed > MAX_EPUB_DECOMPRESSED) {
+        return {
+          text: `[ePub: ${metadata.title} — decompressed size exceeds ${MAX_EPUB_DECOMPRESSED / 1024 / 1024}MB limit]`,
+          structure: [],
+          metadata,
+        };
+      }
+    }
 
     // Extract OPF metadata + spine reading order
     const opfEntry = entries.find((e) => e.entryName.endsWith(".opf"));
@@ -49,7 +65,9 @@ export async function parseEpub(filePath: string): Promise<ParsedDocument> {
       }
     }
 
-    // Collect HTML/XHTML/XML content entries (exclude TOC files)
+    // Collect HTML/XHTML content entries (exclude TOC files)
+    // NOTE: .xml files are included for ePubs that use XML for content chapters.
+    // This may incorrectly include package metadata XML files in some edge cases.
     const contentMap = new Map<string, AdmZip.IZipEntry>();
     for (const e of entries) {
       const baseName = (e.entryName.split("/").pop() ?? "").toLowerCase();
@@ -97,7 +115,10 @@ export async function parseEpub(filePath: string): Promise<ParsedDocument> {
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&quot;/g, '"')
-        .replace(/&#\d+;/g, "")
+        .replace(/&apos;/g, "'")
+        // Decode numeric HTML entities (&#NNN;) to their character equivalents
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
         .replace(/\s+/g, " ")
         .trim();
 

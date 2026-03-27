@@ -20,6 +20,7 @@ export async function rerank(
 ): Promise<RerankResult[]> {
   const url = `${config.reranker.url}/rerank`;
 
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     const apiKey = process.env.RERANKER_API_KEY;
@@ -28,7 +29,7 @@ export async function rerank(
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.reranker.timeoutMs);
+    timeout = setTimeout(() => controller.abort(), config.reranker.timeoutMs);
 
     const response = await fetch(url, {
       method: "POST",
@@ -62,6 +63,9 @@ export async function rerank(
     );
     return data.results;
   } catch (err) {
+    clearTimeout(timeout);
+    // NOTE: Full chunk text is sent to the external reranker endpoint.
+    // Ensure the reranker endpoint is trusted — chunk content may contain sensitive data.
     logger.warn(
       { error: String(err) },
       "Reranker unavailable, falling back to original order",

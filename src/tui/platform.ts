@@ -257,6 +257,8 @@ function startDirectProcess(
       windowsHide: true,
     });
     child.unref();
+    // Safe to close logFd here: spawn() duplicates the FD into the child process
+    // via the OS (dup2), so the child keeps its own independent copy.
     try { closeSync(logFd); } catch {}
     if (child.pid && opts.pidFile && opts.root) {
       writeFileSync(resolve(opts.root, opts.pidFile), String(child.pid));
@@ -359,6 +361,9 @@ function ensureWindowsTasks(root: string): { success: boolean; error?: string } 
 
 // ── End Windows Task Scheduler helpers ──
 
+// Intentionally duplicates checkServicesAsync logic using sync calls.
+// This sync version is needed for CLI commands that can't await (e.g. process exit handlers).
+// The async version in runtime-status.ts is preferred for TUI use.
 export function checkServices(): ServiceStatus {
   const result: ServiceStatus = {
     models: { running: false },
@@ -453,6 +458,9 @@ export function checkServices(): ServiceStatus {
   return result;
 }
 
+// Uses netstat on Windows / lsof on Unix. This is slower (~50-100ms) than a
+// TCP connect probe but works synchronously. Future improvement: use native
+// Node net.createServer error-on-listen check for sync port detection.
 function isPortOpen(port: number): boolean {
   try {
     if (getPlatform() === "windows") {
@@ -531,6 +539,7 @@ export function startModelServer(): { success: boolean; error?: string } {
       windowsHide: true,
     });
     modelsProcess.unref();
+    // Safe to close: spawn dup2's the FD into the child process
     try { closeSync(modelsLog); } catch {}
     if (modelsProcess.pid) writeFileSync(resolve(root, ".models.pid"), String(modelsProcess.pid));
     return { success: true };
@@ -583,6 +592,7 @@ export function startThreadClawApi(): { success: boolean; error?: string } {
       windowsHide: true,
     });
     tal.unref();
+    // Safe to close: spawn dup2's the FD into the child process
     try { closeSync(clawLog); } catch {}
     if (tal.pid) writeFileSync(resolve(root, ".threadclaw.pid"), String(tal.pid));
     return { success: true };
@@ -824,11 +834,26 @@ ${entryArgs.map(a => `    <string>${escapeXml(a)}</string>`).join("\n")}
     const ragPath = resolve(plistDir, "com.threadclaw.rag.plist");
     writeFileSync(modelsPath, modelsPlist);
     writeFileSync(ragPath, ragPlist);
-    // Unload first to handle reinstall case
-    try { execFileSync("launchctl", ["unload", modelsPath], { stdio: "pipe", timeout: 10000 }); } catch {}
-    try { execFileSync("launchctl", ["unload", ragPath], { stdio: "pipe", timeout: 10000 }); } catch {}
-    execFileSync("launchctl", ["load", modelsPath], { stdio: "pipe", timeout: 10000 });
-    execFileSync("launchctl", ["load", ragPath], { stdio: "pipe", timeout: 10000 });
+    // Unload first to handle reinstall case.
+    // Try bootout/bootstrap (modern macOS) first, fall back to load/unload (deprecated but works on older).
+    const uid = process.getuid?.() ?? 501;
+    const domain = `gui/${uid}`;
+    try { execFileSync("launchctl", ["bootout", `${domain}/com.threadclaw.models`], { stdio: "pipe", timeout: 10000 }); } catch {
+      try { execFileSync("launchctl", ["unload", modelsPath], { stdio: "pipe", timeout: 10000 }); } catch {}
+    }
+    try { execFileSync("launchctl", ["bootout", `${domain}/com.threadclaw.rag`], { stdio: "pipe", timeout: 10000 }); } catch {
+      try { execFileSync("launchctl", ["unload", ragPath], { stdio: "pipe", timeout: 10000 }); } catch {}
+    }
+    try {
+      execFileSync("launchctl", ["bootstrap", domain, modelsPath], { stdio: "pipe", timeout: 10000 });
+    } catch {
+      execFileSync("launchctl", ["load", modelsPath], { stdio: "pipe", timeout: 10000 });
+    }
+    try {
+      execFileSync("launchctl", ["bootstrap", domain, ragPath], { stdio: "pipe", timeout: 10000 });
+    } catch {
+      execFileSync("launchctl", ["load", ragPath], { stdio: "pipe", timeout: 10000 });
+    }
     return { success: true };
   } catch (e) {
     return { success: false, error: String(e) };
@@ -839,8 +864,15 @@ export function removeMacServices(): { success: boolean } {
   const plistDir = resolve(homedir(), "Library", "LaunchAgents");
   const modelsPath = resolve(plistDir, "com.threadclaw.models.plist");
   const ragPath = resolve(plistDir, "com.threadclaw.rag.plist");
-  try { execFileSync("launchctl", ["unload", ragPath], { stdio: "pipe", timeout: 10000 }); } catch {}
-  try { execFileSync("launchctl", ["unload", modelsPath], { stdio: "pipe", timeout: 10000 }); } catch {}
+  const uid = process.getuid?.() ?? 501;
+  const domain = `gui/${uid}`;
+  // Try modern bootout first, fall back to deprecated unload
+  try { execFileSync("launchctl", ["bootout", `${domain}/com.threadclaw.rag`], { stdio: "pipe", timeout: 10000 }); } catch {
+    try { execFileSync("launchctl", ["unload", ragPath], { stdio: "pipe", timeout: 10000 }); } catch {}
+  }
+  try { execFileSync("launchctl", ["bootout", `${domain}/com.threadclaw.models`], { stdio: "pipe", timeout: 10000 }); } catch {
+    try { execFileSync("launchctl", ["unload", modelsPath], { stdio: "pipe", timeout: 10000 }); } catch {}
+  }
   try { unlinkSync(ragPath); } catch {}
   try { unlinkSync(modelsPath); } catch {}
   return { success: true };

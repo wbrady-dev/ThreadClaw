@@ -5,9 +5,16 @@ import { config } from "../config.js";
 const SCHEMA_VERSION = 5;
 
 function getMigrationStatements(): Record<number, string[]> {
+  // NOTE: Embedding dimension is baked at migration time. If the dimension changes
+  // (e.g., switching embedding models), the chunk_vectors table must be recreated.
+  // A startup validation check should verify that the configured dimension matches
+  // the existing vec0 table dimension.
   const dim = config.embedding.dimensions;
 
   return {
+    // NOTE: Migration 1 uses IF NOT EXISTS which is partially redundant with the
+    // migration versioning system. It's kept for safety during initial DB creation
+    // when the _migrations table doesn't yet exist.
     1: [
       `CREATE TABLE IF NOT EXISTS collections (
         id TEXT PRIMARY KEY,
@@ -100,6 +107,8 @@ function getMigrationStatements(): Record<number, string[]> {
 
     4: [
       // FTS5 content-sync UPDATE trigger (future-proofing — chunks are currently never updated in-place)
+      // NOTE: There is no UPDATE trigger gap in practice because chunks are delete+reinsert,
+      // not updated in-place. If chunk text UPDATE is ever added, this trigger handles FTS sync.
       `CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
         INSERT INTO chunk_fts(chunk_fts, rowid, text) VALUES('delete', old.rowid, old.text);
         INSERT INTO chunk_fts(rowid, text) VALUES (new.rowid, new.text);
@@ -147,7 +156,10 @@ export function runMigrations(db: Database.Database): void {
         try {
           db.exec(sql);
         } catch (err) {
-          // ALTER TABLE may fail if column already exists — safe to ignore
+          // ALTER TABLE may fail if column already exists — safe to ignore.
+          // NOTE: This suppresses all errors containing "duplicate column", which is
+          // intentionally broad to handle both SQLite's exact message and edge cases.
+          // Other errors (syntax, constraint) are re-thrown.
           const msg = String(err);
           if (!msg.includes("duplicate column")) throw err;
         }

@@ -1,3 +1,10 @@
+// TODO: Migrate TUI tests to vitest for unified test runner and coverage.
+// This custom harness exists because Ink components require special rendering
+// and the TUI entry point has side effects. Once refactored, these can move
+// to test/tui/*.test.ts files.
+// TODO: TUI Ink components (screens, widgets) have zero test coverage.
+// Add component render tests using ink-testing-library.
+
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -53,6 +60,8 @@ await runTest("runStreamedCommand captures output and emits streamed lines", asy
     return child;
   })() as unknown as ReturnType<typeof import("node:child_process").spawn>;
 
+  // NOTE: The command/args below are unused because spawnImpl overrides spawning.
+  // They are kept for documentation of what the real command would be.
   const result = await runStreamedCommand(
     process.execPath,
     ["-e", "console.log('ready'); console.error('warning');"],

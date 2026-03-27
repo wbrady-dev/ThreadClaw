@@ -89,9 +89,9 @@ function createTestDb(): Database.Database {
     applied_at TEXT DEFAULT (datetime('now'))
   )`);
 
-  // Migration v2
-  db.exec(`ALTER TABLE chunks ADD COLUMN parent_id TEXT REFERENCES chunks(id)`);
-  db.exec(`ALTER TABLE documents ADD COLUMN file_mtime TEXT`);
+  // Migration v2 — using try/catch as guard since SQLite has no ALTER IF NOT EXISTS
+  try { db.exec(`ALTER TABLE chunks ADD COLUMN parent_id TEXT REFERENCES chunks(id)`); } catch {}
+  try { db.exec(`ALTER TABLE documents ADD COLUMN file_mtime TEXT`); } catch {}
   db.exec(`CREATE INDEX IF NOT EXISTS idx_doc_source ON documents(source_path, collection_id)`);
   db.exec(`CREATE TABLE IF NOT EXISTS watch_paths (
     id TEXT PRIMARY KEY,
@@ -162,6 +162,8 @@ vi.mock("../../src/storage/index.js", async (importOriginal) => {
   return {
     ...real,
     getDb: () => testDb,
+    getMainDb: () => testDb,
+    getInitializedDb: () => testDb,
     closeDb: () => {},
     runMigrations: () => {},
   };
@@ -289,14 +291,15 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("Health", () => {
-  it("GET /health returns status object (503 when degraded)", async () => {
+  it("GET /health returns 503 degraded when embedding server is not running", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
-    // 200 when healthy, 503 when degraded (embedding server not running in tests)
-    expect([200, 503]).toContain(res.statusCode);
+    // In test env, embedding server is not running so we expect 503/degraded.
+    // If this starts returning 200, the mock setup changed and this test should be updated.
+    expect(res.statusCode).toBe(503);
     const body = res.json();
     expect(body).toHaveProperty("status");
     expect(body).toHaveProperty("services");
-    expect(["healthy", "degraded"]).toContain(body.status);
+    expect(body.status).toBe("degraded");
   });
 
   it("GET /stats returns 200 with stats object", async () => {
@@ -645,5 +648,44 @@ describe("Route Registration", () => {
   it("wrong HTTP method returns 404", async () => {
     const res = await app.inject({ method: "PUT", url: "/health" });
     expect(res.statusCode).toBe(404);
+  });
+
+  // TODO: Add route registration tests for: document, event-stream, graph, reindex, reset
+  // These routes exist in the codebase but are not yet covered by tests.
+});
+
+// ---------------------------------------------------------------------------
+// Missing coverage TODOs
+// ---------------------------------------------------------------------------
+
+// TODO: Test guards module (src/api/guards.ts) — API key auth, path traversal checks
+
+describe("Query edge cases", () => {
+  it("POST /query rejects queries over 2000 characters", async () => {
+    const longQuery = "a".repeat(2001);
+    const res = await app.inject({
+      method: "POST",
+      url: "/query",
+      payload: { query: longQuery },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("max 2000");
+  });
+});
+
+describe("Collection edge cases", () => {
+  it("DELETE /collections/:nonexistent returns 404", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: "/collections/does-not-exist-id",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("Content-Type", () => {
+  it("JSON responses have application/json content-type", async () => {
+    const res = await app.inject({ method: "GET", url: "/collections" });
+    expect(res.headers["content-type"]).toContain("application/json");
   });
 });

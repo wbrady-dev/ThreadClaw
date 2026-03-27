@@ -50,6 +50,18 @@ export function checkpoint(): void {
   }
 }
 
+/**
+ * Reset the singleton for testing. Closes the DB and clears the cached reference.
+ * WARNING: Only use in test environments — production code should never call this.
+ */
+export function _resetForTesting(): void {
+  if (db) {
+    try { db.close(); } catch {}
+  }
+  db = null;
+  storedPath = null;
+}
+
 export function closeDb(): void {
   if (db) {
     const ref = db;

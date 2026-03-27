@@ -343,7 +343,10 @@ export const RERANK_MODELS: ModelInfo[] = [
     tier: "Vision+Text", qualityScore: 9,
     languages: "English + Vision",
     trustRemoteCode: true, gated: true,
-    notes: "NVIDIA. Text + visual document reranking.",
+    // Gated model: requires HuggingFace login (huggingface-cli login) before download.
+    // The configure screen prompts for HF token when a gated model is selected.
+    // TODO: add automatic gated model detection + login flow in configure.ts
+    notes: "NVIDIA. Text + visual document reranking. Requires HuggingFace login.",
   },
 
 ];
@@ -396,8 +399,9 @@ export function detectGpu(): GpuInfo {
     }
   } catch {}
 
-  // On non-NVIDIA systems the sync path just returns a platform hint;
-  // the full detection (AMD, Mac, Windows WMI, lspci) runs async.
+  // On non-NVIDIA systems the sync path returns a placeholder with detected=false.
+  // The full detection (AMD, Mac, Windows WMI, lspci) runs async via
+  // detectGpuAsyncImpl() and populates _cachedGpuResult for subsequent calls.
   if (process.platform === "darwin") {
     return { name: "GPU (detecting...)", vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: false };
   }
@@ -442,8 +446,23 @@ async function _detectGpuAsyncCore(): Promise<GpuInfo> {
         name = n.stdout.trim().split("\n")[1]?.split(",")[1]?.trim() ?? name;
       } catch {}
       const parts = lines[1].split(",");
-      const totalMb = Math.round(parseInt(parts[1] ?? "0") / 1024 / 1024);
-      const usedMb = Math.round(parseInt(parts[2] ?? "0") / 1024 / 1024);
+      const rawTotal = parseInt(parts[1] ?? "0");
+      const rawUsed = parseInt(parts[2] ?? "0");
+      // rocm-smi reports VRAM in bytes by default, but some versions may report
+      // in KB or MB. Heuristic: if the value is > 1e9 it's bytes, > 1e6 it's KB.
+      let totalMb: number;
+      let usedMb: number;
+      if (rawTotal > 1e9) {
+        totalMb = Math.round(rawTotal / 1024 / 1024);
+        usedMb = Math.round(rawUsed / 1024 / 1024);
+      } else if (rawTotal > 1e6) {
+        totalMb = Math.round(rawTotal / 1024);
+        usedMb = Math.round(rawUsed / 1024);
+      } else {
+        // Already in MB (or very small GPU)
+        totalMb = rawTotal;
+        usedMb = rawUsed;
+      }
       return { name, vramTotalMb: totalMb, vramUsedMb: usedMb, vramFreeMb: totalMb - usedMb, detected: true };
     }
   } catch {}

@@ -82,6 +82,9 @@ echo [update] Pulling latest from GitHub...
 git pull
 if !errorlevel! neq 0 (
     echo [ERROR] git pull failed. Auto-rolling back to %OLD_HASH%...
+    echo [WARN]  git reset --hard will discard any local modifications to tracked files.
+    echo [WARN]  If you have local changes, press Ctrl+C now and resolve manually.
+    timeout /t 5
     git reset --hard %OLD_HASH%
     pause
     exit /b 1

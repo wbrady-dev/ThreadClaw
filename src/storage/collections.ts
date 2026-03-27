@@ -145,6 +145,8 @@ export function listDocuments(
   db: Database.Database,
   collectionId?: string,
 ): DocumentInfo[] {
+  // NOTE: Conditional SQL string concatenation is safe here because collectionId
+  // is used as a parameterized bind value, not interpolated into the query string.
   const sql = `
     SELECT d.id, d.source_path, d.collection_id, c.name as collection,
            d.size_bytes, COUNT(ch.id) as chunk_count, d.created_at
@@ -167,8 +169,12 @@ export function deleteDocument(db: Database.Database, documentId: string): { chu
   // Atomic: delete vectors + document in a single transaction
   db.transaction(() => {
     if (chunkIds.length > 0) {
-      const placeholders = chunkIds.map(() => "?").join(",");
-      db.prepare(`DELETE FROM chunk_vectors WHERE chunk_id IN (${placeholders})`).run(...chunkIds);
+      // Use subquery instead of spread operator to avoid SQLite variable limit
+      db.prepare(
+        `DELETE FROM chunk_vectors WHERE chunk_id IN (
+          SELECT id FROM chunks WHERE document_id = ?
+        )`,
+      ).run(documentId);
     }
     // Cascading deletes handle chunks, metadata_index; FTS triggers handle chunk_fts
     db.prepare("DELETE FROM documents WHERE id = ?").run(documentId);
@@ -199,6 +205,10 @@ export function resetKnowledgeBase(db: Database.Database): { collectionsDeleted:
 
   // Drop/recreate vectors + delete all data in a single transaction for crash safety
   const dim = config.embedding.dimensions;
+  // Assertion: dim must be a positive integer to prevent SQL injection via string interpolation
+  if (!Number.isInteger(dim) || dim <= 0 || dim > 10000) {
+    throw new Error(`Invalid embedding dimension: ${dim}`);
+  }
   db.transaction(() => {
     try { db.exec("DROP TABLE IF EXISTS chunk_vectors"); } catch {}
     try {
@@ -228,6 +238,8 @@ export function ensureCollection(
 ): Collection {
   // Atomic: INSERT OR IGNORE first, then SELECT.
   // No check-then-insert race — the INSERT is the single point of truth.
+  // NOTE: A UUID is generated on every call but wasted when the collection already exists.
+  // This is acceptable — UUID generation is cheap (~1us) vs the cost of a DB query.
   const id = uuidv4();
   db.prepare(
     "INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)",

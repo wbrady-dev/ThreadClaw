@@ -13,15 +13,17 @@ Endpoints:
 """
 
 import os
-import math
+import math  # used in warmup NaN checks
 import json
 import time
 import torch
 import logging
+import numpy as np
 from pathlib import Path
 from flask import Flask, request, jsonify
 from sentence_transformers import CrossEncoder, SentenceTransformer
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+import threading
 
 try:
     import spacy
@@ -65,6 +67,13 @@ MAX_PARSE_SIZE_MB = int(os.environ.get("MAX_PARSE_SIZE_MB", "100"))
 MAX_PARSE_OUTPUT_MB = int(os.environ.get("MAX_PARSE_OUTPUT_MB", "10"))
 _PARSE_ALLOWED_DIRS = [d.strip() for d in os.environ.get("PARSE_ALLOWED_DIRS", "").split(",") if d.strip()]
 
+# Module-level Docling converter factory — set during load_models(), None means unavailable
+_docling_create_converter = None
+
+# Module-level lock + cache for Docling converter (avoid re-creating per request)
+_docling_converter_lock = threading.Lock()
+_docling_converter_cache = None
+
 # Path blocklist for /parse — segment-aware matching (mirrors Node.js ingest validation)
 def _is_path_blocked(file_path: str) -> bool:
     parts = file_path.lower().replace("\\", "/").split("/")
@@ -75,26 +84,48 @@ def _is_path_blocked(file_path: str) -> bool:
         return True
     return any(seg in blocked_dirs for seg in parts)
 
+# CORS middleware: reject non-localhost origins to prevent cross-site request forgery.
+# For full CORS support (e.g. remote TUI), install flask-cors.
+def _check_origin(response):
+    origin = request.headers.get("Origin", "")
+    if origin and not any(origin.startswith(h) for h in ("http://127.0.0.1", "http://localhost", "http://[::1]")):
+        # Non-localhost origin — block by not setting CORS headers
+        logger.warning(f"Blocked non-localhost origin: {origin}")
+    return response
+
 app = Flask(__name__)
+# Body size is generous for /parse uploads; per-endpoint validation handles other routes
+# Enhancement: add per-endpoint body size limits for /v1/embeddings, /rerank, /ner
 app.config['MAX_CONTENT_LENGTH'] = MAX_PARSE_SIZE_MB * 1024 * 1024
-embed_model = None
-rerank_model = None
-ner_model = None
-ner_model_id = None
+app.after_request(_check_origin)
+
+# Global mutable state — prefixed with _ to indicate module-private
+_embed_model = None
+_rerank_model = None
+_ner_model = None
+_ner_model_id = None
+# Flag to track if GPU is in a degraded state (e.g., after a timeout)
+_gpu_degraded = False
 
 
 def load_models():
-    global embed_model, rerank_model, ner_model, ner_model_id
+    global _embed_model, _rerank_model, _ner_model, _ner_model_id
 
     # Claim VRAM upfront so Windows desktop apps can't steal it after model load.
     # Default 0.90 = claim 90% of total VRAM. Override with VRAM_FRACTION env var.
+    # Limitation: only sets fraction on device 0. Multi-GPU setups should set
+    # VRAM_FRACTION per-device or use CUDA_VISIBLE_DEVICES to restrict to one GPU.
     try:
         if torch.cuda.is_available():
             fraction = float(os.environ.get("VRAM_FRACTION", "0.90"))
             fraction = max(0.1, min(1.0, fraction))
-            torch.cuda.set_per_process_memory_fraction(fraction, 0)
+            for device_idx in range(torch.cuda.device_count()):
+                try:
+                    torch.cuda.set_per_process_memory_fraction(fraction, device_idx)
+                except Exception as dev_e:
+                    logger.warning(f"VRAM reservation failed for device {device_idx}: {dev_e}")
             total_mb = torch.cuda.get_device_properties(0).total_memory // (1024 * 1024)
-            logger.info(f"VRAM pool: claiming {fraction*100:.0f}% of {total_mb} MB ({int(total_mb * fraction)} MB)")
+            logger.info(f"VRAM pool: claiming {fraction*100:.0f}% of {total_mb} MB ({int(total_mb * fraction)} MB) on {torch.cuda.device_count()} device(s)")
     except Exception as e:
         logger.warning(f"VRAM reservation failed (non-fatal): {e}")
 
@@ -110,8 +141,8 @@ def load_models():
     # Load embedding model (graceful — server continues if this fails)
     try:
         logger.info(f"Loading embedding model: {EMBED_MODEL_ID} ...")
-        embed_model = SentenceTransformer(EMBED_MODEL_ID, **kwargs)
-        logger.info(f"Embedding model loaded. Dimension: {embed_model.get_sentence_embedding_dimension()}")
+        _embed_model = SentenceTransformer(EMBED_MODEL_ID, **kwargs)
+        logger.info(f"Embedding model loaded. Dimension: {_embed_model.get_sentence_embedding_dimension()}")
         if use_fp16:
             logger.info("Embedding model using float16 (CUDA)")
     except Exception as e:
@@ -119,8 +150,8 @@ def load_models():
             logger.warning(f"float16 load failed, retrying in float32: {e}")
             fp32_kwargs = {k: v for k, v in kwargs.items() if k != "model_kwargs"}
             try:
-                embed_model = SentenceTransformer(EMBED_MODEL_ID, **fp32_kwargs)
-                logger.info(f"Embedding model loaded (float32 fallback). Dimension: {embed_model.get_sentence_embedding_dimension()}")
+                _embed_model = SentenceTransformer(EMBED_MODEL_ID, **fp32_kwargs)
+                logger.info(f"Embedding model loaded (float32 fallback). Dimension: {_embed_model.get_sentence_embedding_dimension()}")
             except Exception as e2:
                 logger.error(f"Failed to load embedding model '{EMBED_MODEL_ID}': {e2}")
                 logger.error("The /v1/embeddings endpoint will be unavailable.")
@@ -131,7 +162,7 @@ def load_models():
     # Load rerank model (graceful — server continues if this fails)
     try:
         logger.info(f"Loading rerank model: {RERANK_MODEL_ID} ...")
-        rerank_model = CrossEncoder(RERANK_MODEL_ID, **kwargs)
+        _rerank_model = CrossEncoder(RERANK_MODEL_ID, **kwargs)
         logger.info("Rerank model loaded and ready.")
         if use_fp16:
             logger.info("Rerank model using float16 (CUDA)")
@@ -140,7 +171,7 @@ def load_models():
             logger.warning(f"float16 load failed for reranker, retrying in float32: {e}")
             fp32_kwargs = {k: v for k, v in kwargs.items() if k != "model_kwargs"}
             try:
-                rerank_model = CrossEncoder(RERANK_MODEL_ID, **fp32_kwargs)
+                _rerank_model = CrossEncoder(RERANK_MODEL_ID, **fp32_kwargs)
                 logger.info("Rerank model loaded (float32 fallback).")
             except Exception as e2:
                 logger.error(f"Failed to load rerank model '{RERANK_MODEL_ID}': {e2}")
@@ -153,17 +184,16 @@ def load_models():
     # Also validates float16 didn't produce NaN.
     logger.info("Warming up models...")
     try:
-        if embed_model:
-            warmup_result = embed_model.encode(["warmup"], normalize_embeddings=True, show_progress_bar=False)
+        if _embed_model:
+            warmup_result = _embed_model.encode(["warmup"], normalize_embeddings=True, show_progress_bar=False)
             if any(math.isnan(v) for v in warmup_result[0].tolist()):
                 logger.warning("float16 embedding produced NaN — reverting to float32")
-                embed_model.float()
-                embed_model.encode(["warmup"], normalize_embeddings=True, show_progress_bar=False)
-        if rerank_model:
-            warmup_scores = rerank_model.predict([("warmup query", "warmup document")])
+                _embed_model.float()
+                _embed_model.encode(["warmup"], normalize_embeddings=True, show_progress_bar=False)
+        if _rerank_model:
+            warmup_scores = _rerank_model.predict([("warmup query", "warmup document")])
             # predict() may return a numpy scalar (0-d array), a 1-d array, or a list.
             # Normalize to a plain Python float to avoid "only 0-dimensional arrays" warnings.
-            import numpy as np  # noqa: local import — only needed during warmup
             if isinstance(warmup_scores, np.ndarray):
                 score_list = warmup_scores.flatten().tolist()
             elif isinstance(warmup_scores, (list, tuple)):
@@ -172,8 +202,8 @@ def load_models():
                 score_list = [float(warmup_scores)]
             if any(math.isnan(s) for s in score_list):
                 logger.warning("float16 rerank produced NaN — reverting to float32")
-                rerank_model.model.float()
-                rerank_model.predict([("warmup query", "warmup document")])
+                _rerank_model.model.float()
+                _rerank_model.predict([("warmup query", "warmup document")])
         logger.info("Model warmup complete.")
     except Exception as e:
         logger.warning(f"Warmup failed (non-fatal): {e}")
@@ -204,13 +234,13 @@ def load_models():
     # Load spaCy NER model (optional, configurable via SPACY_NER_MODEL env var)
     # Default: en_core_web_sm (small, runs on any hardware)
     # For better accuracy: set SPACY_NER_MODEL=en_core_web_lg or en_core_web_trf
-    ner_model = None
-    ner_model_id = None
+    _ner_model = None
+    _ner_model_id = None
     if _spacy_available:
         ner_model_name = os.environ.get("SPACY_NER_MODEL", "en_core_web_sm")
         try:
-            ner_model = spacy.load(ner_model_name)
-            ner_model_id = ner_model_name
+            _ner_model = spacy.load(ner_model_name)
+            _ner_model_id = ner_model_name
             logger.info(f"NER model loaded: {ner_model_name}")
         except OSError:
             logger.warning(f"spaCy model {ner_model_name} not installed — NER endpoint disabled")
@@ -219,7 +249,8 @@ def load_models():
 
 @app.route("/v1/embeddings", methods=["POST"])
 def embeddings():
-    if embed_model is None:
+    global _gpu_degraded
+    if _embed_model is None:
         return jsonify({"error": "Embedding model not loaded"}), 503
 
     data = request.get_json(silent=True)
@@ -253,10 +284,14 @@ def embeddings():
     # smaller batches. No CPU fallback — large models get mixed-device errors.
     # Timeout: model.encode() is synchronous and can hang indefinitely on GPU.
     # Run in a thread with a 120s timeout to prevent request blocking forever.
+    # Limitation: on timeout, the worker thread is NOT cancelled (Python threads
+    # are not interruptible). The GPU may remain busy until the operation completes.
+    # After a timeout, the server enters a degraded state — subsequent requests
+    # may queue behind the still-running worker.
     EMBED_TIMEOUT_SECONDS = 120
 
     def _do_encode(texts, bs):
-        return embed_model.encode(
+        return _embed_model.encode(
             texts,
             normalize_embeddings=True,
             batch_size=bs,
@@ -272,7 +307,8 @@ def embeddings():
                 vectors = future.result(timeout=EMBED_TIMEOUT_SECONDS)
             break
         except FuturesTimeout:
-            logger.error(f"Embedding timed out after {EMBED_TIMEOUT_SECONDS}s (batch_size={bs})")
+            _gpu_degraded = True
+            logger.error(f"Embedding timed out after {EMBED_TIMEOUT_SECONDS}s (batch_size={bs}). GPU may be in degraded state — worker thread still running.")
             return jsonify({"error": f"Embedding timed out after {EMBED_TIMEOUT_SECONDS}s"}), 504
         except RuntimeError as e:
             err_str = str(e).lower()
@@ -302,6 +338,8 @@ def embeddings():
         "data": response_data,
         "model": EMBED_MODEL_ID,
         "created": int(time.time()),
+        # Token count is a rough approximation (~4 chars/token for BPE tokenizers).
+        # For exact counts, use the model's tokenizer (not worth the overhead here).
         "usage": {
             "prompt_tokens": sum(max(len(t) // 4, 1) for t in input_text),
             "total_tokens": sum(max(len(t) // 4, 1) for t in input_text),
@@ -315,7 +353,8 @@ def embeddings():
 
 @app.route("/rerank", methods=["POST"])
 def rerank():
-    if rerank_model is None:
+    global _gpu_degraded
+    if _rerank_model is None:
         return jsonify({"error": "Rerank model not loaded"}), 503
 
     data = request.get_json(silent=True)
@@ -349,12 +388,21 @@ def rerank():
     # space-delimited. This means CJK text may pass more tokens than intended.
     q_truncated = ' '.join(query[:10000].split()[:200])
     pairs = [(q_truncated, ' '.join(doc[:10000].split()[:512])) for doc in documents]
+    RERANK_TIMEOUT_SECONDS = 120
     scores = None
     for bs in [64, 16, 4, 1]:
         try:
-            raw_scores = rerank_model.predict(pairs, batch_size=bs, show_progress_bar=False)
+            def _do_rerank(p, b):
+                return _rerank_model.predict(p, batch_size=b, show_progress_bar=False)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_do_rerank, pairs, bs)
+                raw_scores = future.result(timeout=RERANK_TIMEOUT_SECONDS)
             scores = np.atleast_1d(raw_scores).tolist()
             break
+        except FuturesTimeout:
+            _gpu_degraded = True
+            logger.error(f"Rerank timed out after {RERANK_TIMEOUT_SECONDS}s (batch_size={bs}). GPU may be in degraded state.")
+            return jsonify({"error": f"Rerank timed out after {RERANK_TIMEOUT_SECONDS}s"}), 504
         except RuntimeError as e:
             err_str = str(e).lower()
             if "out of memory" in err_str:
@@ -381,7 +429,7 @@ def rerank():
 @app.route("/ner", methods=["POST"])
 def extract_entities():
     """Extract named entities using spaCy NER model."""
-    if ner_model is None:
+    if _ner_model is None:
         return jsonify({"error": "NER model not available", "hint": "pip install spacy && python -m spacy download en_core_web_sm"}), 503
 
     data = request.get_json()
@@ -398,7 +446,7 @@ def extract_entities():
         if not isinstance(text, str):
             text = str(text) if text is not None else ""
         text = text[:10000]
-        doc = ner_model(text)
+        doc = _ner_model(text)
         entities = []
         seen = set()
         for ent in doc.ents:
@@ -472,6 +520,22 @@ def parse_document():
     if file_size_mb > MAX_PARSE_SIZE_MB:
         return jsonify({"error": f"File too large ({file_size_mb:.1f} MB). Maximum: {MAX_PARSE_SIZE_MB} MB"}), 413
 
+    # TOCTOU mitigation: copy file to a temp location before parsing so a symlink
+    # swap between validation and read cannot redirect to a different file.
+    import tempfile
+    import shutil
+    tmp_parse_path = None
+    try:
+        suffix = os.path.splitext(real_path)[1]
+        fd, tmp_parse_path = tempfile.mkstemp(suffix=suffix, prefix="tc_parse_")
+        os.close(fd)
+        shutil.copy2(real_path, tmp_parse_path)
+    except Exception as copy_err:
+        if tmp_parse_path and os.path.exists(tmp_parse_path):
+            os.unlink(tmp_parse_path)
+        logger.error(f"Failed to copy file for safe parsing: {copy_err}")
+        return jsonify({"error": "Failed to prepare file for parsing"}), 500
+
     try:
         device = DOCLING_DEVICE if DOCLING_DEVICE in ("cpu", "gpu") else "cpu"
         logger.info(f"Parsing document ({device}): {os.path.basename(real_path)}")
@@ -481,8 +545,13 @@ def parse_document():
 
         # Run Docling in a thread with timeout to prevent indefinite hangs
         def _do_parse():
-            converter = _docling_create_converter(device)
-            result = converter.convert(real_path)
+            global _docling_converter_cache
+            # Cache converter to avoid expensive re-creation per request
+            with _docling_converter_lock:
+                if _docling_converter_cache is None:
+                    _docling_converter_cache = _docling_create_converter(device)
+                converter = _docling_converter_cache
+            result = converter.convert(tmp_parse_path)
             doc = result.document
             markdown = doc.export_to_markdown()
             metadata = {
@@ -504,11 +573,11 @@ def parse_document():
             future = pool.submit(_do_parse)
             markdown, metadata = future.result(timeout=300)  # 5 minute timeout
 
-        # Guard against enormous Docling output
-        max_output_chars = MAX_PARSE_OUTPUT_MB * 1_000_000
+        # Guard against enormous Docling output (use 1024*1024 for proper MiB)
+        max_output_chars = MAX_PARSE_OUTPUT_MB * 1024 * 1024
         if len(markdown) > max_output_chars:
             _cleanup_gpu()
-            return jsonify({"error": f"Parsed output too large ({len(markdown) // 1_000_000} MB). Maximum: {MAX_PARSE_OUTPUT_MB} MB"}), 413
+            return jsonify({"error": f"Parsed output too large ({len(markdown) // (1024 * 1024)} MB). Maximum: {MAX_PARSE_OUTPUT_MB} MB"}), 413
 
         logger.info(f"Parsed: {os.path.basename(real_path)} -> {len(markdown)} chars")
         _cleanup_gpu()
@@ -526,6 +595,13 @@ def parse_document():
         logger.error(f"Parse failed: {os.path.basename(real_path)}: {str(e)[:500]}")
         _cleanup_gpu()
         return jsonify({"error": "Parse failed"}), 500
+    finally:
+        # Clean up the temp copy
+        if tmp_parse_path and os.path.exists(tmp_parse_path):
+            try:
+                os.unlink(tmp_parse_path)
+            except Exception:
+                pass
 
 
 def _cleanup_gpu():
@@ -576,27 +652,22 @@ def detect_language(text):
     return best
 
 
-def _is_docling_available():
-    try:
-        import docling
-        return True
-    except ImportError:
-        return False
-
-
 @app.route("/health", methods=["GET"])
 def health():
+    # Enhancement: add /metrics endpoint for Prometheus-style observability
+    # Enhancement: add request ID logging for distributed tracing
     return jsonify({
-        "status": "ok",
+        "status": "degraded" if _gpu_degraded else "ok",
         "models": {
             "embed": {
                 "id": EMBED_MODEL_ID,
-                "ready": embed_model is not None,
-                "dimension": embed_model.get_sentence_embedding_dimension() if embed_model else None,
+                "ready": _embed_model is not None,
+                "dimension": _embed_model.get_sentence_embedding_dimension() if _embed_model else None,
             },
-            "rerank": {"id": RERANK_MODEL_ID, "ready": rerank_model is not None},
-            "docling": {"ready": _is_docling_available() and DOCLING_DEVICE != "off", "device": DOCLING_DEVICE},
-            "ner": {"ready": ner_model is not None, "model": ner_model_id, "available": _spacy_available},
+            "rerank": {"id": RERANK_MODEL_ID, "ready": _rerank_model is not None},
+            # Use _docling_create_converter directly instead of redundant _is_docling_available()
+            "docling": {"ready": _docling_create_converter is not None and DOCLING_DEVICE != "off", "device": DOCLING_DEVICE},
+            "ner": {"ready": _ner_model is not None, "model": _ner_model_id, "available": _spacy_available},
         },
     })
 
@@ -607,7 +678,6 @@ def shutdown():
     if request.remote_addr not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
         return jsonify({"error": "Forbidden"}), 403
     logger.info("Shutdown requested, exiting in 0.5s")
-    import threading
     def _exit():
         time.sleep(0.5)
         # Release CUDA resources before exit

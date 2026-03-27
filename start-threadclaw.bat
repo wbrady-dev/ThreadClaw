@@ -12,8 +12,14 @@ for %%a in (%*) do (
   if "%%a"=="--with-openclaw" set WITH_OPENCLAW=true
 )
 
-curl -s http://127.0.0.1:8012/health >nul 2>&1 && curl -s http://127.0.0.1:18800/health >nul 2>&1
-if %errorlevel%==0 (
+REM Check each port independently — chaining with && only checks the last errorlevel
+set "_MODELS_UP=0"
+set "_API_UP=0"
+curl -s http://127.0.0.1:8012/health >nul 2>&1
+if %errorlevel%==0 set "_MODELS_UP=1"
+curl -s http://127.0.0.1:18800/health >nul 2>&1
+if %errorlevel%==0 set "_API_UP=1"
+if "%_MODELS_UP%"=="1" if "%_API_UP%"=="1" (
   echo [threadclaw] ThreadClaw already running ^(models :8012, API :18800^)
   goto :start_openclaw
 )

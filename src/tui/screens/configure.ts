@@ -39,6 +39,7 @@ import {
   type ModelInfo,
 } from "../models.js";
 import { selectMenu } from "../menu.js";
+import { updateEnvValues } from "../env.js";
 
 /** Escape regex metacharacters in a string for safe use in new RegExp(). */
 function escapeRegex(s: string): string {
@@ -197,7 +198,7 @@ async function changeEmbedModel(
   const gpu = detectGpu();
 
   const modelId = await buildModelSelector(EMBED_MODELS, gpu, 0);
-  if (!modelId) return;
+  if (!modelId || modelId === "__back__") return;
 
   if (modelId === "__cloud__") {
     await setupCloudModel(null, root, config, "embed");
@@ -234,7 +235,11 @@ async function changeEmbedModel(
   writeConfig(newConfig);
 
   const dbPath = resolve(getDataDir(), "threadclaw.db");
-  if (existsSync(dbPath)) unlinkSync(dbPath);
+  // Delete the database and associated WAL/SHM files
+  for (const ext of ["", "-wal", "-shm"]) {
+    const p = dbPath + ext;
+    if (existsSync(p)) try { unlinkSync(p); } catch {}
+  }
 
   updateEnvValues(root, {
     EMBEDDING_MODEL: choice.id,
@@ -268,7 +273,7 @@ async function changeRerankModel(
   const embedVram = EMBED_MODELS.find((m) => m.id === config?.embed_model)?.vramMb ?? 0;
 
   const modelId = await buildModelSelector(RERANK_MODELS, gpu, embedVram);
-  if (!modelId) return;
+  if (!modelId || modelId === "__back__") return;
 
   if (modelId === "__cloud__") {
     await setupCloudModel(null, root, config, "rerank");
@@ -476,6 +481,7 @@ async function changeOcrSettings(root: string): Promise<void> {
         } else if (platform === "darwin") {
           execFileSync("brew", ["install", "tesseract"], { stdio: "pipe", timeout: 120000 });
         } else {
+          console.log(t.warn("\n  Note: Linux install requires sudo (may prompt for password)."));
           try {
             execFileSync("sudo", ["apt", "install", "-y", "tesseract-ocr"], { stdio: "pipe", timeout: 120000 });
           } catch {
@@ -1083,7 +1089,8 @@ function tierColorFn(score: number): (s: string) => string {
   if (score <= 6) return t.info;
   if (score <= 7) return t.ok;
   if (score <= 8) return t.warn;
-  return t.err;
+  // 9-10: premium tier — use highlight (green) rather than err (red)
+  return t.highlight;
 }
 
 export function getExpansionStatus(root: string): string {
@@ -1103,22 +1110,6 @@ export function formatDoclingDevice(device?: string): string {
   if (!device || device === "off") return "Standard (built-in)";
   if (device === "cpu") return "Docling (CPU)";
   return "Docling (GPU)";
-}
-
-function updateEnvValues(root: string, values: Record<string, string>): void {
-  const envPath = resolve(root, ".env");
-  if (!existsSync(envPath)) return;
-  let env = readFileSync(envPath, "utf-8");
-  for (const [key, value] of Object.entries(values)) {
-    const regex = new RegExp(`^${escapeRegex(key)}=.*$`, "m");
-    if (regex.test(env)) {
-      env = env.replace(regex, `${key}=${value}`);
-    } else {
-      // Key doesn't exist yet — append it
-      env = env.trimEnd() + `\n${key}=${value}\n`;
-    }
-  }
-  writeFileSync(envPath, env);
 }
 
 // ── Watch Paths ──
@@ -1359,10 +1350,9 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
 
     ansi("\x1b[?25l"); // hide cursor
 
-    // Ensure stdin is fully active for raw keyboard input
-    // Must resume BEFORE setting raw mode to avoid EAGAIN on some platforms
-    process.stdin.removeAllListeners("data");
-    process.stdin.removeAllListeners("keypress");
+    // Ensure stdin is fully active for raw keyboard input.
+    // Only remove listeners we own — avoid removeAllListeners which nukes
+    // listeners from other modules (e.g. prompts library, Ink).
     process.stdin.resume();
     if (process.stdin.isTTY) {
       try { process.stdin.setRawMode(true); } catch (e) {
@@ -1435,8 +1425,14 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
         }
       } else if (s === "\r" || s === "\n") {
         if (selected === vis.length) {
-          // Custom path entry
-          finish(null); // exit tree first
+          // Custom path entry — tear down raw mode so prompts can read input,
+          // but don't resolve the menu promise until the user finishes typing.
+          clearInterval(keepAlive);
+          process.stdin.removeListener("data", onKey);
+          if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
+          process.stdin.pause();
+          ansi("\x1b[?25h");
+
           const p = (await import("prompts")).default;
           console.log("");
           let _cc = false;
@@ -1446,6 +1442,7 @@ function treeCheckboxMenu(tree: WatchEntry[], enabledPaths: Set<string> = new Se
           if (customPath && customColl && !_cc) {
             customEntries.push({ path: customPath, collection: customColl, enabled: true, depth: 0 });
           }
+          resolved = true;
           resolveMenu(nodes);
         } else {
           finish(nodes);

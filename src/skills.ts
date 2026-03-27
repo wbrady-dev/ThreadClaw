@@ -9,7 +9,7 @@
  *   - If on-disk !== manifest hash: user customized, save new as .new, warn
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { resolve, dirname } from "path";
 import { sha256 } from "./version.js";
 

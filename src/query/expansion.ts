@@ -21,12 +21,17 @@ interface ChatResponse {
   choices: { message: { content: string } }[];
 }
 
+// NOTE: No rate limiting on LLM calls. Query expansion fires up to 3 parallel
+// LLM requests (decompose, HyDE, multi-query). If the LLM endpoint has rate limits,
+// consider adding a semaphore or token bucket here.
 async function chatComplete(messages: ChatMessage[]): Promise<string | null> {
   if (!config.queryExpansion.enabled || !config.queryExpansion.model) {
     return null;
   }
 
-  const url = `${config.queryExpansion.url}/chat/completions`;
+  // Strip trailing slashes from the base URL to prevent double-slash in path
+  const baseUrl = config.queryExpansion.url.replace(/\/+$/, "");
+  const url = `${baseUrl}/chat/completions`;
 
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -45,7 +50,10 @@ async function chatComplete(messages: ChatMessage[]): Promise<string | null> {
       signal: AbortSignal.timeout(config.queryExpansion.timeoutMs),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      logger.warn({ status: response.status, url }, "Query expansion LLM returned non-OK response");
+      return null;
+    }
 
     const data = (await response.json()) as ChatResponse;
     return data.choices?.[0]?.message?.content?.trim() ?? null;

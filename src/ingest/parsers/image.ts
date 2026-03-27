@@ -11,8 +11,9 @@
  */
 
 import { basename } from "path";
+// TODO: execFileSync blocks the event loop. Consider using execFile (async) with
+// util.promisify for better server responsiveness during OCR operations.
 import { execFileSync } from "child_process";
-import { existsSync } from "fs";
 import { config } from "../../config.js";
 import type { ParsedDocument, DocMetadata } from "./index.js";
 
@@ -36,9 +37,8 @@ export async function parseImage(filePath: string): Promise<ParsedDocument> {
     source: filePath,
   };
 
-  if (!existsSync(filePath)) {
-    return { text: `[Image: ${basename(filePath)}]`, structure: [], metadata };
-  }
+  // Removed existsSync check — TOCTOU race. The file could disappear between
+  // check and execFileSync anyway, so let Tesseract report the error directly.
 
   if (!isTesseractAvailable()) {
     return {

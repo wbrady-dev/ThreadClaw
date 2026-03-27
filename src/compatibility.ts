@@ -1,5 +1,8 @@
 /**
  * Compatibility matrix — which ThreadClaw versions work with which OpenClaw versions.
+ *
+ * NOTE: Update this matrix when releasing new ThreadClaw versions or when
+ * OpenClaw compatibility ranges change. The matrix is used by `threadclaw doctor`.
  */
 
 import { existsSync, readFileSync } from "fs";
@@ -46,7 +49,15 @@ export function getOpenClawVersion(): string | null {
   return null;
 }
 
-/** Compare semver-like version strings. Returns -1, 0, or 1. */
+/**
+ * Compare semver-like version strings. Returns -1, 0, or 1.
+ *
+ * Note: This is duplicated from version.ts. Consider extracting to a shared
+ * utility if a third call site appears.
+ *
+ * Caveat: parseInt treats non-numeric prefixes like "0beta" as 0, so
+ * pre-release suffixes are effectively ignored in comparisons.
+ */
 function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map((s) => parseInt(s, 10) || 0);
   const pb = b.split(".").map((s) => parseInt(s, 10) || 0);

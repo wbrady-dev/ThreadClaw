@@ -9,6 +9,8 @@ export interface PackedChunk {
   score: number;
 }
 
+// NOTE: SourceInfo is also defined in query/pipeline.ts. This is the canonical
+// definition — pipeline.ts should import from here to avoid duplication.
 export interface SourceInfo {
   source: string;
   chunkCount: number;
@@ -76,7 +78,7 @@ export function packContext(
     header += ` ${relevance}\n`;
 
     const headerTokens = estimateTokens(header);
-    if (tokensUsed + headerTokens >= tokenBudget) break;
+    if (tokensUsed + headerTokens > tokenBudget) break;
 
     lines.push(header);
     tokensUsed += headerTokens;
@@ -100,7 +102,7 @@ export function packContext(
       const chunkText = chunkLines.join("\n");
       const chunkTokens = estimateTokens(chunkText);
 
-      if (tokensUsed + chunkTokens >= tokenBudget) break;
+      if (tokensUsed + chunkTokens > tokenBudget) break;
 
       lines.push(chunkText);
       tokensUsed += chunkTokens;
@@ -169,6 +171,10 @@ export function packTitles(chunks: { sourcePath: string | null; collectionName: 
 /**
  * Compute relevance label relative to the score distribution.
  * Works regardless of the reranker's absolute score scale.
+ *
+ * NOTE: These Unicode dot characters may confuse some LLMs that interpret them
+ * as formatting or special tokens. Consider using text labels like [HIGH]/[MED]/[LOW]
+ * if LLM downstream consumers have issues.
  */
 function relativeRelevanceLabel(score: number, topScore: number, range: number): string {
   if (range === 0) return "●●●"; // all scores equal = all equally relevant

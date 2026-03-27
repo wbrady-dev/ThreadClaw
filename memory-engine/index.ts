@@ -18,13 +18,22 @@ if (!process.listenerCount("unhandledRejection")) {
 }
 if (!process.listenerCount("uncaughtException")) {
   process.on("uncaughtException", (err) => {
-    console.error("[cc-mem] uncaught exception (swallowed):", err.message, err.stack?.split("\n").slice(0, 3).join("\n"));
-    // Do NOT re-throw — let the process survive
+    // Only swallow errors that originate from cc-mem code to avoid masking
+    // genuine fatal errors from the host process. Check the stack trace.
+    const isCcMem = err.stack?.includes("cc-mem") || err.stack?.includes("memory-engine");
+    if (isCcMem) {
+      console.error("[cc-mem] uncaught exception (swallowed):", err.message, err.stack?.split("\n").slice(0, 3).join("\n"));
+      // Do NOT re-throw — let the process survive
+    } else {
+      // Re-throw non-cc-mem errors so the host process can handle them
+      throw err;
+    }
   });
 }
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve as pathResolve, dirname } from "node:path";
+import { homedir } from "node:os";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { resolveLcmConfig } from "./src/db/config.js";
 import { LcmContextEngine } from "./src/engine.js";
@@ -41,7 +50,7 @@ import {
   createCcProceduresTool,
   createCcDiagnosticsTool,
   createCcMemoryTool,
-  createCcSynthesizeTool,
+  // createCcSynthesizeTool is available but not registered — cc_memory subsumes its functionality
 } from "./src/relations/tools.js";
 import type { LcmDependencies } from "./src/types.js";
 
@@ -126,6 +135,8 @@ type RuntimeModelAuth = {
   }) => Promise<RuntimeModelAuthResult | undefined>;
 };
 
+// These constants document the OpenClaw PR that introduced runtime.modelAuth.
+// They are used in the legacy fallback warning message. Update if the PR/commit changes.
 const MODEL_AUTH_PR_URL = "https://github.com/openclaw/openclaw/pull/41090";
 const MODEL_AUTH_MERGE_COMMIT = "4790e40";
 const MODEL_AUTH_REQUIRED_RELEASE = "the first OpenClaw release after 2026.3.8";
@@ -174,7 +185,8 @@ function resolveApiKey(provider: string, readEnv: ReadEnvFn): string | undefined
   };
 
   const providerKey = provider.trim().toLowerCase();
-  const keys = keyMap[providerKey] ?? [];
+  // Spread copy to avoid mutating the original keyMap arrays (prevents unbounded growth)
+  const keys = [...(keyMap[providerKey] ?? [])];
   const normalizedProviderEnv = `${providerKey.replace(/[^a-z0-9]/g, "_").toUpperCase()}_API_KEY`;
   keys.push(normalizedProviderEnv);
 
@@ -575,9 +587,17 @@ function resolveSecretRef(params: {
   const ref = params.ref;
   if (!ref?.id) return undefined;
 
-  // source: env — read directly from environment variable
+  // source: env — read directly from environment variable.
+  // Validate against an allowlist pattern to prevent reading arbitrary env vars
+  // (e.g., PATH, HOME, credentials for other services).
   if (ref.source === "env") {
-    const val = process.env[ref.id]?.trim();
+    const envName = ref.id.trim();
+    // Only allow env var names that look like API keys or known credential patterns
+    const ALLOWED_ENV_PATTERN = /^[A-Z][A-Z0-9_]*(API_KEY|TOKEN|SECRET|KEY|CREDENTIAL)$/i;
+    if (!ALLOWED_ENV_PATTERN.test(envName)) {
+      return undefined;
+    }
+    const val = process.env[envName]?.trim();
     return val || undefined;
   }
 
@@ -598,6 +618,12 @@ function resolveSecretRef(params: {
           ? join(params.home, configuredPath.slice(2))
           : configuredPath;
       if (!filePath) {
+        return undefined;
+      }
+      // Validate resolved path is within ~/.openclaw to prevent path traversal
+      const resolvedFile = pathResolve(filePath);
+      const openclawHome = params.home ? pathResolve(params.home, ".openclaw") : "";
+      if (openclawHome && !resolvedFile.startsWith(openclawHome)) {
         return undefined;
       }
       const raw = readFileSync(filePath, "utf8");
@@ -639,7 +665,12 @@ function resolveSecretRef(params: {
   }
 }
 
-/** Resolve OAuth/api-key/token credentials from auth-profiles store. */
+/**
+ * Resolve OAuth/api-key/token credentials from auth-profiles store.
+ *
+ * Note: auth-profiles.json is read synchronously on each call. For high-throughput
+ * scenarios, consider caching the parsed store with a TTL to reduce file I/O.
+ */
 async function resolveApiKeyFromAuthProfiles(params: {
   provider: string;
   authProfileId?: string;
@@ -681,8 +712,19 @@ async function resolveApiKeyFromAuthProfiles(params: {
     return undefined;
   }
 
-  const persistPath =
+  // Validate OAuth credential persist path is within expected directories
+  const rawPersistPath =
     params.agentDir?.trim() ? join(params.agentDir.trim(), "auth-profiles.json") : storesWithPaths[0]?.path;
+  const persistPath = (() => {
+    if (!rawPersistPath) return undefined;
+    const resolved = pathResolve(rawPersistPath);
+    const home = homedir();
+    // Only allow writes within ~/.openclaw or ~/.clawd
+    if (resolved.startsWith(pathResolve(home, ".openclaw")) || resolved.startsWith(pathResolve(home, ".clawd"))) {
+      return resolved;
+    }
+    return undefined;
+  })();
   const secretConfig = (() => {
     if (isRecord(params.runtimeConfig)) {
       const runtimeProviders = (params.runtimeConfig as {
@@ -870,18 +912,17 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
   // The memory-engine runs inside the OpenClaw gateway process, which doesn't
   // load ThreadClaw's .env by default.
   try {
-    const { resolve, dirname } = require("path");
-    const { readFileSync, existsSync } = require("fs");
+    // Use top-level imports instead of redundant require() calls
     // Try multiple paths to find ThreadClaw's .env (plugin may load from various locations)
     const candidates = [
-      resolve(dirname(require.resolve("./package.json")), "..", ".env"),     // memory-engine/../.env
-      resolve(dirname(require.resolve("./package.json")), ".env"),           // memory-engine/.env (if flat)
-      resolve(process.env.THREADCLAW_ROOT ?? "", ".env"),                    // explicit root override
-      resolve(require("os").homedir(), ".openclaw", "services", "threadclaw", ".env"), // default install
-      resolve(require("os").homedir(), ".threadclaw", ".env"),              // standalone install
+      pathResolve(dirname(require.resolve("./package.json")), "..", ".env"),     // memory-engine/../.env
+      pathResolve(dirname(require.resolve("./package.json")), ".env"),           // memory-engine/.env (if flat)
+      pathResolve(process.env.THREADCLAW_ROOT ?? "", ".env"),                    // explicit root override
+      pathResolve(homedir(), ".openclaw", "services", "threadclaw", ".env"), // default install
+      pathResolve(homedir(), ".threadclaw", ".env"),              // standalone install
     ];
     const envPath = candidates.find((p) => existsSync(p));
-    if (!envPath) throw new Error("No .env found");
+    if (!envPath) return; // No .env found — non-fatal, use defaults
     if (process.env.DEBUG) console.log(`[cc-mem] Loading .env from: ${envPath}`);
     const envContent = readFileSync(envPath, "utf8");
     for (const line of envContent.split("\n")) {
@@ -953,6 +994,8 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
     const envKey = resolveApiKey(provider, readEnv);
     if (envKey) return envKey;
 
+    // Dynamic import via variable to prevent bundlers from inlining pi-ai
+    // (it's a peer dependency provided by the OpenClaw host process)
     const piAiModuleId = "@mariozechner/pi-ai";
     const mod = (await import(piAiModuleId)) as PiAiModule;
     return resolveApiKeyFromAuthProfiles({
@@ -1326,7 +1369,10 @@ const lcmPlugin = {
     const freshDeps = createLcmDependencies(api);
     const cacheKey = freshDeps.config.databasePath;
 
-    // Reuse existing engine for the same database (avoids duplicate connections/migrations)
+    // Reuse existing engine for the same database (avoids duplicate connections/migrations).
+    // Limitation: updateDeps() updates the deps reference but does not re-apply
+    // config changes that affect DB schema or already-initialized subsystems.
+    // A full restart is needed for config changes like databasePath or schemaVersion.
     let deps: LcmDependencies;
     let lcm: LcmContextEngine;
     const cached = _engineCache.get(cacheKey);
@@ -1393,7 +1439,10 @@ const lcmPlugin = {
       { name: "cc_recall" },
     );
 
-    // Register RSMA tools (8 consolidated tools, down from 18)
+    // Register RSMA tools (8 consolidated tools, down from 18).
+    // Note: most RSMA tools (cc_claims, cc_decisions, etc.) operate on the global
+    // graph DB and don't receive sessionKey/agentId. Only cc_memory is session-scoped.
+    // This is intentional — graph entities are cross-session by design.
     const graphDb = lcm.getGraphDb();
     if (deps.config.relationsEnabled && graphDb) {
       api.registerTool(

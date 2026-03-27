@@ -1,10 +1,10 @@
 import { Command } from "commander";
-import { resolve } from "path";
+import { resolve, extname, relative } from "path";
 import { stat, readdir } from "fs/promises";
-import { extname } from "path";
 import { ingestFile, type IngestResult } from "../../ingest/pipeline.js";
 import { getSupportedExtensions } from "../../ingest/parsers/index.js";
 import { validateIngestPath } from "../../api/ingest.routes.js";
+import { formatConnectionHint } from "../cli-utils.js";
 
 export const ingestCommand = new Command("ingest")
   .description("Ingest a file or folder into the knowledge base")
@@ -55,9 +55,7 @@ Examples:
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`Error: ${msg}`);
-        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch")) {
-          console.error("Are services running? Start with 'threadclaw start' or 'threadclaw serve'.");
-        }
+        console.error(formatConnectionHint(msg));
         process.exit(1);
       }
     },
@@ -75,11 +73,12 @@ async function ingestFolder(
 
   if (files.length === 0) {
     console.log(`No supported files found in ${dirPath}`);
-    return;
+    process.exit(1);
   }
 
   console.log(`Ingesting ${files.length} files from: ${dirPath}`);
   console.log(`Collection: ${collection}`);
+  if (tags.length > 0) console.log(`Tags: ${tags.join(", ")}`);
   console.log("");
 
   let totalDocs = 0;
@@ -88,9 +87,11 @@ async function ingestFolder(
   let totalSkipped = 0;
   let errors = 0;
 
+  // Files are ingested sequentially to avoid overwhelming the embedding server.
+  // TODO: Consider bounded parallelism (e.g. p-limit) for faster ingestion on capable hardware.
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const name = file.replace(dirPath, "").replace(/^[/\\]/, "");
+    const name = relative(dirPath, file);
     process.stdout.write(`  [${i + 1}/${files.length}] ${name} ... `);
 
     const filePathErr = validateIngestPath(file);

@@ -1,5 +1,8 @@
 import { execFileSync } from "child_process";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { release } from "os";
+import { resolve } from "path";
+import { homedir, tmpdir } from "os";
 
 export interface TerminalCapabilities {
   interactive: boolean;
@@ -64,6 +67,9 @@ function hasUnicodeSupport(interactive: boolean): boolean {
 
   if (process.platform !== "win32") return true;
 
+  // Heuristic: Windows Terminal, VS Code, and PowerShell hosts all set at
+  // least one of these env vars. This isn't perfect — a user with a unicode-
+  // capable console that sets none of these would get ASCII fallback.
   return Boolean(
     process.env.WT_SESSION
     || process.env.TERM_PROGRAM
@@ -72,9 +78,9 @@ function hasUnicodeSupport(interactive: boolean): boolean {
 }
 
 export function detectTerminalCapabilities(): TerminalCapabilities {
-  const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
-  const rawMode = interactive && typeof process.stdin.setRawMode === "function";
   const forceRich = process.env.THREADCLAW_TUI_FORCE_RICH === "1";
+  const interactive = forceRich ? true : (process.stdin.isTTY === true && process.stdout.isTTY === true);
+  const rawMode = forceRich ? true : (interactive && typeof process.stdin.setRawMode === "function");
   const ansi = forceRich ? true : hasAnsiSupport(interactive);
   const unicode = hasUnicodeSupport(interactive);
   const rich = interactive && rawMode && ansi && process.env.THREADCLAW_TUI_PLAIN !== "true";
@@ -134,6 +140,19 @@ function enableWindowsAnsiIfPossible(): boolean {
 
   windowsAnsiTried = true;
 
+  // Check file-based cache to avoid spawning PowerShell synchronously on every launch.
+  // Cache is valid for 24 hours — console capabilities rarely change.
+  const cacheFile = resolve(tmpdir(), ".threadclaw-ansi-cache");
+  try {
+    if (existsSync(cacheFile)) {
+      const cached = JSON.parse(readFileSync(cacheFile, "utf-8"));
+      if (cached && typeof cached.result === "boolean" && Date.now() - cached.ts < 86400000) {
+        windowsAnsiEnabled = cached.result;
+        return windowsAnsiEnabled;
+      }
+    }
+  } catch {}
+
   const command = [
     "$signature = @'",
     "using System;",
@@ -165,10 +184,12 @@ function enableWindowsAnsiIfPossible(): boolean {
         timeout: 4000,
       });
       windowsAnsiEnabled = true;
+      try { writeFileSync(cacheFile, JSON.stringify({ result: true, ts: Date.now() })); } catch {}
       return true;
     } catch {}
   }
 
   windowsAnsiEnabled = false;
+  try { writeFileSync(cacheFile, JSON.stringify({ result: false, ts: Date.now() })); } catch {}
   return false;
 }

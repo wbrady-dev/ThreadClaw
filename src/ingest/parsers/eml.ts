@@ -25,8 +25,27 @@ export async function parseEml(filePath: string): Promise<ParsedDocument> {
 
   parts.push(`Subject: ${parsed.subject ?? "(no subject)"}`);
   parts.push(`From: ${parsed.from?.text ?? "unknown"}`);
-  const toText = Array.isArray(parsed.to) ? parsed.to.map((t: { text: string }) => t.text).join(", ") : parsed.to?.text ?? "unknown";
+  // Use optional chaining for parsed.to — it can be undefined, string, or AddressObject[]
+  const toText = Array.isArray(parsed.to)
+    ? parsed.to.map((t: { text?: string }) => t?.text ?? "").join(", ")
+    : parsed.to?.text ?? "unknown";
   parts.push(`To: ${toText}`);
+
+  // Include CC/BCC if present (use any cast — mailparser types may not expose cc/bcc)
+  const parsedAny = parsed as any;
+  if (parsedAny.cc) {
+    const ccText = Array.isArray(parsedAny.cc)
+      ? parsedAny.cc.map((t: { text?: string }) => t?.text ?? "").join(", ")
+      : parsedAny.cc?.text ?? "";
+    if (ccText) parts.push(`CC: ${ccText}`);
+  }
+  if (parsedAny.bcc) {
+    const bccText = Array.isArray(parsedAny.bcc)
+      ? parsedAny.bcc.map((t: { text?: string }) => t?.text ?? "").join(", ")
+      : parsedAny.bcc?.text ?? "";
+    if (bccText) parts.push(`BCC: ${bccText}`);
+  }
+
   if (parsed.date) parts.push(`Date: ${parsed.date.toISOString()}`);
   parts.push("");
 
@@ -34,11 +53,20 @@ export async function parseEml(filePath: string): Promise<ParsedDocument> {
   if (parsed.text) {
     parts.push(parsed.text);
   } else if (parsed.textAsHtml) {
-    // Strip HTML tags for a rough text extraction
-    parts.push(parsed.textAsHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+    // Replace block tags with newlines first to preserve paragraph structure,
+    // then strip remaining HTML tags
+    const structured = parsed.textAsHtml
+      .replace(/<\/?(p|div|br|h[1-6]|li|tr|td|th|blockquote)[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\n\s+/g, "\n")
+      .trim();
+    parts.push(structured);
   }
 
   // Note attachments in metadata
+  // NOTE: Attachment content is not extracted — only filenames are listed.
+  // Future enhancement: extract text from text/plain and text/html attachments.
   if (parsed.attachments && parsed.attachments.length > 0) {
     const attachNames = parsed.attachments.map((a: { filename?: string }) => a.filename ?? "unnamed").join(", ");
     parts.push(`\nAttachments: ${attachNames}`);
