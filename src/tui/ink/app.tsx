@@ -293,7 +293,7 @@ async function runResetKnowledgeBase(): Promise<void> {
 
         if (clearMemory) {
           try {
-            const { DatabaseSync } = await import("node:sqlite");
+            const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
             const { homedir } = await import("os");
             // Memory DB may be at config dataDir OR ~/.threadclaw/data/ (plugin default)
             const candidates = [

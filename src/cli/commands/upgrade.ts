@@ -98,7 +98,7 @@ async function validateBackup(backupDir: string, expectedFiles: string[]): Promi
     if (statSync(p).size === 0) return false;
     if (f.endsWith(".db")) {
       try {
-        const { DatabaseSync } = await import("node:sqlite");
+        const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
         const db = new DatabaseSync(p, { readOnly: true });
         const result = (db.prepare("PRAGMA integrity_check").get() as any);
         db.close();
@@ -141,7 +141,7 @@ async function postUpgradeSmoke(): Promise<{ ok: boolean; checks: string[] }> {
   for (const dbPath of dbPaths) {
     if (existsSync(dbPath)) {
       try {
-        const { DatabaseSync } = await import("node:sqlite");
+        const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
         const db = new DatabaseSync(dbPath);
         const result = db.prepare("PRAGMA integrity_check").get() as any;
         db.close();
@@ -177,7 +177,7 @@ async function postUpgradeSmoke(): Promise<{ ok: boolean; checks: string[] }> {
   const graphPath = resolve(THREADCLAW_DATA_DIR, "graph.db");
   if (existsSync(graphPath)) {
     try {
-      const { DatabaseSync } = await import("node:sqlite");
+      const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
       const db = new DatabaseSync(graphPath);
       try {
         const entityCount = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity'").get() as any).cnt;
@@ -416,7 +416,7 @@ export const upgradeCommand = new Command("upgrade")
       if (existsSync(ragDbPath)) {
         let ragDb: any = null;
         try {
-          const { DatabaseSync } = await import("node:sqlite");
+          const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
           ragDb = new DatabaseSync(ragDbPath);
           if (!isDryRun) {
             const { runMigrations } = await import("../../storage/index.js");
@@ -499,7 +499,7 @@ export const upgradeCommand = new Command("upgrade")
 
         let evDb: any = null;
         try {
-          const { DatabaseSync } = await import("node:sqlite");
+          const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
           evDb = new DatabaseSync(graphDbPath);
           evidenceSchemaV = (evDb.prepare("SELECT MAX(version) as v FROM _evidence_migrations").get() as any)?.v ?? evidenceSchemaV;
           info(`Evidence schema version: ${evidenceSchemaV}`);

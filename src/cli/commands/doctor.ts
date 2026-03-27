@@ -118,7 +118,7 @@ export const doctorCommand = new Command("doctor")
       const checkPath = existsSync(db.path) ? db.path : null;
       if (checkPath) {
         try {
-          const { DatabaseSync } = await import("node:sqlite");
+          const { DatabaseSync } = await import(/* @vite-ignore */ "node:" + "sqlite");
           const conn = new DatabaseSync(checkPath);
           const result = conn.prepare("PRAGMA integrity_check").get() as any;
           if (result?.integrity_check === "ok") {
