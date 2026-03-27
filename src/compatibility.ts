@@ -52,9 +52,6 @@ export function getOpenClawVersion(): string | null {
 /**
  * Compare semver-like version strings. Returns -1, 0, or 1.
  *
- * Note: This is duplicated from version.ts. Consider extracting to a shared
- * utility if a third call site appears.
- *
  * Caveat: parseInt treats non-numeric prefixes like "0beta" as 0, so
  * pre-release suffixes are effectively ignored in comparisons.
  */
