@@ -151,7 +151,7 @@ export const config = {
 
   embedding: {
     url: env("EMBEDDING_URL", "http://127.0.0.1:8012/v1"),
-    model: env("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5"),
+    model: env("EMBEDDING_MODEL", "mixedbread-ai/mxbai-embed-large-v1"),
     dimensions: envInt("EMBEDDING_DIMENSIONS", 1024),
     get prefixMode() { return hotConfig.prefixMode; },
     get batchSize() { return hotConfig.batchSize; },
