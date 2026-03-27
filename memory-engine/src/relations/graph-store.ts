@@ -273,7 +273,7 @@ export function storeExtractionResult(
         eventType: "mention_insert",
         actor: input.actor ?? "system",
         runId: input.runId,
-        idempotencyKey: `extract:${input.sourceType}:${input.sourceId}:${name}`,
+        idempotencyKey: `extract:${input.sourceType}:${input.sourceId}:${name}:${result.strategy ?? "unknown"}`,
         payload: {
           confidence: result.confidence,
           strategy: result.strategy,

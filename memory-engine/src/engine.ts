@@ -1398,12 +1398,16 @@ export class LcmContextEngine implements ContextEngine {
                 strategy: `ner:${e.label}` as import("./relations/types.js").ExtractionStrategy,
                 entityType: e.label.toLowerCase(),
               }));
-              storeNer(this.graphDb!, nerResults, {
-                sourceType: "message",
-                sourceId: String(msgRecord.messageId),
-                actor: eeActor,
-                runId,
-              });
+              try {
+                storeNer(this.graphDb!, nerResults, {
+                  sourceType: "message",
+                  sourceId: String(msgRecord.messageId),
+                  actor: eeActor,
+                  runId,
+                });
+              } catch (storeErr) {
+                console.debug("[cc-mem] NER entity storage failed (NER itself succeeded):", storeErr instanceof Error ? storeErr.message : String(storeErr));
+              }
             }
           }
         } catch (err) {
