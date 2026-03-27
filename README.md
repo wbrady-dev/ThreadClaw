@@ -287,12 +287,11 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 - **Cross-Platform** — Windows (Task Scheduler), macOS (launchd), Linux (systemd --user)
 - **Local-First** — all models run on your hardware. No data leaves your machine.
 
-### Agent Tools (13)
+### Agent Tools (12)
 
 | Tool | What it does |
 |------|-------------|
 | `cc_memory` | Unified smart search — finds facts, decisions, relationships, and conversation history |
-| `cc_synthesize` | Cross-cutting analysis — synthesizes insights across multiple knowledge types |
 | `cc_grep` | Full-text search across conversation memory |
 | `cc_describe` | Describe the current knowledge state |
 | `cc_expand` | Deep-dive into a topic with recursive expansion |
