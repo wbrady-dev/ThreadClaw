@@ -225,8 +225,13 @@ async function ingestFileInner(
   const embeddings = await embedBatch(chunkTexts, "passage");
 
   // Semantic deduplication — remove near-duplicate chunks
+  // Skip cross-DB dedup when force=true or updating existing doc: the old version's
+  // embeddings are still in the DB at this point (deleted inside the transaction below),
+  // so they would falsely match as duplicates of the new version.
   const intraDupes = findIntraBatchDuplicates(embeddings);
-  const existingDupes = findExistingDuplicates(db, embeddings, collection.id);
+  const existingDupes = (options.force || existing)
+    ? new Set<number>()
+    : findExistingDuplicates(db, embeddings, collection.id);
   const allDupes = new Set([...intraDupes, ...existingDupes]);
 
   // Filter out duplicates
