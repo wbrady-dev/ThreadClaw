@@ -47,6 +47,7 @@ if [ -f "$MEMORY_DB" ]; then
     sqlite3 "$MEMORY_DB" "VACUUM INTO '$BACKUP_DIR/memory.db'"
   else
     cp "$MEMORY_DB" "$BACKUP_DIR/memory.db"
+    echo "  (sqlite3 not found — used file copy instead of hot backup)"
   fi
   SIZE=$(du -sh "$BACKUP_DIR/memory.db" | cut -f1)
   echo "  ✓ memory.db ($SIZE)"
@@ -61,6 +62,7 @@ if [ -f "$GRAPH_DB" ]; then
     sqlite3 "$GRAPH_DB" "VACUUM INTO '$BACKUP_DIR/graph.db'"
   else
     cp "$GRAPH_DB" "$BACKUP_DIR/graph.db"
+    echo "  (sqlite3 not found — used file copy instead of hot backup)"
   fi
   SIZE=$(du -sh "$BACKUP_DIR/graph.db" | cut -f1)
   echo "  ✓ graph.db ($SIZE)"
