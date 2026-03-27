@@ -83,8 +83,8 @@ Use these rules:
 10. **If the question is really about state or memory, switch skills.** Do not force document search for an evidence/state question.
 
 ## Token Cost Guide
-- `--titles`: ~30 tokens
-- `--brief`: ~200 tokens
+- `--titles`: ~50 tokens
+- `--brief`: ~250 tokens (default)
 - No results: ~5 tokens
 - `--full`: ~1500 tokens
 

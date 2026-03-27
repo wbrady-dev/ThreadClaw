@@ -65,13 +65,13 @@ cc_diagnostics { "verbose": true }
 - Use `verbose: true` for event timeline and capsule content
 - Not for answering user questions
 
-### cc_synthesize — Cross-cutting analysis
+### cc_state — Current beliefs about a subject
 ```json
-cc_synthesize { "query": "how do our caching decisions relate to performance issues?" }
+cc_state { "subject": "staging" }
 ```
-- Synthesizes insights across multiple knowledge types (claims, decisions, entities, relations)
-- Use when a question spans multiple topics or needs cross-referencing
-- Returns a narrative synthesis, not raw data
+- Aggregates ALL knowledge about a subject: claims, decisions, invariants, conflicts, loops, relations, procedures, entities
+- Groups results by kind — gives a complete picture of what ThreadClaw knows
+- Use when you need a holistic view, not just claims or decisions
 
 ## Specialist Tools (use when cc_memory isn't enough)
 
@@ -80,9 +80,12 @@ cc_synthesize { "query": "how do our caching decisions relate to performance iss
 | `cc_claims { "subject": "..." }` | Deep dive into specific claims with evidence chains |
 | `cc_decisions { "topic": "..." }` | Decision history with supersession tracking |
 | `cc_loops` | Open tasks, questions, and blockers |
+| `cc_manage_loop { "action": "close", "loop_id": 42 }` | Close or update a loop (set priority, owner, status, waiting_on) |
+| `cc_conflicts` | Unresolved contradictions between facts |
+| `cc_conflicts { "action": "resolve", "conflict_id": 5, "winner_id": 12 }` | Resolve a conflict by picking the correct side |
 | `cc_attempts { "tool_name": "..." }` | Tool outcome history with success rates |
 | `cc_procedures { "type": "failure" }` | Learned success and failure patterns (type: "success", "failure", or "all") |
-| `cc_branch { "action": "create" }` | Branch management: create, list, discard, or promote speculative branches |
+| `cc_branch { "action": "create" }` | Branch management: create, list, view, discard, or promote speculative branches |
 | `cc_grep { "pattern": "..." }` | Exact text/regex search in conversation history |
 | `cc_describe { "id": "sum_xxx" }` | Inspect a specific summary or file (cheap, no sub-agent) |
 | `cc_recall { "query": "...", "prompt": "..." }` | Deep semantic recall with DAG expansion (slow, ~2 min, spawns sub-agent). Cannot be called from within delegated sessions. |
@@ -100,15 +103,16 @@ User asks something?
   +-- cc_memory wasn't enough?
   |     +-- Need exact text? --> cc_grep
   |     +-- Need all claims on a topic? --> cc_claims
+  |     +-- Need everything about a subject? --> cc_state
   |     +-- Need decision history? --> cc_decisions
   |     +-- Need open tasks/blockers? --> cc_loops
+  |     +-- Need to close/update a task? --> cc_manage_loop
+  |     +-- Need to resolve a contradiction? --> cc_conflicts
   |     +-- Need to inspect a summary? --> cc_describe
   |     +-- Need to recover compacted detail? --> cc_expand
   |     +-- Need deep multi-step recall with synthesis? --> cc_recall (slow, ~2 min)
   |
   +-- Need tool history/patterns? --> cc_attempts / cc_procedures
-  |
-  +-- Need cross-cutting synthesis? --> cc_synthesize
   |
   +-- Debugging/health check? --> cc_diagnostics
 ```
@@ -117,15 +121,17 @@ User asks something?
 
 | Tool | Cost | Notes |
 |------|------|-------|
-| cc_memory | ~100-300 tokens | Searches everything automatically |
-| cc_synthesize | ~200-500 tokens | Cross-cutting analysis and synthesis |
+| cc_memory | ~150-300 tokens | Searches everything automatically |
+| cc_state | ~100-200 tokens | Aggregates all knowledge about a subject |
 | cc_diagnostics | ~200 tokens | Health check (+verbose for events) |
 | cc_claims | ~100 tokens | Specific claims with evidence |
 | cc_decisions | ~50 tokens | Decision history |
 | cc_loops | ~50 tokens | Open tasks |
+| cc_manage_loop | ~50 tokens | Close or update a loop |
+| cc_conflicts | ~50-100 tokens | Unresolved contradictions |
 | cc_attempts | ~100 tokens | Tool outcome history |
 | cc_procedures | ~100 tokens | Success and failure patterns |
-| cc_branch | ~50 tokens | Branch management |
+| cc_branch | ~50 tokens | Branch management (create, list, view, discard, promote) |
 | cc_grep | ~50-200 tokens | Exact text search |
 | cc_describe | ~50 tokens | Cheap summary inspection |
 | cc_expand | ~200 tokens | Summary expansion |
