@@ -33,6 +33,16 @@ import type { WriterResult } from "./writer.js";
 import { understandMessage as regexUnderstand } from "./writer.js";
 import { detectSignals } from "./correction.js";
 
+const LLM_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(msg)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
+}
+
 // ── Types ───────────────────────────────────────────────────────────────────
 
 /** The structured response expected from the LLM. */
@@ -350,14 +360,14 @@ export async function semanticExtract(
     // Strip code blocks — they contain code, not user facts
     const textForExtraction = text.replace(/```[\s\S]*?```/g, '[code block removed]');
 
-    const result = await config.complete({
+    const result = await withTimeout(config.complete({
       model: config.model,
       provider: config.provider,
       system: systemPrompt,
       messages: [{ role: "user", content: textForExtraction.slice(0, maxChars) }],
       temperature: 0.1,
       maxTokens: 1500,
-    });
+    }), LLM_TIMEOUT_MS, "semantic extraction timed out");
 
     // Parse LLM response
     const content = extractTextContent(result.content);

@@ -2320,18 +2320,16 @@ export class LcmContextEngine implements ContextEngine {
       // Leaf trigger checks are best-effort.
     }
 
-    try {
-      await this.compact({
-        sessionId: params.sessionId,
-        sessionFile: params.sessionFile,
-        tokenBudget,
-        currentTokenCount: liveContextTokens,
-        compactionTarget: "threshold",
-        legacyParams,
-      });
-    } catch {
-      // Proactive compaction is best-effort in the post-turn lifecycle.
-    }
+    // Fire-and-forget — compaction is best-effort and must never block the gateway.
+    // If it fails or times out, the next afterTurn() retries automatically.
+    this.compact({
+      sessionId: params.sessionId,
+      sessionFile: params.sessionFile,
+      tokenBudget,
+      currentTokenCount: liveContextTokens,
+      compactionTarget: "threshold",
+      legacyParams,
+    }).catch(() => {});
   }
 
   async assemble(params: {

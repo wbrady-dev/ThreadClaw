@@ -13,6 +13,16 @@ import type { LcmDependencies } from "../types.js";
 import type { LcmConfig } from "../db/config.js";
 import { buildCanonicalKey } from "./claim-store.js";
 
+const LLM_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(msg)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
+}
+
 // ---------------------------------------------------------------------------
 // Model resolution
 // ---------------------------------------------------------------------------
@@ -68,7 +78,7 @@ export async function extractClaimsDeep(
   const defaultAuthority = config.relationsDeepExtractionDefaultAuthority ?? 0.6;
 
   try {
-    const result = await deps.complete({
+    const result = await withTimeout(deps.complete({
       model,
       provider,
       system: CLAIM_EXTRACTION_SYSTEM,
@@ -77,7 +87,7 @@ export async function extractClaimsDeep(
       ],
       temperature: 0.1,
       maxTokens: maxLlmTokens,
-    });
+    }), LLM_TIMEOUT_MS, "deep claim extraction timed out");
 
     const content = typeof result.content === "string"
       ? result.content
@@ -166,7 +176,7 @@ export async function extractRelationsDeep(
   const relMaxTokens = config.relationsDeepExtractionMaxTokens ?? 1000;
 
   try {
-    const result = await deps.complete({
+    const result = await withTimeout(deps.complete({
       model,
       provider,
       system: RELATION_EXTRACTION_SYSTEM,
@@ -178,7 +188,7 @@ export async function extractRelationsDeep(
       ],
       temperature: 0.1,
       maxTokens: relMaxTokens,
-    });
+    }), LLM_TIMEOUT_MS, "deep relation extraction timed out");
 
     const content = typeof result.content === "string"
       ? result.content
