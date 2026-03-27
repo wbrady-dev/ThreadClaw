@@ -121,6 +121,7 @@ function createMockConversationStore() {
       return filtered;
     }),
     getMessageById: vi.fn(async (id: number) => messages.find((m) => m.messageId === id) ?? null),
+    getMessagesByIds: vi.fn((ids: number[]) => messages.filter((m) => ids.includes(m.messageId))),
     getMessageParts: vi.fn(async (messageId: number) =>
       messageParts
         .filter((part) => part.messageId === messageId)
@@ -369,6 +370,10 @@ function createMockSummaryStore() {
 
     getSummary: vi.fn(async (summaryId: string): Promise<SummaryRecord | null> => {
       return summaries.find((s) => s.summaryId === summaryId) ?? null;
+    }),
+
+    getSummariesByIds: vi.fn((ids: string[]): SummaryRecord[] => {
+      return summaries.filter((s) => ids.includes(s.summaryId));
     }),
 
     getSummariesByConversation: vi.fn(async (conversationId: number): Promise<SummaryRecord[]> => {

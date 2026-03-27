@@ -19,11 +19,11 @@ describe("sanitizeFts5Query", () => {
   });
 
   it("handles colons (column filter syntax)", () => {
-    expect(sanitizeFts5Query("agent:foo bar")).toBe('"agent:foo" "bar"');
+    expect(sanitizeFts5Query("agent:foo bar")).toBe('"agent" "foo" "bar"');
   });
 
   it("handles prefix star operator", () => {
-    expect(sanitizeFts5Query("lcm*")).toBe('"lcm*"');
+    expect(sanitizeFts5Query("lcm*")).toBe('"lcm"');
   });
 
   it("handles empty string", () => {
@@ -47,10 +47,10 @@ describe("sanitizeFts5Query", () => {
   });
 
   it("handles NEAR operator", () => {
-    expect(sanitizeFts5Query("NEAR(a b)")).toBe('"NEAR(a" "b)"');
+    expect(sanitizeFts5Query("NEAR(a b)")).toBe('"NEAR" "a" "b"');
   });
 
   it("handles caret (initial token)", () => {
-    expect(sanitizeFts5Query("^start")).toBe('"^start"');
+    expect(sanitizeFts5Query("^start")).toBe('"start"');
   });
 });

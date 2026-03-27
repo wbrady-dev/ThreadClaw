@@ -111,7 +111,7 @@ describe("RSMA Canonical: decision keys", () => {
 describe("RSMA Canonical: entity keys", () => {
   it("builds entity::name key from content", () => {
     const key = buildCanonicalKey("entity", "Wesley Brady");
-    expect(key).toBe("entity::wesley brady");
+    expect(key).toBe("entity::unknown::wesley brady");
   });
 
   it("returns undefined for empty content", () => {

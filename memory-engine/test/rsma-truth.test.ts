@@ -472,9 +472,9 @@ describe("RSMA Truth: edge cases", () => {
   });
 
   it("handles multiple existing matches — picks highest confidence", () => {
-    // Seed two active claims with same canonical key but different branches (data anomaly)
+    // Seed two active claims with same canonical key in same branch (data anomaly)
     seedClaimInDb(db, { confidence: 0.6, branch_id: 0 });
-    seedClaimInDb(db, { confidence: 0.9, branch_id: 1, object_text: "production" });
+    seedClaimInDb(db, { confidence: 0.9, branch_id: 0, object_text: "production" });
     // Reconcile against the highest-confidence match (0.9)
     const candidate = makeClaim({ confidence: 0.85 });
     const result = reconcile(db, [candidate]);

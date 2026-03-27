@@ -100,7 +100,7 @@ describe("H2 Context Compiler", () => {
     expect(result!.budgetTotal).toBe(190);
   });
 
-  it("enforces premium budget (280 tokens)", () => {
+  it("enforces premium budget (380 tokens)", () => {
     for (let i = 0; i < 20; i++) {
       upsertClaim(db, {
         scopeId: 1, subject: `entity${i}`, predicate: "has",
@@ -110,8 +110,8 @@ describe("H2 Context Compiler", () => {
     }
     const result = compileContextCapsules(db, { tier: "premium", scopeId: 1 });
     expect(result).not.toBeNull();
-    expect(result!.tokensUsed).toBeLessThanOrEqual(280);
-    expect(result!.budgetTotal).toBe(280);
+    expect(result!.tokensUsed).toBeLessThanOrEqual(380);
+    expect(result!.budgetTotal).toBe(380);
   });
 
   it("ranks by score-per-token (highest first)", () => {

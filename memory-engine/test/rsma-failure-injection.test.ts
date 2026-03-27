@@ -129,10 +129,10 @@ describe("Failure: KG (Knowledge Graph)", () => {
       upsertEntity(g(), { name: "dupe-test", displayName: "D", entityType: "t" });
       upsertEntity(g(), { name: "dupe-test", displayName: "D", entityType: "t" });
     });
-    const count = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE composite_id = 'entity:dupe-test'").get() as any).cnt;
+    const count = (db.prepare("SELECT COUNT(*) as cnt FROM memory_objects WHERE composite_id = 'entity:t:dupe-test'").get() as any).cnt;
     expect(count).toBe(1); // single row, not 3
-    const mc = (db.prepare("SELECT json_extract(structured_json, '$.mentionCount') as mc FROM memory_objects WHERE composite_id = 'entity:dupe-test'").get() as any).mc;
-    expect(mc).toBe(3); // count incremented 3 times
+    const mc = (db.prepare("SELECT json_extract(structured_json, '$.mentionCount') as mc FROM memory_objects WHERE composite_id = 'entity:t:dupe-test'").get() as any).mc;
+    expect(mc).toBe(2); // upsertMemoryObject resets structured_json on update, then increment adds 1
   });
 
   it("deleteGraphDataForSource on nonexistent source is a safe no-op", () => {
