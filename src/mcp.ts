@@ -168,5 +168,5 @@ try {
 }
 
 // Graceful shutdown — await server.close() to drain pending requests
-process.on("SIGINT", async () => { await server.close(); closeDb(); process.exit(0); });
-process.on("SIGTERM", async () => { await server.close(); closeDb(); process.exit(0); });
+process.on("SIGINT", async () => { await server.close(); closeDb(); try { const { closeGraphDb } = await import("./storage/graph-sqlite.js"); closeGraphDb(); } catch {} process.exit(0); });
+process.on("SIGTERM", async () => { await server.close(); closeDb(); try { const { closeGraphDb } = await import("./storage/graph-sqlite.js"); closeGraphDb(); } catch {} process.exit(0); });

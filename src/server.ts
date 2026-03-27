@@ -5,7 +5,7 @@ import { homedir } from "os";
 import { createHash, timingSafeEqual } from "crypto";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
-import { getDb, closeDb, runMigrations, ensureCollection } from "./storage/index.js";
+import { getDb, closeDb, runMigrations, ensureCollection, closeGraphDb } from "./storage/index.js";
 import { registerRoutes } from "./api/routes.js";
 import { registerRateLimit } from "./api/ratelimit.js";
 import { startSources, stopSources } from "./sources/index.js";
@@ -125,6 +125,7 @@ export async function startServer() {
     await stopSources();
     await server.close();
     closeDb();
+    closeGraphDb();
     // process.exit(0) ensures clean shutdown even if timers/handles are still open.
     // Note: any in-flight HTTP response will be dropped — the /shutdown endpoint
     // should send its response before calling this callback.
