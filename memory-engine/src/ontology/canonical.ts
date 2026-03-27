@@ -33,8 +33,8 @@ export function hashPrefix(text: string, maxChars: number): string {
 const PREDICATE_ALIASES: Record<string, string> = {
   runs_on: "uses", technology: "uses", built_with: "uses", powered_by: "uses",
   run_on: "uses", use: "uses", utilizes: "uses",
-  works_under: "reports_to", managed_by: "reports_to", supervised_by: "reports_to",
-  leads: "manages", supervises: "manages", runs: "manages",
+  works_under: "reports_to", managed_by: "reports_to", supervised_by: "reports_to", boss_of: "manages",
+  leads: "manages", supervises: "manages", runs: "manages", is_boss_of: "manages",
   employed_by: "works_at", works_for: "works_at",
   has: "owns", possesses: "owns",
   based_in: "located_at", lives_in: "located_at", found_at: "located_at",

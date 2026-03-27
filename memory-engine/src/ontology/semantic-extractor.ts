@@ -222,6 +222,13 @@ Output: {"events":[{"type":"relationship","content":"Cassidy is user's wife","su
 Input: "Bob manages the auth team"
 Output: {"events":[{"type":"relationship","content":"Bob manages auth team","subject":"Bob","predicate":"manages","value":"auth team","confidence":0.9,"entities":["Bob"]}]}
 
+Input: "Matt is my boss"
+Output: {"events":[{"type":"relationship","content":"user reports to Matt","subject":"user","predicate":"reports_to","value":"Matt","topic":"manager","confidence":0.9,"entities":["Matt"]}]}
+Note: "X is my boss" means "I report to X" — the user is the subject who reports_to, X is the value. Direction matters for hierarchy predicates.
+
+Input: "Merrick is my best friend"
+Output: {"events":[{"type":"relationship","content":"Merrick is user's best friend","subject":"Merrick","predicate":"friend_of","value":"user","topic":"friendship","confidence":0.95,"entities":["Merrick"]}]}
+
 Input: "[3/23/2026 2:51 PM] Wesley Brady: Remember: Project Maple uses PostgreSQL."
 Output: {"events":[{"type":"fact","content":"Project Maple uses PostgreSQL","subject":"Project Maple","predicate":"uses","value":"PostgreSQL","confidence":0.95}]}
 Note: Do NOT extract "Wesley Brady sent a message", "message timestamp is 2:51 PM", or "message contains text" — these are message metadata, not user facts. Only extract what the user is communicating.`;
