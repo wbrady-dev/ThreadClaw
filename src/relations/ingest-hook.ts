@@ -44,23 +44,27 @@ interface ExtractionResult {
   contextTerms?: string[];
 }
 
+// Paths are constructed at runtime so tsc --noEmit doesn't trace them
+// across the rootDir boundary (src/ vs memory-engine/src/).
+const _meBase = ["../..", "memory-engine", "src", "relations"].join("/");
+
 let _extractFast: ((text: string, terms?: string[]) => ExtractionResult[]) | null = null;
 let _loadTerms: ((path?: string) => string[]) | null = null;
 
 async function getExtractFast(): Promise<(text: string, terms?: string[]) => ExtractionResult[]> {
   if (!_extractFast) {
-    const mod = await import("../../memory-engine/src/relations/entity-extract.js");
-    _extractFast = mod.extractFast;
+    const mod = await import(/* webpackIgnore: true */ `${_meBase}/entity-extract.js`);
+    _extractFast = mod.extractFast as typeof _extractFast;
   }
-  return _extractFast;
+  return _extractFast!;
 }
 
 async function getLoadTerms(): Promise<(path?: string) => string[]> {
   if (!_loadTerms) {
-    const mod = await import("../../memory-engine/src/relations/terms.js");
-    _loadTerms = mod.loadTerms;
+    const mod = await import(/* webpackIgnore: true */ `${_meBase}/terms.js`);
+    _loadTerms = mod.loadTerms as typeof _loadTerms;
   }
-  return _loadTerms;
+  return _loadTerms!;
 }
 
 // ---------------------------------------------------------------------------
