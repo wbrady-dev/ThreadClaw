@@ -1352,9 +1352,12 @@ export class LcmContextEngine implements ContextEngine {
     // Derive actor from message role: user messages → 'user', tool results → 'assistant', else 'system'
     const eeActor: string = stored.role === "user" ? "user" : stored.role === "tool" ? "assistant" : "system";
 
-    // Real-time entity extraction — must run BEFORE relation extraction
-    // so entity IDs exist in the DB when relations are looked up
-    if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5) {
+    // Entity pre-seeding: regex + NER run ONLY when RSMA/LLM won't handle it.
+    // When RSMA runs, the semantic extractor handles entity extraction via LLM.
+    // Regex is the fallback for when no extraction model is configured.
+    const rsmaHasModel = !!(this.config.relationsDeepExtractionEnabled && this.config.relationsDeepExtractionModel);
+    if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5 && !rsmaHasModel) {
+      // Regex entity extraction — fallback only (no LLM model configured)
       try {
         const { extractFast } = await import("./relations/entity-extract.js");
         const { storeExtractionResult } = await import("./relations/graph-store.js");
@@ -1370,11 +1373,14 @@ export class LcmContextEngine implements ContextEngine {
           });
         }
       } catch (err) {
-        console.warn("[cc-mem] real-time entity extraction failed:", err instanceof Error ? err.message : String(err));
+        console.warn("[cc-mem] regex entity extraction failed:", err instanceof Error ? err.message : String(err));
       }
+    }
 
-      // NER enhancement — non-blocking, uses spaCy model server if available
-      // Circuit breaker: skip if server was recently unreachable
+    // NER enhancement — runs regardless of RSMA (supplements LLM extraction with
+    // spaCy NER for structured entity types like PERSON, ORG, GPE, DATE).
+    // Circuit breaker: skip if server was recently unreachable.
+    if (this.graphDb && this.config.relationsEnabled && stored.content.length > 5) {
       if (_nerCircuitOpen && Date.now() - _nerLastFailure < (this.config.nerCircuitResetMs ?? 30_000)) {
         console.debug("[cc-mem] NER circuit open, skipping request");
       } else {
@@ -1534,19 +1540,18 @@ export class LcmContextEngine implements ContextEngine {
       }
     }
 
-    // ── HYBRID EXTRACTION PIPELINE ──────────────────────────────────────────
-    // Regex (free): decisions, loops, fast claims — synchronous, always runs
-    // LLM (async): deep claims + relations — user messages only, non-blocking
+    // ── EXTRACTION PIPELINE ──────────────────────────────────────────────
+    // LLM-primary: RSMA semantic extraction handles claims, decisions, loops,
+    // entities, relations, invariants via LLM. Regex is ONLY a fallback when
+    // no LLM extraction model is configured.
     //
-    // BUG 7 FIX: Gate legacy regex extraction to NOT run when RSMA will run.
-    // When RSMA extraction runs (graphDb + relationsEnabled + user + len>5),
-    // it already does its own extraction (LLM or regex fallback), so running
-    // legacy extraction too causes double-writes with confidence drift.
+    // When RSMA runs (graphDb + relationsEnabled + user + len>5), the LLM
+    // pipeline handles everything. Legacy regex extraction is gated to NOT
+    // run when RSMA will run (avoids double-writes with confidence drift).
     const rsmaWillRun = !!(this.graphDb && this.config.relationsEnabled && stored.role === "user" && stored.content.length > 5);
 
     const claimExtractionEnabled = this.config.relationsClaimExtractionEnabled || this.config.relationsUserClaimExtractionEnabled;
-    // Only extract claims/decisions/loops from user messages (not assistant narrative)
-    // Skip legacy extraction when RSMA pipeline will handle it (avoids double-writes)
+    // Legacy regex extraction — ONLY when RSMA won't run (no graphDb, relations disabled, or non-user)
     if (this.graphDb && claimExtractionEnabled && stored.role === "user" && !rsmaWillRun) {
       try {
         const { extractClaimsFast, extractClaimsFromUserExplicit, extractDecisionsFromText, extractLoopsFromText, extractInvariantsFromText } = await import("./relations/claim-extract.js");
@@ -1754,6 +1759,8 @@ export class LcmContextEngine implements ContextEngine {
             writerResult = await understandMessage(_content, _messageId, role);
           }
         } else {
+          // No LLM extraction model configured — regex fallback
+          console.debug("[rsma] No extraction model configured, using regex fallback");
           const { understandMessage } = await import("./ontology/writer.js");
           writerResult = await understandMessage(_content, _messageId, role);
         }
