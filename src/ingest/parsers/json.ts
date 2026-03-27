@@ -52,19 +52,22 @@ export async function parseJson(filePath: string): Promise<ParsedDocument> {
   return { text, structure: [], metadata };
 }
 
-function flattenObject(obj: unknown, prefix = ""): string {
+const MAX_FLATTEN_DEPTH = 15;
+
+function flattenObject(obj: unknown, prefix = "", depth = 0): string {
+  if (depth > MAX_FLATTEN_DEPTH) return `${prefix}: [nested object]`;
   if (obj === null) return prefix ? `${prefix}: null` : "null";
   if (obj === undefined) return "";
-  if (typeof obj !== "object") return `${prefix}${obj}`;
+  if (typeof obj !== "object") return prefix ? `${prefix}: ${obj}` : `${obj}`;
 
   const lines: string[] = [];
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
     const path = prefix ? `${prefix}.${key}` : key;
     if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-      lines.push(flattenObject(value, path));
+      lines.push(flattenObject(value, path, depth + 1));
     } else if (Array.isArray(value)) {
       if (value.length > 0 && typeof value[0] === "object" && value[0] !== null) {
-        value.forEach((item, i) => lines.push(flattenObject(item, `${path}[${i}]`)));
+        value.forEach((item, i) => lines.push(flattenObject(item, `${path}[${i}]`, depth + 1)));
       } else {
         lines.push(`${path}: ${value.join(", ")}`);
       }

@@ -111,11 +111,11 @@ export async function parseEpub(filePath: string): Promise<ParsedDocument> {
         .replace(/<style[\s\S]*?<\/style>/gi, "")
         .replace(/<[^>]+>/g, " ")
         .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
         .replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">")
         .replace(/&quot;/g, '"')
         .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, "&")
         // Decode numeric HTML entities (&#NNN;) to their character equivalents
         .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
         .replace(/&#x([0-9a-fA-F]+);/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
