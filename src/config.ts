@@ -1,14 +1,18 @@
-import { config as loadEnv, parse } from "dotenv";
 import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
-import { readFileSync, watchFile, existsSync } from "fs";
+import { watchFile, existsSync } from "fs";
+import { readEnvMap, type EnvMap } from "./tui/env.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, "..");
 const envPath = resolve(rootDir, ".env");
 
-loadEnv({ path: envPath, quiet: true });
+// Populate process.env from .env (same behavior as dotenv: don't overwrite existing)
+const startupEnv = readEnvMap(rootDir);
+for (const [k, v] of Object.entries(startupEnv)) {
+  if (process.env[k] === undefined) process.env[k] = v;
+}
 
 function env(key: string, fallback: string): string {
   return process.env[key] ?? fallback;
@@ -73,8 +77,7 @@ const hotConfig = {
 function reloadHotConfig(): void {
   try {
     if (!existsSync(envPath)) return;
-    const raw = readFileSync(envPath, "utf-8");
-    const parsed = parse(raw);
+    const parsed = readEnvMap(rootDir);
     const get = (key: string, fallback: string): string =>
       parsed[key]?.trim() ?? fallback;
     const getBool = (key: string, fallback: boolean): boolean => {
