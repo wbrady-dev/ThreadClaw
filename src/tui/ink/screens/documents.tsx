@@ -9,8 +9,6 @@ import { isPortReachable } from "../../runtime-status.js";
 interface CollectionData {
   id: string;
   name: string;
-  documentCount?: number;
-  documents?: number;
 }
 
 interface DocumentData {
@@ -18,7 +16,7 @@ interface DocumentData {
   source_path: string;
   collection: string;
   chunk_count?: number;
-  size?: number;
+  size_bytes?: number;
   created_at?: string;
 }
 
@@ -196,18 +194,10 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
   /* ── Level 1: Collections list ──────────────────────────────────── */
 
   if (level === "collections") {
-    const totalDocs = collections.reduce(
-      (sum, c) => sum + (c.documentCount ?? c.documents ?? 0),
-      0,
-    );
-
-    const menuItems: MenuItem[] = collections.map((col) => {
-      const count = col.documentCount ?? col.documents ?? 0;
-      return {
-        label: `${col.name} (${count} docs)`,
-        value: col.id,
-      };
-    });
+    const menuItems: MenuItem[] = collections.map((col) => ({
+      label: col.name,
+      value: col.id,
+    }));
     menuItems.push({ label: "Back", value: "__back__", color: t.dim });
 
     const handleSelect = (value: string) => {
@@ -219,6 +209,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       const col = collections.find((c) => c.id === value);
       if (col) {
         setSelectedCollection(col);
+        setPage(0);
         fetchDocuments(col.name);
         setLevel("documents");
       }
@@ -235,7 +226,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
         )}
 
         {collections.length > 0 && (
-          <KV label="Total documents" value={t.value(String(totalDocs))} />
+          <KV label="Collections" value={t.value(String(collections.length))} />
         )}
 
         {statusMessage && <Text>{"  " + statusMessage}</Text>}
@@ -292,7 +283,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
     const menuItems: MenuItem[] = pageDocs.map((doc) => {
       const name = basename(doc.source_path);
       const chunks = doc.chunk_count != null ? ` [${doc.chunk_count} chunks]` : "";
-      const size = doc.size ? ` ${formatSize(doc.size)}` : "";
+      const size = doc.size_bytes ? ` ${formatSize(doc.size_bytes)}` : "";
       const age = doc.created_at ? ` ${formatAge(doc.created_at)}` : "";
       return {
         label: `${name}${chunks}${size}${t.dim(age)}`,
@@ -342,12 +333,10 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
       }
     };
 
-    const docCount = selectedCollection.documentCount ?? selectedCollection.documents ?? 0;
-
     return (
       <Box flexDirection="column">
         <Section title={`${selectedCollection.name}`} />
-        <KV label="Documents" value={t.value(String(docCount))} />
+        <KV label="Documents" value={t.value(String(documents.length))} />
         {documents.length > DOCS_PER_PAGE && (
           <Text>{"  " + t.dim(`Page ${currentPage + 1} of ${totalPages}`)}</Text>
         )}
@@ -466,8 +455,8 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
         {selectedDoc.chunk_count != null && (
           <KV label="Chunks" value={t.value(String(selectedDoc.chunk_count))} />
         )}
-        {selectedDoc.size != null && (
-          <KV label="Size" value={t.value(formatSize(selectedDoc.size))} />
+        {selectedDoc.size_bytes != null && (
+          <KV label="Size" value={t.value(formatSize(selectedDoc.size_bytes))} />
         )}
         {selectedDoc.created_at && (
           <KV label="Added" value={t.dim(formatAge(selectedDoc.created_at))} />

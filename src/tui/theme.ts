@@ -50,43 +50,10 @@ export const t = new Proxy({} as ReturnType<typeof buildTheme>, {
   },
 });
 
-// Module-level chalk instances for banner() — avoids recreating on every call.
-const bannerRed = chalk.hex("#e72d19");
-const bannerWhite = chalk.bold.white;
-
-export function banner(): string {
-  const caps = getTerminalCapabilities();
-
-  if (!caps.unicode) {
-    return [
-      "",
-      bannerRed("  THREADCLAW"),
-      bannerWhite("  Premium RAG for OpenClaw"),
-      "",
-    ].join("\n");
-  }
-
-  return [
-    "",
-    `              ${bannerRed("🦞")} ${bannerWhite("THREADCLAW")} ${bannerRed("🦞")}`,
-    `          ${chalk.dim("RSMA So Good It Pinches")}`,
-    "",
-  ].join("\n");
-}
-
 export function section(title: string): string {
   const caps = getTerminalCapabilities();
-  // Use Unicode box-drawing character for unicode terminals, ASCII dashes otherwise
   const bar = caps.unicode ? "\u2550\u2550\u2550" : "---";
   return `\n${t.title(`${bar} ${title} ${bar}`)}\n`;
-}
-
-export function status(label: string, ok: boolean, detail?: string): string {
-  const caps = getTerminalCapabilities();
-  const glyph = caps.unicode ? (ok ? "●" : "○") : (ok ? "*" : "o");
-  const icon = ok ? t.ok(glyph) : t.err(glyph);
-  const det = detail ? t.dim(` ${detail}`) : "";
-  return `  ${icon} ${t.label(label)}${det}`;
 }
 
 export function kvLine(key: string, value: string): string {

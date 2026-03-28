@@ -1,5 +1,6 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { createConnection } from "net";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { resolve } from "path";
@@ -91,12 +92,11 @@ export async function detectGpuAsync(): Promise<GpuInfo> {
 
 /** TCP connect check — fast and reliable, no HTTP overhead or rate limiting. */
 export async function isPortReachable(port: number, timeoutMs = 2000): Promise<boolean> {
-  const { createConnection } = await import("net");
   return new Promise((resolve) => {
     const socket = createConnection({ port, host: "127.0.0.1" });
     const timer = setTimeout(() => { socket.destroy(); resolve(false); }, timeoutMs);
     socket.on("connect", () => { clearTimeout(timer); socket.destroy(); resolve(true); });
-    socket.on("error", () => { clearTimeout(timer); resolve(false); });
+    socket.on("error", () => { clearTimeout(timer); socket.destroy(); resolve(false); });
   });
 }
 

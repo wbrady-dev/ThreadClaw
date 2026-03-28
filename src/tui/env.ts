@@ -78,27 +78,12 @@ export function readEnvMap(root: string): EnvMap {
   return values;
 }
 
-export function readEnvValue(root: string, key: string, fallback = ""): string {
-  return readEnvMap(root)[key] ?? fallback;
-}
-
 export function writeEnvMap(root: string, values: EnvMap): void {
   const envPath = ensureEnvFile(root);
   const lines = ["# ThreadClaw Configuration"];
 
-  // Object.entries already deduplicates (last assignment wins), but sort for determinism
-  const seen = new Set<string>();
-  const deduped: [string, string][] = [];
-  const entries = Object.entries(values);
-  // Walk backwards so last occurrence wins, then reverse for correct order
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const [key] = entries[i];
-    if (!seen.has(key)) {
-      seen.add(key);
-      deduped.push(entries[i]);
-    }
-  }
-  deduped.reverse();
+  // Object.entries is already deduplicated — sort for determinism
+  const deduped = Object.entries(values);
   deduped.sort(([left], [right]) => left.localeCompare(right));
 
   for (const [key, value] of deduped) {
@@ -155,10 +140,8 @@ export function updateEnvValues(root: string, updates: EnvMap): void {
         }
         return ""; // remove duplicate lines
       });
-      // Clean up blank lines left by removed duplicates (2+ empty lines → 1)
+      // Clean up blank lines left by removed duplicates (3+ newlines → 2)
       content = content.replace(/\n{3,}/g, "\n\n");
-      // Also clean single empty lines from duplicate removal (empty string between two newlines)
-      content = content.replace(/\n\n\n/g, "\n\n");
     } else {
       content = content.trimEnd() + `\n${quoted}\n`;
     }

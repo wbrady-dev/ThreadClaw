@@ -55,6 +55,9 @@ export function ServicesScreen({
     return () => { cancelled = true; };
   }, [tick]);
 
+  // Immediately fetch on mount to clear stale caches
+  useEffect(() => { setTick((v) => v + 1); }, []);
+
   useEffect(() => subscribeTasks(() => {
     setTick((value) => value + 1);
   }), []);
@@ -67,16 +70,20 @@ export function ServicesScreen({
     try { setApiLogLines(readServiceLogTail("threadclaw", 8)); } catch {}
   }, [tick]);
 
-  const gameModeOn = !services.models.running && !services.threadclaw.running;
+  const gameModeOn = !services.models.running;
   const anyRunning = services.models.running || services.threadclaw.running;
 
   const items: MenuItem[] = [];
   if (anyRunning) {
     items.push({ label: "Restart services", value: "services-restart" });
     items.push({ label: "Stop services", value: "services-stop" });
-    items.push({ label: "Game mode on", value: "services-game-on", description: "Stop models and free VRAM" });
+    if (services.models.running) {
+      items.push({ label: "Game mode on", value: "services-game-on", description: "Stop models and free VRAM" });
+    }
   } else {
     items.push({ label: "Start services", value: "services-start" });
+  }
+  if (gameModeOn) {
     items.push({ label: "Game mode off", value: "services-game-off", description: "Start models again" });
   }
 

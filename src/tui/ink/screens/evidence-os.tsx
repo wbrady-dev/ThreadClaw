@@ -15,8 +15,8 @@ interface GraphStats {
   decisions: number;
   loops: number;
   attempts: number;
-  evidence_events: number;
-  dbSizeBytes: number;
+  evidenceEvents: number;
+  graphDbSizeMB: number;
 }
 
 interface EntityRow {
@@ -31,8 +31,7 @@ interface EntityRow {
 
 interface MentionRow {
   id: number;
-  source_type: string;
-  source_id: string;
+  source_ref: string;
   source_detail: string | null;
   context_terms: string | null;
   actor: string;
@@ -169,7 +168,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
   };
 
   const removeTerm = async (term: string) => {
-    const updated = terms.filter((t) => t !== term);
+    const updated = terms.filter((item) => item !== term);
     try {
       const res = await fetch(`${getApiBaseUrl()}/graph/terms`, {
         method: "PUT",
@@ -287,8 +286,8 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
             <Box flexDirection="column">
               <KV label="Loops" value={String(graphStats.loops)} />
               <KV label="Attempts" value={String(graphStats.attempts)} />
-              <KV label="Evidence Events" value={String(graphStats.evidence_events)} />
-              <KV label="DB Size" value={formatBytes(graphStats.dbSizeBytes)} />
+              <KV label="Evidence Events" value={String(graphStats.evidenceEvents)} />
+              <KV label="DB Size" value={`${(graphStats.graphDbSizeMB ?? 0).toFixed(1)} MB`} />
             </Box>
           </Box>
         ) : (
@@ -302,7 +301,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         <Separator />
         <Menu items={items} onSelect={(value) => {
           if (value === "__back__") return onBack();
-          if (value === "terms") { setLevel("terms"); return; }
+          if (value === "terms") { setError(null); setStatus(""); setLevel("terms"); return; }
           if (value === "__prev_entity_page__") {
             const newPage = Math.max(0, entityPage - 1);
             setEntityPage(newPage);
@@ -360,8 +359,8 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
                 <Text>{"  " + t.title("Recent Mentions")}</Text>
                 {pageMentions.map((m) => {
                   const source = m.source_detail
-                    ? `${m.source_type}:${m.source_id} (${m.source_detail})`
-                    : `${m.source_type}:${m.source_id}`;
+                    ? `${m.source_ref} (${m.source_detail})`
+                    : m.source_ref;
                   return (
                     <Text key={m.id}>{"    " + t.dim("\u2022") + " " + t.value(source) + "  " + t.dim(m.created_at.slice(0, 10))}</Text>
                   );
@@ -408,8 +407,8 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
     // Confirm removal
     if (confirmRemove) {
       const confirmItems: MenuItem[] = [
-        { label: `Yes, remove "${confirmRemove}"`, value: "confirm" },
-        { label: "Cancel", value: "cancel" },
+        { label: `Yes, remove "${confirmRemove}"`, value: "confirm", color: t.err },
+        { label: "Cancel", value: "cancel", color: t.dim },
       ];
       return (
         <Box flexDirection="column">

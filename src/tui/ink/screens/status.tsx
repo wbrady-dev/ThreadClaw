@@ -27,8 +27,8 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
   useInterval(() => setTick((n: number) => n + 1), 3000);
   useInterval(() => setGpuTick((n: number) => n + 1), 10000);
 
-  const config = readConfig();
-  const root = getRootDir();
+  const [config] = useState(() => readConfig());
+  const [root] = useState(() => getRootDir());
 
   const [modelHealth, setModelHealth] = useState<any>(null);
   const [apiStats, setApiStats] = useState<any>(null);
@@ -98,9 +98,9 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
     setTick((value) => value + 1);
   }), []);
 
-  // Model indicators: if port is up, models are loaded (server only accepts connections after loading)
-  const embedOk = svc.models.running || modelHealth?.models?.embed?.ready === true;
-  const rerankOk = svc.models.running || modelHealth?.models?.rerank?.ready === true;
+  // Model indicators: prefer health check data when available, fall back to port check
+  const embedOk = modelHealth ? (modelHealth.models?.embed?.ready === true) : svc.models.running;
+  const rerankOk = modelHealth ? (modelHealth.models?.rerank?.ready === true) : svc.models.running;
   const doclingOk = modelHealth?.models?.docling?.ready === true;
   const doclingDevice = config?.docling_device ?? "off";
 
@@ -122,12 +122,12 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
       if (!cancelled) setOcrDetected(found);
     })();
     return () => { cancelled = true; };
-  }, [tick]);
+  }, []);
 
   const embedName = config?.embed_model ?? "not configured";
   const rerankName = config?.rerank_model ?? "not configured";
 
-  const gameModeOn = !svc.models.running && !svc.threadclaw.running;
+  const gameModeOn = !svc.models.running;
 
   // Read .env once for all config values
   let envContent = "";
@@ -167,7 +167,7 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
       <Text>{"  " + (doclingOk ? t.ok("●") : t.dim("○")) + " " + t.label("Docling") + " " + (doclingOk ? t.value(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.warn(doclingDevice.toUpperCase() + " (not loaded)"))}</Text>
       <Text>{"  " + (ocrDetected ? t.ok("●") : t.dim("○")) + " " + t.label("OCR") + "     " + (ocrDetected ? t.value("Tesseract") : t.dim("off"))}</Text>
       <Text>{"  " + (modelHealth?.models?.ner?.ready === true ? t.ok("●") : t.dim("○")) + " " + t.label("NER") + "     " + (modelHealth?.models?.ner?.ready === true ? t.value("en_core_web_sm") : t.dim("off"))}</Text>
-      <Text>{"  " + t.dim("○") + " " + t.label("Query Expansion") + " " + expansionLabel}</Text>
+      <Text>{"  " + (expEnabled === "true" && expModel ? t.ok("●") : t.dim("○")) + " " + t.label("Query Expansion") + " " + expansionLabel}</Text>
 
       <Section title="GPU" />
       {gpu.detected ? (

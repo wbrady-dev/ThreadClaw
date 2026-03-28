@@ -217,10 +217,10 @@ function SearchScreen({ onBack }: SearchScreenProps) {
 
     if (totalPages > 1) {
       if (page < totalPages - 1) {
-        menuItems.push({ label: "Next page", value: "__next__", color: t.dim });
+        menuItems.push({ label: "Next page \u2192", value: "__next__", color: t.dim });
       }
       if (page > 0) {
-        menuItems.push({ label: "Previous page", value: "__prev__", color: t.dim });
+        menuItems.push({ label: "\u2190 Previous page", value: "__prev__", color: t.dim });
       }
     }
 
@@ -301,5 +301,4 @@ function SearchScreen({ onBack }: SearchScreenProps) {
   );
 }
 
-export default SearchScreen;
 export { SearchScreen };

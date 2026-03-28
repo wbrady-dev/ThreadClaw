@@ -45,9 +45,10 @@ export async function launchInkTui(): Promise<void> {
     }
 
     if (action === "sources") {
-      const subAction = await showInkScreen("sources");
-      if (subAction && subAction.startsWith("sources-")) {
+      let subAction = await showInkScreen("sources");
+      while (subAction && subAction.startsWith("sources-")) {
         await runSourcesScreenAction(subAction);
+        subAction = await showInkScreen("sources");
       }
       continue;
     }
@@ -85,9 +86,10 @@ export async function launchInkTui(): Promise<void> {
     }
 
     if (action === "services") {
-      const subAction = await showInkScreen("services");
-      if (subAction && subAction !== "__back__") {
+      let subAction = await showInkScreen("services");
+      while (subAction && subAction !== "__back__") {
         await runServicesScreenAction(subAction);
+        subAction = await showInkScreen("services");
       }
       continue;
     }
@@ -272,7 +274,6 @@ async function runResetKnowledgeBase(): Promise<void> {
 
       if (!data) {
         // Direct DB access — services not needed
-        const { resolve } = await import("path");
         const { getDb } = await import("../../storage/index.js");
         const { resetKnowledgeBase } = await import("../../storage/collections.js");
         const { config: appConfig } = await import("../../config.js");
@@ -435,12 +436,20 @@ async function runServicesScreenAction(action: string): Promise<void> {
     fireServiceAction("start");
     return;
   }
-  if (action === "services-stop" || action === "services-game-on") {
+  if (action === "services-stop") {
     fireServiceAction("stop");
     return;
   }
-  if (action === "services-restart" || action === "services-game-off") {
+  if (action === "services-game-on") {
+    fireServiceAction("stop-models");
+    return;
+  }
+  if (action === "services-restart") {
     fireServiceAction("restart");
+    return;
+  }
+  if (action === "services-game-off") {
+    fireServiceAction("start-models");
     return;
   }
 
@@ -621,9 +630,9 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     setModelsUp(cachedModelsUp);
     setThreadclawUp(cachedThreadclawUp);
 
-    // GPU and auto-start: only update on success, keep old data on failure
-    if (gpuState.detected) {
-      cachedGpu = { detected: gpuState.detected, name: gpuState.name, vramUsedMb: gpuState.vramUsedMb, vramTotalMb: gpuState.vramTotalMb };
+    // GPU and auto-start: always update GPU state
+    if (gpuState) {
+      cachedGpu = { detected: gpuState.detected, name: gpuState.name || "", vramUsedMb: gpuState.vramUsedMb || 0, vramTotalMb: gpuState.vramTotalMb || 0 };
       setGpu(cachedGpu);
     }
     if (autoStartState !== null) {
@@ -802,7 +811,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
       {/* ── Evidence OS ── */}
       <Text>{t.title("  Evidence OS")}</Text>
-      <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("\u25cf") : t.err("\u25cb")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
+      <Text>{"  " + t.dim("Status: ") + (relationsEnabled ? t.ok("\u25cf") : t.dim("\u25cb")) + "  " + t.dim("Deep Extraction: ") + (deepEnabled ? t.ok("\u25cf") : t.dim("\u25cb")) + "  " + t.dim("Awareness: ") + (awarenessEnabled ? t.ok("\u25cf") : t.dim("\u25cb"))}</Text>
       {relationsEnabled && (() => {
         const gs = stats?.graphStats;
         const allZero = !gs || ((gs.entities ?? 0) === 0 && (gs.relations ?? 0) === 0 && (gs.mentions ?? 0) === 0 && (gs.claims ?? 0) === 0 && (gs.evidenceEvents ?? 0) === 0 && (gs.decisions ?? 0) === 0 && (gs.attempts ?? 0) === 0 && (gs.loops ?? 0) === 0);

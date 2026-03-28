@@ -1,8 +1,7 @@
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { release } from "os";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { release, tmpdir } from "os";
 import { resolve } from "path";
-import { homedir, tmpdir } from "os";
 
 export interface TerminalCapabilities {
   interactive: boolean;

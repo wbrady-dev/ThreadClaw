@@ -11,7 +11,7 @@ const MODEL_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_MODEL_TIMEOUT, 18
 const API_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_API_TIMEOUT, 30000);
 const STOP_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_STOP_TIMEOUT, 3000);
 
-export type ServiceAction = "start" | "stop" | "restart";
+export type ServiceAction = "start" | "stop" | "restart" | "stop-models" | "start-models";
 
 export interface ServiceActionOptions {
   root?: string;
@@ -29,6 +29,26 @@ export async function performServiceAction(
 ): Promise<ServiceActionResult> {
   const root = options.root ?? getRootDir();
 
+  // Game mode: stop only model server
+  if (action === "stop-models") {
+    options.onStatus?.("Stopping model server...");
+    await forceKillByPort(getModelPort());
+    await waitForPortClosed(getModelPort(), STOP_WAIT_TIMEOUT);
+    return { success: true, message: "Model server stopped (VRAM freed)" };
+  }
+
+  // Game mode off: start only model server
+  if (action === "start-models") {
+    options.onStatus?.("Launching model server...");
+    const modelResult = startModelServer();
+    if (!modelResult.success) {
+      return { success: false, message: formatAccessDenied(modelResult.error ?? "Failed to launch model server") };
+    }
+    const modelWait = await waitForHealthWithLogs(getModelPort(), MODEL_WAIT_TIMEOUT, "models", root, "Waiting for model server...", options.onStatus);
+    if (!modelWait.success) return { success: false, message: "Model server failed to start" };
+    return { success: true, message: "Model server started" };
+  }
+
   if (action === "stop" || action === "restart") {
     options.onStatus?.("Stopping services...");
     const stopResult = stopServices();
@@ -39,8 +59,8 @@ export async function performServiceAction(
     // Model server may take time to release GPU memory
     options.onStatus?.("Waiting for services to stop...");
     await Promise.all([
-      waitForPortClosed(getApiPort(), STOP_WAIT_TIMEOUT, options.onStatus),
-      waitForPortClosed(getModelPort(), STOP_WAIT_TIMEOUT, options.onStatus),
+      waitForPortClosed(getApiPort(), STOP_WAIT_TIMEOUT),
+      waitForPortClosed(getModelPort(), STOP_WAIT_TIMEOUT),
     ]);
 
     // Verify ports are actually closed — if not, force-kill async
@@ -177,10 +197,8 @@ async function waitForHealthWithLogs(
 async function waitForPortClosed(
   port: number,
   timeoutMs: number,
-  onStatus?: (detail: string) => void,
 ): Promise<void> {
   const start = Date.now();
-  let lastLogAt = 0;
   while (Date.now() - start < timeoutMs) {
     try {
       await fetch(`http://127.0.0.1:${port}/health`, {

@@ -1,5 +1,4 @@
 import { existsSync } from "fs";
-import { resolve } from "path";
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 import { hasGDriveCredentials, listDriveFolders, removeGDriveCredentials, runGDriveOAuth } from "../../sources/adapters/gdrive.js";
 import { detectOneDriveFolder, hasOneDriveCredentials, removeOneDriveCredentials, runOneDriveOAuth } from "../../sources/adapters/onedrive.js";
