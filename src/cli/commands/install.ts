@@ -15,7 +15,7 @@ export const installCommand = new Command("install")
 
       if (options.nonInteractive) {
         // Non-interactive: skip TUI, run recommended install directly
-        const { runNonInteractiveInstall } = await import("../../tui/screens/install.js");
+        const { runNonInteractiveInstall } = await import("../../tui/install-helpers.js");
         await runNonInteractiveInstall();
         return;
       }

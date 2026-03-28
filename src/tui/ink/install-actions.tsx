@@ -15,7 +15,7 @@ import {
   installWindowsServicesNow,
   loginHuggingFace,
   performInstallPlan,
-} from "../screens/install.js";
+} from "../install-helpers.js";
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 import {
   CLOUD_EMBED_PROVIDERS,
