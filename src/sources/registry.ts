@@ -32,7 +32,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   const configs = new Map<string, SourceConfig>();
   const env = readEnvMap(config.rootDir);
 
-  // --- Local adapter: use canonical config (process.env via dotenv) ---
+  // --- Local adapter: uses config object (frozen at startup from process.env) ---
   if (config.watch.paths) {
     const collections = config.watch.paths
       .split(",")
