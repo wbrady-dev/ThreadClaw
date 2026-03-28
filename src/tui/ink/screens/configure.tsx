@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Box, Text } from "ink";
 import { getRootDir, readConfig } from "../../platform.js";
 import { Menu, Section, KV, Separator, t, useInterval, type MenuItem } from "../components.js";
-import { formatDoclingDevice, getExpansionStatus, getWatchPaths } from "../../screens/configure.js";
+import { formatDoclingDevice, getExpansionStatus, getWatchPaths } from "../../configure-helpers.js";
 import { readEnvMap } from "../../env.js";
 
 export function ConfigureScreen({
@@ -18,7 +18,7 @@ export function ConfigureScreen({
   const root = getRootDir();
   const config = readConfig();
   const env = readEnvMap(root);
-  const watchPaths = getWatchPaths(root);
+  const watchPaths = getWatchPaths(env);
   const relationsEnabled = env.THREADCLAW_MEMORY_RELATIONS_ENABLED === "true";
   const deepEnabled = env.THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED === "true";
   const evidenceSummary = !relationsEnabled
@@ -77,7 +77,7 @@ export function ConfigureScreen({
       <Section title="Configuration" />
       <KV label="Embed" value={config?.embed_model?.split("/").pop() ?? "not configured"} />
       <KV label="Rerank" value={config?.rerank_model?.split("/").pop() ?? "not configured"} />
-      <KV label="Query Expansion" value={getExpansionStatus(root)} />
+      <KV label="Query Expansion" value={getExpansionStatus(env)} />
       <KV label="Document Parser" value={formatDoclingDevice(config?.docling_device)} />
 
       <Section title="Automation" />

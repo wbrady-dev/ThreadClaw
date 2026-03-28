@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { detectTerminalCapabilities, setTerminalCapabilities } from "../../tui/capabilities.js";
-import { performUninstall, runUninstall } from "../../tui/screens/uninstall.js";
+import { performUninstall } from "../../tui/uninstall-helpers.js";
+import { runUninstall } from "../../tui/screens/uninstall.js";
 
 export const uninstallCommand = new Command("uninstall")
   .description("Launch the guided ThreadClaw uninstaller")

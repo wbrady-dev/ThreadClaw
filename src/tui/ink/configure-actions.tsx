@@ -21,7 +21,7 @@ import {
   writeConfig,
 } from "../platform.js";
 import { ensureEnvFile, readEnvMap, updateEnvValues } from "../env.js";
-import type { ConfigureAction } from "../screens/configure.js";
+import type { ConfigureAction } from "../configure-helpers.js";
 import { promptChecklist, promptConfirm, promptMenu, promptText } from "./prompts.js";
 import { t, type MenuItem } from "./components.js";
 

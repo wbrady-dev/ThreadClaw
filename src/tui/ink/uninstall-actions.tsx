@@ -1,5 +1,5 @@
 import { promptConfirm, promptMenu } from "./prompts.js";
-import { performUninstall } from "../screens/uninstall.js";
+import { performUninstall } from "../uninstall-helpers.js";
 
 export async function runInkUninstall(): Promise<boolean> {
   const confirm = await promptConfirm({
