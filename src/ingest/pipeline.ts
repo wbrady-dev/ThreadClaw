@@ -1,4 +1,5 @@
 import { readFile, stat } from "fs/promises";
+import { homedir } from "os";
 import { resolve, sep } from "path";
 import { v4 as uuidv4 } from "uuid";
 
@@ -92,10 +93,17 @@ async function ingestFileInner(
   // Ensure collection exists
   const collection = ensureCollection(db, collectionName);
 
-  // Path containment check — prevent directory traversal attacks
-  const allowedBase = resolve(config.dataDir, "..");
-  if (!absPath.startsWith(allowedBase + sep) && absPath !== allowedBase) {
-    logger.warn({ filePath: absPath, allowedBase }, "File path outside allowed base directory");
+  // Path containment check — prevent directory traversal attacks.
+  // Allow: service root, user home (watch paths), and ~/.threadclaw (staging).
+  const allowedBases = [
+    resolve(config.dataDir, ".."),                                    // service root
+    homedir(),                                                         // user home (watch paths)
+  ];
+  const pathOk = allowedBases.some(
+    (base) => absPath.startsWith(resolve(base) + sep) || absPath === resolve(base),
+  );
+  if (!pathOk) {
+    logger.warn({ filePath: absPath, allowedBases }, "File path outside allowed base directories");
     return {
       documentsAdded: 0, documentsUpdated: 0, chunksCreated: 0,
       duplicatesSkipped: 0, elapsedMs: Date.now() - start,
