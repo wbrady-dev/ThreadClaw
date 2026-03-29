@@ -111,6 +111,9 @@ export class ThreadClawWatcher {
           "**/SendTo/**",
           "**/Templates/**",
           "**/Start Menu/**",
+          // Obsidian vault internals (should never be ingested regardless of adapter)
+          "**/.obsidian/**",
+          "**/.trash/**",
           ...(config.watch.excludePatterns
             ? config.watch.excludePatterns.split(",").map((p) => p.trim()).filter(Boolean)
             : []),

@@ -737,7 +737,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const items: MenuItem[] = [
     { label: "\u2500\u2500 Actions \u2500\u2500", value: "__sep_actions" },
     { label: "Search", value: "search" },
-    { label: "Sources", value: "sources" },
+    { label: "Sources", value: "sources", description: sourceIcons.length > 0 ? sourceIcons.map(s => s.replace(/[●○]\s*/g, "")).join(", ") : undefined },
     { label: "Documents", value: "documents", description: docCount > 0 ? `${docCount} documents` : undefined },
     { label: "\u2500\u2500 System \u2500\u2500", value: "__sep_system" },
     { label: "Status & Health", value: "status" },

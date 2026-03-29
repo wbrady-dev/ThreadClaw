@@ -82,7 +82,7 @@ async function configureObsidian(): Promise<void> {
 
   if (action === "enable") {
     updateEnvValues(root, { OBSIDIAN_ENABLED: "true" });
-    appendWatchPath(root, currentPath, "obsidian");
+    // ObsidianAdapter watches the vault independently — don't add to WATCH_PATHS
     await triggerSourcesReload();
     await showNotice("Obsidian", "Obsidian ingestion enabled.");
     return;
@@ -110,7 +110,7 @@ async function configureObsidian(): Promise<void> {
       OBSIDIAN_VAULT_PATH: trimmed,
       OBSIDIAN_COLLECTION: "obsidian",
     });
-    appendWatchPath(root, trimmed, "obsidian");
+    // ObsidianAdapter watches the vault independently — don't add to WATCH_PATHS
     await triggerSourcesReload();
     await showNotice("Obsidian", `Vault set to ${trimmed}.`);
     return;
@@ -136,7 +136,7 @@ async function configureObsidian(): Promise<void> {
       OBSIDIAN_VAULT_PATH: vaultPath,
       OBSIDIAN_COLLECTION: "obsidian",
     });
-    appendWatchPath(root, vaultPath, "obsidian");
+    // ObsidianAdapter watches the vault independently — don't add to WATCH_PATHS
     await triggerSourcesReload();
     await showNotice("Obsidian", `Vault set to ${vaultPath}.`);
   }
