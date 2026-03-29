@@ -46,7 +46,9 @@ export function chunkProse(
         const st = estimateTokens(sent);
         // Hard split if a single sentence exceeds maxTokens (e.g., minified content)
         if (st > maxTokens && sentBuf.length === 0) {
-          // Character-level split for oversized single sentences
+          // Character-level split for oversized single sentences.
+          // NOTE: 4 chars/token heuristic is approximate for Latin text (~3.5-4 chars/token).
+          // CJK text averages ~2 chars/token, so chunks may be ~2x the intended token count.
           const chars = sent;
           for (let ci = 0; ci < chars.length; ci += maxTokens * 4) {
             const slice = chars.slice(ci, ci + maxTokens * 4);

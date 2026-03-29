@@ -47,7 +47,7 @@ async function isWhisperAvailable(): Promise<boolean> {
   return _whisperAvailable;
 }
 
-export function isAudioTranscriptionEnabled(): boolean {
+function isAudioTranscriptionEnabled(): boolean {
   return process.env.AUDIO_TRANSCRIPTION_ENABLED === "true";
 }
 

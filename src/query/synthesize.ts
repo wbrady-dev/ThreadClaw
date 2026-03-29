@@ -33,6 +33,11 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
     || process.env.DEEP_EXTRACT_MODEL
     || process.env.SYNTHESIS_MODEL
     || "gpt-4o-mini";
+
+  // Warn when falling back to external API (no local synthesis URL configured)
+  if (!config.synthesis.url && !process.env.DEEP_EXTRACT_LLM_URL && !process.env.SYNTHESIS_LLM_URL) {
+    logger.warn({ url, model }, "No local synthesis LLM configured — falling back to external OpenAI API");
+  }
   const apiKey = process.env.SYNTHESIS_API_KEY
     || process.env.OPENAI_API_KEY
     || "";
@@ -59,10 +64,22 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
     throw new Error(`Synthesis LLM returned ${response.status}`);
   }
 
+  // Guard against unexpectedly large responses (max 2 MB)
+  const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+  const contentLength = response.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_BYTES) {
+    throw new Error(`Synthesis response too large: ${contentLength} bytes`);
+  }
+
   let data: any;
   try {
-    data = await response.json();
-  } catch {
+    const text = await response.text();
+    if (text.length > MAX_RESPONSE_BYTES) {
+      throw new Error(`Synthesis response body too large: ${text.length} chars`);
+    }
+    data = JSON.parse(text);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("too large")) throw err;
     throw new Error("Synthesis LLM returned invalid JSON");
   }
   const answer = data.choices?.[0]?.message?.content ?? "";

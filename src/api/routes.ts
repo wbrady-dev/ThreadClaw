@@ -5,7 +5,7 @@ import { registerCollectionRoutes } from "./collection.routes.js";
 import { registerHealthRoutes } from "./health.routes.js";
 import { registerSourceRoutes } from "./sources.routes.js";
 import { registerReindexRoutes } from "./reindex.routes.js";
-import { registerAnalyticsRoutes, registerDiagnosticsRoute } from "./analytics.routes.js";
+import { registerAnalyticsRoutes, registerDiagnosticsRoute, closeAnalyticsDb } from "./analytics.routes.js";
 import { registerDocumentRoutes } from "./document.routes.js";
 import { registerResetRoutes } from "./reset.routes.js";
 import { registerGraphRoutes } from "./graph.routes.js";
@@ -28,4 +28,7 @@ export async function registerRoutes(server: FastifyInstance, onShutdown?: () =>
   registerGraphRoutes(server);
   registerGraphObjectRoutes(server);
   registerEventStreamRoute(server);
+
+  // Clean up analytics DB on server close
+  server.addHook("onClose", () => { closeAnalyticsDb(); });
 }

@@ -23,6 +23,10 @@ interface MigrationStats {
 
 /** Try a SQL statement with both _legacy_* and original table names. */
 function tryLegacy(db: GraphDb, sql: string, legacyTable: string): number {
+  // Assert table name is safe (alphanumeric + underscore only) to prevent injection via replacement
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(legacyTable)) {
+    throw new Error(`Unsafe legacy table name: ${legacyTable}`);
+  }
   // Try _legacy_ prefixed name first, then original
   for (const table of [`_legacy_${legacyTable}`, legacyTable]) {
     try {

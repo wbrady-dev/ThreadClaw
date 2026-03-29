@@ -2,7 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { config } from "../config.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
 import { logger } from "../utils/logger.js";
+import { escapeLike } from "../utils/sql.js";
 import { isLocalRequest } from "./guards.js";
+
+/** Row shape returned by memory_objects queries that include composite_id. */
+interface MemoryObjectRow {
+  id: number;
+  composite_id: string;
+  [key: string]: unknown;
+}
 
 /**
  * RSMA object endpoints — claims, decisions, loops, conflicts, procedures.
@@ -302,11 +310,12 @@ export function registerGraphObjectRoutes(server: FastifyInstance) {
         FROM memory_objects WHERE kind = 'claim' AND id = ?
       `).get(idNum);
       if (!claim) return reply.status(404).send({ error: "Claim not found" });
+      const claimRow = claim as MemoryObjectRow;
       const provenance = db.prepare(`
         SELECT id, subject_id, predicate, object_id, confidence, created_at
         FROM provenance_links WHERE subject_id = ? OR object_id = ?
         ORDER BY created_at DESC LIMIT 50
-      `).all((claim as any).composite_id, (claim as any).composite_id);
+      `).all(claimRow.composite_id, claimRow.composite_id);
       return { claim, provenance };
     } catch (err) {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get claim detail");
@@ -333,11 +342,12 @@ export function registerGraphObjectRoutes(server: FastifyInstance) {
         FROM memory_objects WHERE kind = 'decision' AND id = ?
       `).get(idNum);
       if (!decision) return reply.status(404).send({ error: "Decision not found" });
+      const decisionRow = decision as MemoryObjectRow;
       const provenance = db.prepare(`
         SELECT id, subject_id, predicate, object_id, confidence, created_at
         FROM provenance_links WHERE subject_id = ? OR object_id = ?
         ORDER BY created_at DESC LIMIT 50
-      `).all((decision as any).composite_id, (decision as any).composite_id);
+      `).all(decisionRow.composite_id, decisionRow.composite_id);
       return { decision, provenance };
     } catch (err) {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get decision detail");
@@ -364,11 +374,12 @@ export function registerGraphObjectRoutes(server: FastifyInstance) {
         FROM memory_objects WHERE kind = 'loop' AND id = ?
       `).get(idNum);
       if (!loop) return reply.status(404).send({ error: "Loop not found" });
+      const loopRow = loop as MemoryObjectRow;
       const provenance = db.prepare(`
         SELECT id, subject_id, predicate, object_id, confidence, created_at
         FROM provenance_links WHERE subject_id = ? OR object_id = ?
         ORDER BY created_at DESC LIMIT 50
-      `).all((loop as any).composite_id, (loop as any).composite_id);
+      `).all(loopRow.composite_id, loopRow.composite_id);
       return { loop, provenance };
     } catch (err) {
       logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get loop detail");
@@ -448,8 +459,8 @@ export function registerGraphObjectRoutes(server: FastifyInstance) {
       if (subject) {
         const subjectNorm = subject.toLowerCase().trim();
         // Primary: exact match on structured subject field (fast)
-        conditions.push("(LOWER(json_extract(structured_json, '$.subject')) = ? OR content LIKE ?)");
-        params.push(subjectNorm, `%${subjectNorm}%`);
+        conditions.push("(LOWER(json_extract(structured_json, '$.subject')) = ? OR content LIKE ? ESCAPE '\\')");
+        params.push(subjectNorm, `%${escapeLike(subjectNorm)}%`);
       }
       if (from) { conditions.push("created_at >= ?"); params.push(from); }
       if (to) { conditions.push("created_at <= ?"); params.push(to); }

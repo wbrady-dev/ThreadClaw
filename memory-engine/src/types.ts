@@ -12,7 +12,7 @@ import type { LcmConfig } from "./db/config.js";
  * Matches the signature of completeSimple from @mariozechner/pi-ai.
  */
 export type CompletionContentBlock = {
-  type: string;
+  type: "text" | "tool_use" | "tool_result";
   text?: string;
   [key: string]: unknown;
 };
@@ -30,7 +30,7 @@ export type CompleteFn = (params: {
   authProfileId?: string;
   agentDir?: string;
   runtimeConfig?: unknown;
-  messages: Array<{ role: string; content: unknown }>;
+  messages: Array<{ role: "user" | "assistant" | "system" | "tool"; content: unknown }>;
   system?: string;
   maxTokens: number;
   temperature?: number;

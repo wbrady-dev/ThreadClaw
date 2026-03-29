@@ -1,7 +1,7 @@
 import { resolve, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
-import { watchFile, existsSync } from "fs";
+import { watchFile, unwatchFile, existsSync } from "fs";
 import { readEnvMap, type EnvMap } from "./tui/env.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -131,11 +131,25 @@ function reloadHotConfig(): void {
 // Uses fs.watchFile (polling at 3s) instead of fs.watch because fs.watch is unreliable on
 // network drives and some Windows setups. The 3s poll interval is a good tradeoff.
 let hotReloadTimer: ReturnType<typeof setTimeout> | null = null;
+let _envWatchActive = false;
 if (existsSync(envPath)) {
   watchFile(envPath, { interval: 3000 }, () => {
     if (hotReloadTimer) clearTimeout(hotReloadTimer);
     hotReloadTimer = setTimeout(() => reloadHotConfig(), 500);
   });
+  _envWatchActive = true;
+}
+
+/** Stop watching .env — call on shutdown to release the file handle. */
+export function cleanupConfigWatcher(): void {
+  if (_envWatchActive) {
+    unwatchFile(envPath);
+    _envWatchActive = false;
+  }
+  if (hotReloadTimer) {
+    clearTimeout(hotReloadTimer);
+    hotReloadTimer = null;
+  }
 }
 
 // ── Main config (frozen at startup for model/port/path settings) ──
@@ -193,6 +207,7 @@ export const config = {
     hybridBm25Weight: envFloat("HYBRID_BM25_WEIGHT", 1.0),
     maxLength: envInt("QUERY_MAX_LENGTH", 2000),
     retrieveMultiplier: envInt("QUERY_RETRIEVE_MULTIPLIER", 2),
+    vectorOverRetrieveFactor: envInt("QUERY_VECTOR_OVER_RETRIEVE_FACTOR", 3),
     lowConfidenceThreshold: envFloat("QUERY_LOW_CONFIDENCE_THRESHOLD", 0.3),
   },
 

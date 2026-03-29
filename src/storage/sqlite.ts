@@ -75,6 +75,7 @@ export function closeDb(): void {
   if (db) {
     const ref = db;
     db = null; // Clear reference first to prevent use-after-close
+    storedPath = null; // Reset so next getDb() can accept a new path
     try {
       ref.pragma("wal_checkpoint(PASSIVE)");
     } catch {}

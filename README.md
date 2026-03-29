@@ -289,7 +289,7 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 - **Cross-Platform** — Windows (Task Scheduler), macOS (launchd), Linux (systemd --user)
 - **Local-First** — all models run on your hardware. No data leaves your machine.
 
-### Agent Tools (15)
+### Agent Tools (16)
 
 | Tool | What it does |
 |------|-------------|
@@ -301,6 +301,7 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 | `cc_claims` | Query structured claims (facts) |
 | `cc_decisions` | Query active decisions |
 | `cc_loops` | Query open tasks and follow-ups |
+| `cc_manage_loop` | Close, update, or change loop status and priority |
 | `cc_attempts` | Query tool success/failure history |
 | `cc_branch` | Manage speculative branches |
 | `cc_procedures` | Query runbooks and anti-runbooks |
@@ -501,7 +502,7 @@ cd memory-engine && npm test # 866 memory-engine tests
 [Install](docs/install.md) | [Quick Start](docs/quickstart.md) | [Configuration](docs/configuration.md) | [Migration](docs/migration.md)
 
 **Reference:**
-[Tools (15)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
+[Tools (16)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
 
 **Concepts:**
 [Core Concepts](docs/concepts.md) | [Architecture](docs/architecture.md) | [Scopes & Branches](docs/scopes-and-branches.md) | [Promotion Policies](docs/promotion-policies.md)

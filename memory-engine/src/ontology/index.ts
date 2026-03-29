@@ -20,6 +20,14 @@ export type {
   RelevanceSignals,
   RankingWeights,
   TaskMode,
+  StructuredClaim,
+  StructuredDecision,
+  StructuredEntity,
+  StructuredInvariant,
+  StructuredLoop,
+  StructuredRelation,
+  StructuredProcedure,
+  StructuredCapability,
 } from "./types.js";
 
 export {
@@ -44,7 +52,7 @@ export {
 export type { QueryMemoryObjectsOpts } from "./mo-store.js";
 
 // Canonical keys
-export { buildCanonicalKey, normalize, hashPrefix, normalizePredicate } from "./canonical.js";
+export { buildCanonicalKey, normalize, hashPrefix, normalizePredicate, normalizeTopic } from "./canonical.js";
 
 // Reader
 export type { MemoryReaderOptions } from "./reader.js";

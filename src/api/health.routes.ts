@@ -2,11 +2,12 @@ import type { FastifyInstance } from "fastify";
 import { resolve } from "path";
 import { statSync } from "fs"; // statSync is acceptable in /stats (localhost-only, infrequent)
 import { config } from "../config.js";
-import { getDb, listCollections } from "../storage/index.js";
+import { getMainDb, listCollections } from "../storage/index.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
 import { getTokenCounts } from "../utils/token-tracker.js";
 import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
+import { toClientError } from "../utils/errors.js";
 
 /** Short-lived TTL cache for /stats to avoid unparameterized queries on every call */
 let statsCache: { data: Record<string, unknown>; ts: number } | null = null;
@@ -94,7 +95,7 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
     reply.send({ status: "shutting down" });
     // Graceful shutdown after response is sent
     if (onShutdown) {
-      setImmediate(() => onShutdown());
+      setImmediate(() => onShutdown().catch((err) => logger.error({ error: String(err) }, "Shutdown handler error")));
     } else {
       setImmediate(() => {
         try { server.close(); } catch {}
@@ -114,7 +115,7 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
     }
 
     try {
-      const db = getDb(resolve(config.dataDir, "threadclaw.db"));
+      const db = getMainDb();
 
       const collections = listCollections(db);
 
@@ -190,7 +191,7 @@ export function registerHealthRoutes(server: FastifyInstance, onShutdown?: () =>
 
       return reply.send(result);
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch stats: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "Fetch stats") });
     }
   });
 }

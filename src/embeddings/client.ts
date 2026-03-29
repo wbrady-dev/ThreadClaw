@@ -100,7 +100,7 @@ export async function embed(
     } catch (err) {
       clearTimeout(timeout);
       lastError = new EmbeddingError(
-        `Failed to connect to embedding server at ${url}: ${err}`,
+        `Failed to connect to embedding server: ${err instanceof Error ? err.message : String(err)}`,
       );
       continue; // retry
     }
@@ -145,10 +145,10 @@ export async function embed(
     return sorted.map((d) => d.embedding);
   }
 
-  // If all retries failed with connection errors, trip the circuit breaker
-  if (lastError && lastError.message.includes("Failed to connect")) {
-    tripCircuit();
-  }
+  // All retries exhausted — trip circuit breaker regardless of error type.
+  // The server is unhealthy (connection failures, 5xx, 429 overload) so
+  // fast-fail subsequent calls until cooldown elapses.
+  tripCircuit();
   throw lastError ?? new EmbeddingError("Embedding failed after retries");
 
 }

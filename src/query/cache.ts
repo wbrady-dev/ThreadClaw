@@ -8,6 +8,18 @@ import { config } from "../config.js";
  * Configurable entries max and TTL. No persistence — memory only.
  */
 
+/** Recursively freeze an object to prevent mutation without cloning on every read. */
+function deepFreeze<T>(obj: T): T {
+  if (obj === null || typeof obj !== "object") return obj;
+  Object.freeze(obj);
+  for (const val of Object.values(obj as Record<string, unknown>)) {
+    if (val !== null && typeof val === "object" && !Object.isFrozen(val)) {
+      deepFreeze(val);
+    }
+  }
+  return obj;
+}
+
 const MAX_ENTRIES = config.query.cacheMaxEntries;
 const TTL_MS = config.query.cacheTtlMs;
 
@@ -43,9 +55,8 @@ export function getCached<T>(key: string): T | null {
   cache.delete(key);
   cache.set(key, entry);
 
-  // structuredClone on every read ensures callers can't mutate cached data.
-  // This is correct but has a performance cost for large result objects.
-  return structuredClone(entry.result) as T;
+  // Return directly — stored data is deep-frozen on write to prevent mutation
+  return entry.result as T;
 }
 
 /**
@@ -59,7 +70,7 @@ export function setCached(key: string, result: unknown): void {
     else break;
   }
 
-  cache.set(key, { result: structuredClone(result), timestamp: Date.now() });
+  cache.set(key, { result: deepFreeze(structuredClone(result)), timestamp: Date.now() });
 }
 
 /**

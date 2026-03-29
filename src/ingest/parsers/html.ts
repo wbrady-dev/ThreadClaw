@@ -34,9 +34,19 @@ export async function parseHtml(filePath: string): Promise<ParsedDocument> {
       doc.querySelector('meta[property="article:published_time"]');
     if (metaDate) metadata.date = metaDate.getAttribute("content") ?? undefined;
 
-    // NOTE: Readability.parse() mutates the DOM in-place (removes elements, restructures).
-    // Any DOM queries for structure hints should be done BEFORE calling Readability,
-    // or use a cloned document.
+    // Extract headings BEFORE Readability mutates the DOM (it removes/restructures elements).
+    const preHeadings: Array<{ text: string; level: number }> = [];
+    const headingEls = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
+    for (const heading of headingEls) {
+      const headingText = heading.textContent?.trim() ?? "";
+      if (headingText) {
+        preHeadings.push({
+          text: headingText,
+          level: parseInt(heading.tagName.charAt(1), 10),
+        });
+      }
+    }
+
     const reader = new Readability(doc);
     const article = reader.parse();
 
@@ -53,25 +63,21 @@ export async function parseHtml(filePath: string): Promise<ParsedDocument> {
       metadata.title = basename(filePath, ".html");
     }
 
-    // Find headings for structure hints.
-    // NOTE: After Readability processes the DOM, the heading structure may be altered
-    // or removed. These offsets are approximate — they search the extracted text for
-    // heading text matches, which may not align perfectly with the original structure.
+    // Build structure hints by searching extracted text for pre-extracted heading text.
+    // Offsets are approximate — heading text may appear at different positions in the
+    // Readability-cleaned output vs the original DOM.
     const structure: StructureHint[] = [];
-    const headings = doc.querySelectorAll("h1, h2, h3, h4, h5, h6");
     let searchFrom = 0;
-    for (const heading of headings) {
-      const headingText = heading.textContent?.trim() ?? "";
-      const level = parseInt(heading.tagName.charAt(1), 10);
-      const idx = text.indexOf(headingText, searchFrom);
+    for (const heading of preHeadings) {
+      const idx = text.indexOf(heading.text, searchFrom);
       if (idx >= 0) {
         structure.push({
           type: "heading",
-          level,
+          level: heading.level,
           startOffset: idx,
-          endOffset: idx + headingText.length,
+          endOffset: idx + heading.text.length,
         });
-        searchFrom = idx + headingText.length;
+        searchFrom = idx + heading.text.length;
       }
     }
 

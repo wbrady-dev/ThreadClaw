@@ -1,7 +1,8 @@
 import { Command } from "commander";
-import { watchFile, unwatchFile } from "fs";
+import { watchFile, unwatchFile, statSync, openSync, readSync, closeSync } from "fs";
 import { t } from "../../tui/theme.js";
 import { readServiceLogTail, getServiceLogPath, type ServiceLogName } from "../../tui/service-logs.js";
+import { sanitizeCommandLine } from "../../tui/process.js";
 
 function colorLine(line: string): string {
   const lower = line.toLowerCase();
@@ -61,29 +62,52 @@ export const logsCommand = new Command("logs")
     if (opts.follow) {
       console.log(t.dim("  Following logs... Press Ctrl+C to stop.\n"));
 
-      const trackers = new Map<ServiceLogName, string[]>();
+      const offsets = new Map<ServiceLogName, number>();
       const watchedFiles: string[] = [];
 
       const setupWatcher = (name: ServiceLogName, prefix: string, show: boolean): void => {
         if (!show) return;
-        // Seed with current content to detect new lines
-        trackers.set(name, readServiceLogTail(name, 10000));
-
         const logPath = getServiceLogPath(name);
         watchedFiles.push(logPath);
+
+        // Seed offset to current file size so we only show new lines
+        try {
+          offsets.set(name, statSync(logPath).size);
+        } catch {
+          offsets.set(name, 0);
+        }
+
         // fs.watchFile polling at 500ms is a trade-off: it works reliably across
         // platforms (including networked/virtual filesystems) where fs.watch may
         // miss events. The 500ms interval keeps CPU usage minimal while providing
         // near-real-time log tailing.
         watchFile(logPath, { interval: 500 }, () => {
           try {
-            const allLines = readServiceLogTail(name, 10000);
-            const prev = trackers.get(name) ?? [];
-            // Detect log truncation/rotation: if new content is shorter, treat it as fresh
-            const newLines = allLines.length < prev.length
-              ? allLines
-              : allLines.slice(prev.length);
-            trackers.set(name, allLines);
+            const stat = statSync(logPath);
+            const prevOffset = offsets.get(name) ?? 0;
+
+            // Detect log truncation/rotation: reset offset if file shrank
+            if (stat.size < prevOffset) {
+              offsets.set(name, 0);
+            }
+
+            const currentOffset = offsets.get(name) ?? 0;
+            if (stat.size <= currentOffset) return; // no new data
+
+            const bytesToRead = stat.size - currentOffset;
+            const buf = Buffer.alloc(bytesToRead);
+            const fd = openSync(logPath, "r");
+            try {
+              readSync(fd, buf, 0, bytesToRead, currentOffset);
+            } finally {
+              closeSync(fd);
+            }
+            offsets.set(name, stat.size);
+
+            const newLines = buf.toString("utf-8")
+              .split(/\r?\n/)
+              .map((line) => sanitizeCommandLine(line))
+              .filter(Boolean);
             for (const line of newLines) {
               console.log(`  ${prefix} ${colorLine(line)}`);
             }

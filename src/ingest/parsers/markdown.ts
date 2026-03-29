@@ -102,7 +102,7 @@ export async function parseMarkdown(filePath: string): Promise<ParsedDocument> {
   }
 
   // ── Block references ──────────────────────────────────────────────
-  const blockRefRegex = /\^([a-zA-Z0-9-]+)\s*$/gm;
+  const blockRefRegex = /(?:^|\s)\^([a-zA-Z0-9-]+)\s*$/gm;
   const blockRefs: string[] = [];
   while ((match = blockRefRegex.exec(text)) !== null) {
     if (isInsideCodeBlock(match.index)) continue;

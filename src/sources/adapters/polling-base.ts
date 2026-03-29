@@ -53,6 +53,8 @@ export abstract class PollingAdapterBase implements SourceAdapter {
   protected unavailableReason = "";
   protected readonly stagingDir: string;
   protected readonly defaultSyncInterval: number;
+  private _syncInProgress: Promise<void> | null = null;
+  private _syncing = false;
 
   constructor(opts: PollingAdapterOptions) {
     this.id = opts.id;
@@ -74,9 +76,9 @@ export abstract class PollingAdapterBase implements SourceAdapter {
 
   /**
    * Download a single item to the staging directory.
-   * Returns the local file path where it was saved.
+   * Returns the local file path where it was saved, or null to skip (e.g. content unchanged).
    */
-  abstract downloadItem(item: RemoteItem): Promise<string>;
+  abstract downloadItem(item: RemoteItem): Promise<string | null>;
 
   /**
    * Return the staging file path(s) to delete when an item is removed.
@@ -149,11 +151,20 @@ export abstract class PollingAdapterBase implements SourceAdapter {
     const intervalMs = (cfg.syncInterval || this.defaultSyncInterval) * 1000;
     const scheduleNext = () => {
       this.syncTimer = setTimeout(async () => {
+        if (this._syncing) {
+          // Previous sync still running (e.g. rapid restart) — skip this tick
+          if (this.syncTimer !== null) scheduleNext();
+          return;
+        }
         try {
-          await this.sync();
+          const p = this.sync();
+          this._syncInProgress = p;
+          await p;
         } catch (err) {
           logger.error({ source: this.id, error: String(err) }, `${this.name} sync failed`);
           this.status = { ...this.status, state: "error", error: String(err) };
+        } finally {
+          this._syncInProgress = null;
         }
         // Schedule next sync after the current one completes
         if (this.syncTimer !== null) scheduleNext();
@@ -167,6 +178,19 @@ export abstract class PollingAdapterBase implements SourceAdapter {
       clearTimeout(this.syncTimer);
       this.syncTimer = null;
     }
+    // Await any in-progress sync (with a 30s safety timeout)
+    if (this._syncInProgress) {
+      try {
+        await Promise.race([
+          this._syncInProgress,
+          new Promise<void>((r) => setTimeout(r, 30_000)),
+        ]);
+      } catch {
+        // Swallow — sync errors are already logged
+      }
+      this._syncInProgress = null;
+    }
+    this._syncing = false;
     this.onStop();
     this.status = { state: "idle", docCount: 0 };
   }
@@ -237,7 +261,10 @@ export abstract class PollingAdapterBase implements SourceAdapter {
           tags: file.tags,
         };
         const localPath = await this.downloadItem(item);
-        staged.push({ ...file, localPath });
+        // downloadItem may return null to signal "skip" (e.g. content unchanged)
+        if (localPath) {
+          staged.push({ ...file, localPath });
+        }
       } catch (err) {
         logger.error({ source: this.id, itemId: file.sourceId, error: String(err) }, `Failed to download item`);
       }
@@ -259,94 +286,100 @@ export abstract class PollingAdapterBase implements SourceAdapter {
   // ── Sync loop ──
 
   protected async sync(): Promise<void> {
+    if (this._syncing) return;
+    this._syncing = true;
     this.status = { ...this.status, state: "syncing" };
 
-    const changes = await this.detectChanges();
-    const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
-    const interval = this.cfg?.syncInterval ?? this.defaultSyncInterval;
+    try {
+      const changes = await this.detectChanges();
+      const totalChanges = changes.added.length + changes.modified.length + changes.removed.length;
+      const interval = this.cfg?.syncInterval ?? this.defaultSyncInterval;
 
-    if (totalChanges === 0) {
-      logger.info({ source: this.id }, `${this.name} sync: no changes`);
+      if (totalChanges === 0) {
+        logger.info({ source: this.id }, `${this.name} sync: no changes`);
+        this.status = {
+          ...this.status,
+          state: "idle",
+          lastSync: new Date(),
+          nextSync: new Date(Date.now() + interval * 1000),
+        };
+        return;
+      }
+
+      logger.info(
+        { source: this.id, added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
+        `${this.name} sync: changes detected`,
+      );
+
+      // Process removals — delete staging files, DB docs, and remove from manifest
+      // Hoist DB connection outside the loop to avoid repeated open/close
+      const db = changes.removed.length > 0
+        ? getDb(resolve(config.dataDir, "threadclaw.db"))
+        : null;
+
+      for (const itemId of changes.removed) {
+        const entry = this.manifest.get(itemId);
+        const entryName = entry?.name ?? itemId;
+
+        // Remove staging files
+        const paths = this.getStagingPathsForRemoval(itemId, entryName);
+        for (const p of paths) {
+          try { if (existsSync(p)) unlinkSync(p); } catch {}
+        }
+
+        // Clean up DB documents/chunks/vectors to prevent orphans
+        try {
+          if (!db) throw new Error("DB not initialized");
+          const query = this.getRemovalDbQuery(itemId, entryName);
+          const docs = db.prepare(query.sql).all(...query.params) as { id: string }[];
+          for (const doc of docs) {
+            deleteDocument(db, doc.id);
+            logger.info({ source: this.id, itemId, docId: doc.id }, "Deleted orphaned document from DB");
+          }
+        } catch (dbErr) {
+          logger.error({ source: this.id, itemId, error: String(dbErr) }, "Failed to clean up DB on removal");
+        }
+
+        this.manifest.delete(itemId);
+        logger.info({ source: this.id, itemId }, `${this.name} item removed`);
+      }
+
+      const staged = await this.downloadToStaging(changes);
+
+      let ingested = 0;
+      for (const file of staged) {
+        try {
+          await ingestFile(file.localPath, {
+            collection: file.collection,
+            tags: file.tags,
+          });
+          ingested++;
+
+          this.manifest.set(file.sourceId, {
+            id: file.sourceId,
+            name: file.localPath.split(/[/\\]/).pop() ?? file.sourceId,
+            lastModified: file.remoteTimestamp ?? new Date().toISOString(),
+          });
+        } catch (err) {
+          // NOTE: Failed ingestions will be retried on every sync cycle since the file
+          // remains in the remote listing. Consider tracking failed file IDs to skip
+          // them after N consecutive failures.
+          logger.error({ source: this.id, file: file.localPath, error: String(err) }, `Failed to ingest ${this.name} item`);
+        }
+      }
+
+      this.cleanup(staged);
+
       this.status = {
-        ...this.status,
         state: "idle",
         lastSync: new Date(),
         nextSync: new Date(Date.now() + interval * 1000),
+        docCount: this.manifest.size,
       };
-      return;
+
+      logger.info({ source: this.id, ingested, total: this.manifest.size }, `${this.name} sync complete`);
+    } finally {
+      this._syncing = false;
     }
-
-    logger.info(
-      { source: this.id, added: changes.added.length, modified: changes.modified.length, removed: changes.removed.length },
-      `${this.name} sync: changes detected`,
-    );
-
-    // Process removals — delete staging files, DB docs, and remove from manifest
-    // Hoist DB connection outside the loop to avoid repeated open/close
-    const db = changes.removed.length > 0
-      ? getDb(resolve(config.dataDir, "threadclaw.db"))
-      : null;
-
-    for (const itemId of changes.removed) {
-      const entry = this.manifest.get(itemId);
-      const entryName = entry?.name ?? itemId;
-
-      // Remove staging files
-      const paths = this.getStagingPathsForRemoval(itemId, entryName);
-      for (const p of paths) {
-        try { if (existsSync(p)) unlinkSync(p); } catch {}
-      }
-
-      // Clean up DB documents/chunks/vectors to prevent orphans
-      try {
-        if (!db) throw new Error("DB not initialized");
-        const query = this.getRemovalDbQuery(itemId, entryName);
-        const docs = db.prepare(query.sql).all(...query.params) as { id: string }[];
-        for (const doc of docs) {
-          deleteDocument(db, doc.id);
-          logger.info({ source: this.id, itemId, docId: doc.id }, "Deleted orphaned document from DB");
-        }
-      } catch (dbErr) {
-        logger.error({ source: this.id, itemId, error: String(dbErr) }, "Failed to clean up DB on removal");
-      }
-
-      this.manifest.delete(itemId);
-      logger.info({ source: this.id, itemId }, `${this.name} item removed`);
-    }
-
-    const staged = await this.downloadToStaging(changes);
-
-    let ingested = 0;
-    for (const file of staged) {
-      try {
-        await ingestFile(file.localPath, {
-          collection: file.collection,
-          tags: file.tags,
-        });
-        ingested++;
-
-        this.manifest.set(file.sourceId, {
-          id: file.sourceId,
-          name: file.localPath.split(/[/\\]/).pop() ?? file.sourceId,
-          lastModified: file.remoteTimestamp ?? new Date().toISOString(),
-        });
-      } catch (err) {
-        // NOTE: Failed ingestions will be retried on every sync cycle since the file
-        // remains in the remote listing. Consider tracking failed file IDs to skip
-        // them after N consecutive failures.
-        logger.error({ source: this.id, file: file.localPath, error: String(err) }, `Failed to ingest ${this.name} item`);
-      }
-    }
-
-    this.cleanup(staged);
-
-    this.status = {
-      state: "idle",
-      lastSync: new Date(),
-      nextSync: new Date(Date.now() + interval * 1000),
-      docCount: this.manifest.size,
-    };
-
-    logger.info({ source: this.id, ingested, total: this.manifest.size }, `${this.name} sync complete`);
   }
 }

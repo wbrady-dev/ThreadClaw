@@ -85,19 +85,19 @@ def _is_path_blocked(file_path: str) -> bool:
     return any(seg in blocked_dirs for seg in parts)
 
 # CORS middleware: reject non-localhost origins to prevent cross-site request forgery.
+# before_request returns 403 for non-localhost origins (blocks the request entirely).
 # For full CORS support (e.g. remote TUI), install flask-cors.
-def _check_origin(response):
+def _check_origin():
     origin = request.headers.get("Origin", "")
     if origin and not any(origin.startswith(h) for h in ("http://127.0.0.1", "http://localhost", "http://[::1]")):
-        # Non-localhost origin — block by not setting CORS headers
         logger.warning(f"Blocked non-localhost origin: {origin}")
-    return response
+        return jsonify({"error": "Forbidden: non-localhost origin"}), 403
 
 app = Flask(__name__)
 # Body size is generous for /parse uploads; per-endpoint validation handles other routes
 # Enhancement: add per-endpoint body size limits for /v1/embeddings, /rerank, /ner
 app.config['MAX_CONTENT_LENGTH'] = MAX_PARSE_SIZE_MB * 1024 * 1024
-app.after_request(_check_origin)
+app.before_request(_check_origin)
 
 # Global mutable state — prefixed with _ to indicate module-private
 _embed_model = None
@@ -105,7 +105,11 @@ _rerank_model = None
 _ner_model = None
 _ner_model_id = None
 # Flag to track if GPU is in a degraded state (e.g., after a timeout)
+# Cleared on next successful encode/rerank operation.
 _gpu_degraded = False
+# Lock + flag to reject new GPU requests while a timed-out worker is still running
+_gpu_busy_lock = threading.Lock()
+_gpu_busy = False
 
 
 def load_models():
@@ -249,7 +253,7 @@ def load_models():
 
 @app.route("/v1/embeddings", methods=["POST"])
 def embeddings():
-    global _gpu_degraded
+    global _gpu_degraded, _gpu_busy
     if _embed_model is None:
         return jsonify({"error": "Embedding model not loaded"}), 503
 
@@ -287,8 +291,13 @@ def embeddings():
     # Limitation: on timeout, the worker thread is NOT cancelled (Python threads
     # are not interruptible). The GPU may remain busy until the operation completes.
     # After a timeout, the server enters a degraded state — subsequent requests
-    # may queue behind the still-running worker.
+    # are rejected until the worker completes.
     EMBED_TIMEOUT_SECONDS = 120
+
+    # Reject if a previous timed-out worker is still running on the GPU
+    with _gpu_busy_lock:
+        if _gpu_busy:
+            return jsonify({"error": "GPU busy — a previous request is still running after timeout"}), 503
 
     def _do_encode(texts, bs):
         return _embed_model.encode(
@@ -302,15 +311,23 @@ def embeddings():
     batch_sizes = [64, 16, 4, 1]
     for i, bs in enumerate(batch_sizes):
         try:
+            with _gpu_busy_lock:
+                _gpu_busy = True
             with ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(_do_encode, input_text, bs)
                 vectors = future.result(timeout=EMBED_TIMEOUT_SECONDS)
+            with _gpu_busy_lock:
+                _gpu_busy = False
+            _gpu_degraded = False  # Clear degraded flag on success
             break
         except FuturesTimeout:
+            # Leave _gpu_busy = True — worker thread still running
             _gpu_degraded = True
             logger.error(f"Embedding timed out after {EMBED_TIMEOUT_SECONDS}s (batch_size={bs}). GPU may be in degraded state — worker thread still running.")
             return jsonify({"error": f"Embedding timed out after {EMBED_TIMEOUT_SECONDS}s"}), 504
         except RuntimeError as e:
+            with _gpu_busy_lock:
+                _gpu_busy = False  # Operation completed (with error), GPU is free
             err_str = str(e).lower()
             if "out of memory" in err_str:
                 torch.cuda.empty_cache()
@@ -353,7 +370,7 @@ def embeddings():
 
 @app.route("/rerank", methods=["POST"])
 def rerank():
-    global _gpu_degraded
+    global _gpu_degraded, _gpu_busy
     if _rerank_model is None:
         return jsonify({"error": "Rerank model not loaded"}), 503
 
@@ -389,23 +406,37 @@ def rerank():
     q_truncated = ' '.join(query[:10000].split()[:200])
     pairs = [(q_truncated, ' '.join(doc[:10000].split()[:512])) for doc in documents]
     RERANK_TIMEOUT_SECONDS = 120
+
+    # Reject if a previous timed-out worker is still running on the GPU
+    with _gpu_busy_lock:
+        if _gpu_busy:
+            return jsonify({"error": "GPU busy — a previous request is still running after timeout"}), 503
+
     scores = None
     for bs in [64, 16, 4, 1]:
         try:
             def _do_rerank(p, b):
                 return _rerank_model.predict(p, batch_size=b, show_progress_bar=False)
+            with _gpu_busy_lock:
+                _gpu_busy = True
             with ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(_do_rerank, pairs, bs)
                 raw_scores = future.result(timeout=RERANK_TIMEOUT_SECONDS)
+            with _gpu_busy_lock:
+                _gpu_busy = False
             scores = np.atleast_1d(raw_scores).tolist()
             # Sanitize NaN/Infinity from numerical instability — invalid JSON and breaks downstream filters
             scores = [0.0 if (math.isnan(s) or math.isinf(s)) else float(s) for s in scores]
+            _gpu_degraded = False  # Clear degraded flag on success
             break
         except FuturesTimeout:
+            # Leave _gpu_busy = True — worker thread still running
             _gpu_degraded = True
             logger.error(f"Rerank timed out after {RERANK_TIMEOUT_SECONDS}s (batch_size={bs}). GPU may be in degraded state.")
             return jsonify({"error": f"Rerank timed out after {RERANK_TIMEOUT_SECONDS}s"}), 504
         except RuntimeError as e:
+            with _gpu_busy_lock:
+                _gpu_busy = False  # Operation completed (with error), GPU is free
             err_str = str(e).lower()
             if "out of memory" in err_str:
                 torch.cuda.empty_cache()
@@ -434,7 +465,7 @@ def extract_entities():
     if _ner_model is None:
         return jsonify({"error": "NER model not available", "hint": "pip install spacy && python -m spacy download en_core_web_sm"}), 503
 
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data or not isinstance(data, dict):
         return jsonify({"error": "JSON body required"}), 400
 
@@ -568,7 +599,6 @@ def parse_document():
             if hasattr(result, 'pages') and result.pages:
                 metadata["page_count"] = len(result.pages)
             metadata["language"] = detect_language(markdown[:2000]) if markdown else "unknown"
-            del converter, result, doc
             return markdown, metadata
 
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -618,7 +648,10 @@ def _cleanup_gpu():
 
 
 def detect_language(text):
-    """Simple language detection based on character ranges."""
+    """Simple language detection based on character ranges.
+    Limitation: Latin-script languages (French, German, Spanish, etc.) are all
+    classified as "en" because ASCII dominance is used as a proxy for English.
+    For accurate detection, use a library like langdetect or fasttext."""
     if not text:
         return "unknown"
 

@@ -8,9 +8,11 @@ import { logger } from "../utils/logger.js";
 import { ingestFile } from "../ingest/pipeline.js";
 import { clearCache } from "../query/cache.js";
 import { isLocalRequest } from "./guards.js";
+import { toClientError } from "../utils/errors.js";
 
 /** Default batch limit to prevent unbounded sequential processing */
 const DEFAULT_BATCH_LIMIT = 500;
+const COLLECTION_RE = /^[\w\s\-_.]{1,100}$/;
 
 /**
  * Re-indexing routes.
@@ -37,6 +39,10 @@ export function registerReindexRoutes(server: FastifyInstance) {
       limit?: number;
     } ?? {};
 
+    if (collection != null && (typeof collection !== "string" || !COLLECTION_RE.test(collection))) {
+      return reply.status(400).send({ error: "Invalid collection name" });
+    }
+
     const maxDocs = (typeof batchLimit === "number" && batchLimit > 0) ? batchLimit : DEFAULT_BATCH_LIMIT;
 
     let db: ReturnType<typeof getDb>;
@@ -62,7 +68,7 @@ export function registerReindexRoutes(server: FastifyInstance) {
         `).all() as typeof docs;
       }
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch documents for reindex: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "Reindex") });
     }
 
     const totalDocs = docs.length;
@@ -130,7 +136,13 @@ export function registerReindexRoutes(server: FastifyInstance) {
       return reply.status(403).send({ error: "Forbidden" });
     }
 
-    const { collection } = req.body as { collection?: string } ?? {};
+    const { collection, limit: batchLimit } = req.body as { collection?: string; limit?: number } ?? {};
+
+    if (collection != null && (typeof collection !== "string" || !COLLECTION_RE.test(collection))) {
+      return reply.status(400).send({ error: "Invalid collection name" });
+    }
+
+    const maxDocs = (typeof batchLimit === "number" && batchLimit > 0) ? batchLimit : DEFAULT_BATCH_LIMIT;
 
     let docs: { id: string; source_path: string; collection_name: string; file_mtime: string | null }[];
     try {
@@ -150,8 +162,12 @@ export function registerReindexRoutes(server: FastifyInstance) {
         `).all() as typeof docs;
       }
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch documents for stale reindex: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "Stale reindex") });
     }
+
+    const totalDocs = docs.length;
+    const batch = docs.slice(0, maxDocs);
+    const hasMore = docs.length > maxDocs;
 
     const start = Date.now();
     let reindexed = 0;
@@ -159,7 +175,7 @@ export function registerReindexRoutes(server: FastifyInstance) {
     let skipped = 0;
     let failed = 0;
 
-    for (const doc of docs) {
+    for (const doc of batch) {
       if (!doc.source_path || !existsSync(doc.source_path)) {
         skipped++;
         continue;
@@ -196,7 +212,9 @@ export function registerReindexRoutes(server: FastifyInstance) {
       upToDate,
       skipped,
       failed,
-      total: docs.length,
+      total: totalDocs,
+      processed: batch.length,
+      hasMore,
       elapsed_ms: Date.now() - start,
     };
   });

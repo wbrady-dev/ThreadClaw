@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 const MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX ?? "300", 10) || 300;
 const WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW ?? "60000", 10) || 60000;
 const ENABLED = process.env.RATE_LIMIT_ENABLED !== "false";
+const MAX_IPS = 10_000; // Cap on tracked IPs to prevent memory exhaustion from IP-spray attacks
 
 interface WindowEntry {
   timestamps: number[];
@@ -85,6 +86,11 @@ export function registerRateLimit(server: FastifyInstance): void {
 
     let entry = windows.get(ip);
     if (!entry) {
+      // Evict oldest IP if at capacity to prevent memory exhaustion from IP-spray
+      if (windows.size >= MAX_IPS) {
+        const oldestIp = windows.keys().next().value;
+        if (oldestIp) windows.delete(oldestIp);
+      }
       entry = { timestamps: [] };
       windows.set(ip, entry);
     }

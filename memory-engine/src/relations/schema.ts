@@ -584,6 +584,7 @@ CREATE INDEX IF NOT EXISTS idx_mo_scope_branch ON memory_objects(scope_id, branc
 CREATE INDEX IF NOT EXISTS idx_mo_source ON memory_objects(source_kind, source_id);
 CREATE INDEX IF NOT EXISTS idx_mo_updated ON memory_objects(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_mo_kind_updated ON memory_objects(kind, status, scope_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mo_canonical_dedup ON memory_objects(canonical_key, scope_id, kind, status);
 
 CREATE TABLE IF NOT EXISTS provenance_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -691,7 +692,7 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
   if (anyApplied.cnt === 0) {
     db.exec(FRESH_INSTALL_SQL);
     // Mark all migration versions as applied so the legacy chain never runs
-    for (let v = 1; v <= 27; v++) {
+    for (let v = 1; v <= 28; v++) {
       markMigrationApplied(db, v);
     }
     // File permissions
@@ -887,6 +888,10 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
 
   // Migration v17: Copy ALL legacy data into memory_objects + provenance_links
   if (!isMigrationApplied(db, 17)) {
+    // Wrap the entire legacy data migration in a transaction — partial copy
+    // leaves the ontology in an inconsistent state (some kinds migrated, others not).
+    db.exec("BEGIN");
+    try {
     // ── Claims → memory_objects (kind='claim') ──
     db.exec(`
       INSERT OR IGNORE INTO memory_objects (
@@ -1329,6 +1334,11 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
     `);
 
     markMigrationApplied(db, 17);
+    db.exec("COMMIT");
+    } catch (err) {
+      try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+      throw err;
+    }
   }
 
   // Migration v18: Rename legacy tables (safety net — will be dropped in v19)
@@ -1346,18 +1356,27 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
 
   // Migration v19: Enforce UNIQUE on composite_id, add updated_at index for reader ORDER BY
   if (!isMigrationApplied(db, 19)) {
-    // Deduplicate any composite_id collisions before adding UNIQUE constraint
-    db.exec(`
-      DELETE FROM memory_objects WHERE id NOT IN (
-        SELECT MIN(id) FROM memory_objects GROUP BY composite_id
-      )
-    `);
-    // Drop non-unique index and recreate as UNIQUE
-    db.exec(`DROP INDEX IF EXISTS idx_mo_composite`);
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mo_composite ON memory_objects(composite_id)`);
-    // Add index for reader's ORDER BY updated_at DESC queries
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_updated ON memory_objects(updated_at DESC)`);
-    markMigrationApplied(db, 19);
+    // Wrap dedup + index rebuild in a transaction — partial dedup without the
+    // subsequent UNIQUE index leaves duplicate composite_ids that silently corrupt upserts.
+    db.exec("BEGIN");
+    try {
+      // Deduplicate any composite_id collisions before adding UNIQUE constraint
+      db.exec(`
+        DELETE FROM memory_objects WHERE id NOT IN (
+          SELECT MIN(id) FROM memory_objects GROUP BY composite_id
+        )
+      `);
+      // Drop non-unique index and recreate as UNIQUE
+      db.exec(`DROP INDEX IF EXISTS idx_mo_composite`);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_mo_composite ON memory_objects(composite_id)`);
+      // Add index for reader's ORDER BY updated_at DESC queries
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_updated ON memory_objects(updated_at DESC)`);
+      markMigrationApplied(db, 19);
+      db.exec("COMMIT");
+    } catch (err) {
+      try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+      throw err;
+    }
   }
 
   // Migration v20: Add extraction_method column to memory_objects
@@ -1730,6 +1749,18 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
       markMigrationApplied(db, 27);
     } catch (migErr) {
       console.warn("[schema] migration v27 failed:", migErr instanceof Error ? migErr.message : String(migErr));
+    }
+  }
+
+  // Migration v28: Add composite index for canonical_key dedup queries in mo-store.ts
+  // The existing idx_mo_canonical covers (canonical_key, scope_id) but the upsert query
+  // also filters on kind and status — this 4-column index eliminates the table lookup.
+  if (!isMigrationApplied(db, 28)) {
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_mo_canonical_dedup ON memory_objects(canonical_key, scope_id, kind, status)`);
+      markMigrationApplied(db, 28);
+    } catch (migErr) {
+      console.warn("[schema] migration v28 failed:", migErr instanceof Error ? migErr.message : String(migErr));
     }
   }
 

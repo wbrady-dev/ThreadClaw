@@ -78,6 +78,7 @@ function storeEntities(
   sourceId: string,
   sourceDetail?: string,
   scopeId: number = 1,
+  extractionMethod: string = "regex",
 ): void {
   const now = "strftime('%Y-%m-%dT%H:%M:%f','now')";
 
@@ -97,7 +98,7 @@ function storeEntities(
       ?, 0, 'active', 0.5, 0.5,
       'standard', NULL,
       'extraction', ?, ?, NULL,
-      'regex', 0,
+      ?, 0,
       ${now}, ${now}, ${now},
       ${now}, ${now}
     )
@@ -161,6 +162,7 @@ function storeEntities(
     upsertStmt.run(
       compositeId, canonicalKey, displayName, structuredJson,
       scopeId, compositeId, sourceDetail ?? null,
+      extractionMethod,
       structuredJson, // for the ON CONFLICT UPDATE
     );
 
@@ -255,6 +257,8 @@ async function fetchNerEntities(
   chunks: Array<{ text: string }>,
 ): Promise<Array<{ text: string; label: string }[]> | null> {
   try {
+    // NOTE: imports from tui/platform.js for port config only (no UI dependency).
+    // getModelBaseUrl reads RERANKER_URL / DEFAULT_MODEL_PORT — pure config logic.
     const { getModelBaseUrl } = await import("../tui/platform.js");
     const res = await fetch(`${getModelBaseUrl()}/ner`, {
       method: "POST",
@@ -337,7 +341,8 @@ export async function extractEntitiesFromDocument(
 
         const entities = Array.from(merged.values());
         if (entities.length > 0) {
-          storeEntities(graphDb, entities, "document", documentId, `chunk ${i}`);
+          const method = nerResults?.[i]?.length ? "ner+regex" : "regex";
+          storeEntities(graphDb, entities, "document", documentId, `chunk ${i}`, 1, method);
         }
       }
     });

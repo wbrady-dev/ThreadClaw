@@ -136,7 +136,6 @@ async function postUpgradeSmoke(): Promise<{ ok: boolean; checks: string[] }> {
   const dbPaths = [
     resolve(THREADCLAW_DATA_DIR, "threadclaw.db"),
     resolve(THREADCLAW_DATA_DIR, "memory.db"),
-    resolve(THREADCLAW_DATA_DIR, "threadclaw.db"),
   ];
   for (const dbPath of dbPaths) {
     if (existsSync(dbPath)) {
@@ -312,10 +311,12 @@ export const upgradeCommand = new Command("upgrade")
         } else {
           try {
             const filename = target.src.split(/[\\/]/).pop()!;
-            // Prefix backup filenames to avoid collision (e.g. multiple threadclaw.db from different locations)
-            const dest = resolve(backupDir, filename);
+            // Prefix with sanitized label to avoid collision when multiple sources share the same filename
+            const safeLabel = target.label.replace(/[^a-zA-Z0-9._-]/g, "_").toLowerCase();
+            const destName = `${safeLabel}--${filename}`;
+            const dest = resolve(backupDir, destName);
             copyFileSync(target.src, dest);
-            backedUpFiles.push(filename);
+            backedUpFiles.push(destName);
             ok(`Backed up: ${target.label}`);
           } catch (e: any) {
             warn(`Could not backup ${target.label}: ${e.message}`);

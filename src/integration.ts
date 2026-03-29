@@ -8,7 +8,7 @@
  *   - computeIntegrationHash() — SHA-256 of the managed block for drift detection
  */
 
-import { existsSync, readFileSync, writeFileSync, renameSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "fs";
 import { resolve } from "path";
 import { homedir } from "os";
 import { sha256, readManifest } from "./version.js";
@@ -170,8 +170,8 @@ export function applyOpenClawIntegration(memoryEnginePath: string): { applied: b
     if (!oc.agents) oc.agents = {};
     if (!oc.agents.defaults) oc.agents.defaults = {};
 
-    // Remove memorySearch
-    if (oc.agents.defaults.memorySearch) {
+    // Remove memorySearch (use "in" to catch falsy values like "" or 0)
+    if ("memorySearch" in oc.agents.defaults) {
       delete oc.agents.defaults.memorySearch;
       changes.push("removed agents.defaults.memorySearch");
     }
@@ -240,8 +240,16 @@ export function applyOpenClawIntegration(memoryEnginePath: string): { applied: b
     if (changes.length > 0) {
       // Atomic write: write to tmp file then rename to prevent corruption
       const tmpPath = configPath + ".tmp";
-      writeFileSync(tmpPath, JSON.stringify(oc, null, 2) + "\n");
-      renameSync(tmpPath, configPath);
+      const content = JSON.stringify(oc, null, 2) + "\n";
+      writeFileSync(tmpPath, content);
+      try {
+        renameSync(tmpPath, configPath);
+      } catch {
+        // renameSync can fail on Windows (antivirus locks, cross-device).
+        // Fall back to direct write — less atomic but still correct.
+        writeFileSync(configPath, content);
+        try { unlinkSync(tmpPath); } catch {}
+      }
     }
 
     return { applied: changes.length > 0, changes };

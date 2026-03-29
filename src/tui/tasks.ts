@@ -10,6 +10,7 @@ export interface UiTask {
 }
 
 const MAX_TASKS = 8;
+const TERMINAL_TTL_MS = 60_000;
 const TERMINAL_TASK_STATES = new Set<UiTaskState>(["success", "error"]);
 
 let tasks: UiTask[] = [];
@@ -22,7 +23,9 @@ function emit(): void {
 }
 
 function upsertTask(task: UiTask): void {
+  const now = Date.now();
   tasks = [task, ...tasks.filter((existing) => existing.id !== task.id)]
+    .filter((t) => !(TERMINAL_TASK_STATES.has(t.state) && now - t.updatedAt > TERMINAL_TTL_MS))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_TASKS);
   emit();

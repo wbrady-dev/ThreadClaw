@@ -1,6 +1,6 @@
 # ThreadClaw Memory Engine
 
-DAG-based lossless conversation memory for [OpenClaw](https://openclaw.ai), part of the [ThreadClaw](https://github.com/openclaw/threadclaw) RSMA system. Replaces OpenClaw's built-in sliding-window compaction with a DAG-based summarization system that preserves every message while keeping active context within model token limits.
+DAG-based lossless conversation memory for [OpenClaw](https://openclaw.ai), part of the [ThreadClaw](https://github.com/wbrady-dev/ThreadClaw) RSMA system. Replaces OpenClaw's built-in sliding-window compaction with a DAG-based summarization system that preserves every message while keeping active context within model token limits.
 
 Based on the [LCM paper](https://papers.voltropy.com/LCM) from [Voltropy](https://x.com/Voltropy).
 
@@ -195,7 +195,7 @@ For most long-lived setups, a good starting point is:
 
 ## Agent Tools
 
-12 tools registered: 4 core conversation tools + 8 evidence tools.
+16 tools registered: 4 core conversation tools + 12 evidence tools.
 
 | Tool | Access | Description |
 |------|--------|-------------|
@@ -207,9 +207,13 @@ For most long-lived setups, a good starting point is:
 | `cc_claims` | All agents | Claims with evidence chains |
 | `cc_decisions` | All agents | Decision history with supersession |
 | `cc_loops` | All agents | Open tasks, questions, dependencies |
+| `cc_manage_loop` | All agents | Close, update, or change loop status and priority |
 | `cc_attempts` | All agents | Tool outcome history with success rates |
 | `cc_branch` | All agents | Speculative branch management |
 | `cc_procedures` | All agents | Learned success/failure patterns |
+| `cc_conflicts` | All agents | View and resolve contradictions between facts |
+| `cc_state` | All agents | Aggregated view of everything known about a subject |
+| `cc_timeline` | All agents | How knowledge about a subject evolved over time |
 | `cc_diagnostics` | All agents | Internal RSMA health and observability |
 
 Evidence tools require Evidence OS (`THREADCLAW_MEMORY_RELATIONS_ENABLED=true`).
@@ -218,7 +222,7 @@ Evidence tools require Evidence OS (`THREADCLAW_MEMORY_RELATIONS_ENABLED=true`).
 
 - [Configuration guide](docs/configuration.md)
 - [Architecture](docs/architecture.md)
-- [Agent tools](docs/agent-tools.md)
+- [Agent tools](../docs/tools.md)
 - [TUI Reference](docs/tui.md)
 - [lcm-tui](tui/README.md)
 - [Optional: enable FTS5 for fast full-text search](docs/fts5.md)
@@ -265,7 +269,7 @@ src/
     summary-store.ts        # Summary DAG persistence and context item management
     fts5-sanitize.ts        # FTS5 query sanitization
   ontology/                 # RSMA unified ontology
-    types.ts                # MemoryObject, MemoryKind (13 kinds), ProvenanceLink, LinkPredicate, RelevanceSignals
+    types.ts                # MemoryObject, MemoryKind (15 kinds), ProvenanceLink, LinkPredicate, RelevanceSignals
     canonical.ts            # Per-kind canonical key generation for dedup/supersession
     mo-store.ts             # Unified CRUD for memory_objects table (upsert, supersede, query)
     writer.ts               # Fast mode: regex-based message understanding (<5ms)

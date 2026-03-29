@@ -7,7 +7,11 @@ const _textEncoder = new TextEncoder();
 
 async function getHasher() {
   if (!initPromise) {
-    initPromise = xxhash();
+    initPromise = xxhash().catch((err) => {
+      // Reset so the next call retries instead of returning a cached rejection
+      initPromise = null;
+      throw err;
+    });
   }
   return initPromise;
 }

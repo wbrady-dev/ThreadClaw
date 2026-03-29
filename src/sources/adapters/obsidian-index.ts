@@ -5,7 +5,7 @@
  * Built on adapter start, updated incrementally via watcher events.
  * Used by the markdown parser's metadata enrichment to resolve [[wikilinks]].
  */
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync, openSync, readSync, closeSync, statSync } from "fs";
 import { resolve, basename, extname, relative } from "path";
 import { load as yamlLoad } from "js-yaml";
 import { logger } from "../../utils/logger.js";
@@ -147,10 +147,22 @@ export class ObsidianVaultIndex {
     return { vaults: this.vaults.size, notes, aliases };
   }
 
-  /** Quick-extract aliases from YAML frontmatter without full file parse. */
+  /** Quick-extract aliases from YAML frontmatter without full file parse.
+   * Only reads the first 4KB — frontmatter is always at the top of the file. */
   private quickExtractAliases(filePath: string): string[] {
     try {
-      const content = readFileSync(filePath, "utf-8");
+      // Read only first 4KB to avoid loading large files into memory
+      const HEADER_BYTES = 4096;
+      const fd = openSync(filePath, "r");
+      try {
+        const fileSize = statSync(filePath).size;
+        const readLen = Math.min(fileSize, HEADER_BYTES);
+        const buf = Buffer.alloc(readLen);
+        readSync(fd, buf, 0, readLen, 0);
+        var content = buf.toString("utf-8");
+      } finally {
+        closeSync(fd);
+      }
       const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
       if (!fmMatch) return [];
 

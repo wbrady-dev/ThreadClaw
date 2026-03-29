@@ -70,6 +70,12 @@ function validStatus(val: unknown): MemoryStatus {
  *
  * If the object has a canonical_key, uses ON CONFLICT(scope_id, branch_id, canonical_key)
  * to upsert. Otherwise does a plain INSERT (keyed only by composite_id).
+ *
+ * TRANSACTION SAFETY: This function performs multiple SQL statements (SELECT + UPDATE(s)).
+ * Many callers (engine.ts reconciliation, reExtractGraphForDocument, etc.) already wrap
+ * in withWriteTransaction. Do NOT add an internal transaction here — it would cause
+ * nested transaction errors. Callers that perform multiple upserts should wrap the
+ * batch in their own withWriteTransaction.
  */
 export function upsertMemoryObject(
   db: GraphDb,
@@ -100,8 +106,8 @@ export function upsertMemoryObject(
   // Skip for stores that manage their own supersession (e.g., decisions)
   if (!existing && canonicalKey && !opts?.skipCanonicalDedup) {
     const byCanonical = db.prepare(
-      "SELECT id, composite_id FROM memory_objects WHERE canonical_key = ? AND scope_id = ? AND kind = ? AND status IN ('active','needs_confirmation') LIMIT 1",
-    ).get(canonicalKey, obj.scope_id ?? 1, obj.kind) as { id: number; composite_id: string } | undefined;
+      "SELECT id, composite_id FROM memory_objects WHERE canonical_key = ? AND scope_id = ? AND branch_id = ? AND kind = ? AND status IN ('active','needs_confirmation') LIMIT 1",
+    ).get(canonicalKey, obj.scope_id ?? 1, branchId, obj.kind) as { id: number; composite_id: string } | undefined;
     if (byCanonical) {
       existing = { id: byCanonical.id };
       // Update the composite_id on the existing row to the new one
@@ -230,7 +236,7 @@ export function supersedeMemoryObject(
   db.prepare(`
     UPDATE memory_objects
     SET status = 'superseded',
-        superseded_by = (SELECT id FROM memory_objects WHERE composite_id = ?),
+        superseded_by = ?,
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE composite_id = ?
   `).run(newCompositeId, oldCompositeId);
@@ -254,15 +260,33 @@ export function updateMemoryObjectStatus(
 
 /**
  * Delete all MemoryObjects that came from a specific source.
+ * Also cleans up provenance_links referencing the deleted objects' composite_ids
+ * (no FK constraint exists — TEXT columns require explicit cleanup).
  */
 export function deleteMemoryObjectsBySource(
   db: GraphDb,
   sourceKind: string,
   sourceId: string,
 ): void {
+  // Collect composite_ids before deletion so we can clean up provenance_links
+  const rows = db.prepare(
+    "SELECT composite_id FROM memory_objects WHERE source_kind = ? AND source_id = ?",
+  ).all(sourceKind, sourceId) as Array<{ composite_id: string }>;
+
   db.prepare(
     "DELETE FROM memory_objects WHERE source_kind = ? AND source_id = ?",
   ).run(sourceKind, sourceId);
+
+  // Clean up orphaned provenance_links for the deleted composite_ids
+  if (rows.length > 0) {
+    const placeholders = rows.map(() => "?").join(",");
+    const ids = rows.map((r) => r.composite_id);
+    try {
+      db.prepare(
+        `DELETE FROM provenance_links WHERE subject_id IN (${placeholders})`,
+      ).run(...ids);
+    } catch { /* non-fatal — provenance_links table may not exist yet */ }
+  }
 }
 
 // ── Read ─────────────────────────────────────────────────────────────────────

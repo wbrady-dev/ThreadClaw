@@ -23,6 +23,7 @@ import {
   DEFAULT_SCOPE_ID,
 } from "./types.js";
 import { rowToMemoryObject } from "./mo-store.js";
+import { escapeLikeValue } from "./json-utils.js";
 
 // ── Query Options ───────────────────────────────────────────────────────────
 
@@ -67,11 +68,6 @@ function statusPenalty(status: string): number {
     case "retracted": return 0.0;
     default: return 0.5;
   }
-}
-
-/** Escape LIKE wildcards for safe pattern matching. */
-function escapeLike(keyword: string): string {
-  return keyword.replace(/[%_\\]/g, "\\$&");
 }
 
 /** Escape FTS5 special characters for safe MATCH queries. */
@@ -151,7 +147,7 @@ export function readMemoryObjects(
         sql += " AND id IN (SELECT rowid FROM memory_objects_fts WHERE memory_objects_fts MATCH ?)";
         params.push(ftsEscaped);
       } else {
-        const escaped = escapeLike(keyword);
+        const escaped = escapeLikeValue(keyword);
         sql += " AND content LIKE ? ESCAPE '\\'";
         params.push(`%${escaped}%`);
       }

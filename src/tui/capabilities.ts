@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { release, tmpdir } from "os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir, release } from "os";
 import { resolve } from "path";
 
 export interface TerminalCapabilities {
@@ -141,7 +141,9 @@ function enableWindowsAnsiIfPossible(): boolean {
 
   // Check file-based cache to avoid spawning PowerShell synchronously on every launch.
   // Cache is valid for 24 hours — console capabilities rarely change.
-  const cacheFile = resolve(tmpdir(), ".threadclaw-ansi-cache");
+  const cacheDir = resolve(homedir(), ".threadclaw");
+  try { mkdirSync(cacheDir, { recursive: true }); } catch {}
+  const cacheFile = resolve(cacheDir, "ansi-cache.json");
   try {
     if (existsSync(cacheFile)) {
       const cached = JSON.parse(readFileSync(cacheFile, "utf-8"));
@@ -180,7 +182,7 @@ function enableWindowsAnsiIfPossible(): boolean {
       execFileSync(shell, ["-NoProfile", "-Command", command], {
         stdio: "ignore",
         windowsHide: true,
-        timeout: 4000,
+        timeout: 1500,
       });
       windowsAnsiEnabled = true;
       try { writeFileSync(cacheFile, JSON.stringify({ result: true, ts: Date.now() })); } catch {}

@@ -6,7 +6,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import type { GraphDb } from "./types.js";
+import type { GraphDb, UpdateLoopInput } from "./types.js";
 import type { LcmDependencies } from "../types.js";
 import type { AnyAgentTool } from "../tools/common.js";
 import { jsonResult } from "../tools/common.js";
@@ -267,15 +267,16 @@ export function createCcManageLoopTool(input: { deps: LcmDependencies; graphDb: 
         }
 
         if (action === "update") {
-          const updates: Record<string, unknown> = {};
-          if (typeof p.priority === "number") updates.priority = Math.min(10, Math.max(0, Math.trunc(p.priority)));
-          if (typeof p.waiting_on === "string") updates.waitingOn = p.waiting_on.trim();
-          if (typeof p.status === "string") updates.status = p.status.trim();
-          if (typeof p.owner === "string") updates.owner = p.owner.trim();
+          const updateInput: UpdateLoopInput = { loopId };
+          if (typeof p.priority === "number") updateInput.priority = Math.min(10, Math.max(0, Math.trunc(p.priority)));
+          if (typeof p.waiting_on === "string") updateInput.waitingOn = p.waiting_on.trim();
+          if (typeof p.status === "string") updateInput.status = p.status.trim() as UpdateLoopInput["status"];
+          if (typeof p.owner === "string") updateInput.owner = p.owner.trim();
 
-          updateLoop(input.graphDb, { loopId, ...updates } as any);
+          updateLoop(input.graphDb, updateInput);
 
-          const changed = Object.keys(updates);
+          const { loopId: _id, ...changedFields } = updateInput;
+          const changed = Object.keys(changedFields);
           return {
             content: [{ type: "text", text: `Loop #${loopId} updated: ${changed.join(", ")}.` }],
             details: { loopId, action: "update", changed },
@@ -565,15 +566,15 @@ export function createCcDiagnosticsTool(input: {
         try {
           const convStore = input.lcm.getConversationStore();
           const sumStore = input.lcm.getSummaryStore();
-          // Use the store's internal db to count — these are synchronous SQLite calls
-          const storeDb = (convStore as any).db;
+          // Use the store's public getDb() accessor for stat queries
+          const storeDb = convStore.getDb();
           if (storeDb) {
-            totalConversations = (storeDb.prepare("SELECT COUNT(*) as cnt FROM conversations").get() as any)?.cnt ?? 0;
-            totalMessages = (storeDb.prepare("SELECT COUNT(*) as cnt FROM messages").get() as any)?.cnt ?? 0;
+            totalConversations = (storeDb.prepare("SELECT COUNT(*) as cnt FROM conversations").get() as { cnt: number })?.cnt ?? 0;
+            totalMessages = (storeDb.prepare("SELECT COUNT(*) as cnt FROM messages").get() as { cnt: number })?.cnt ?? 0;
           }
-          const sumDb = (sumStore as any).db;
+          const sumDb = sumStore.getDb();
           if (sumDb) {
-            totalSummaries = (sumDb.prepare("SELECT COUNT(*) as cnt FROM summaries").get() as any)?.cnt ?? 0;
+            totalSummaries = (sumDb.prepare("SELECT COUNT(*) as cnt FROM summaries").get() as { cnt: number })?.cnt ?? 0;
           }
         } catch {}
 

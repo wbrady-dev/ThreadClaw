@@ -586,11 +586,13 @@ export async function query(
       result.answer = synthesis.answer;
       result.answerCitations = synthesis.citations;
       strategy += "+synthesis";
+      result.queryInfo.strategy = strategy;
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, "Answer synthesis failed — returning context only");
     }
   }
 
+  // Cache after synthesis so the cached result includes the synthesized answer
   setCached(ck, result);
 
   // Record analytics
@@ -675,14 +677,21 @@ function computeConfidence(chunks: PackedChunk[], bestDistance?: number, fallbac
   // Absolute quality factor from best vector distance (L2: lower = better)
   const distFactor = bestDistance != null
     ? (bestDistance < 0.5 ? 0.8 : bestDistance < 0.8 ? 0.5 : bestDistance < 1.0 ? 0.3 : 0.1)
-    : 0.5;
+    : undefined;
 
   // When scores are synthetic (fallback/no-rerank), rely solely on distance
+  // For BM25-only queries (no vector results), derive confidence from result count
+  // and score spread rather than returning a fixed 0.5.
   if (fallbackScores) {
-    return distFactor;
+    if (distFactor != null) return distFactor;
+    // BM25-only: use chunk count as a weak quality signal
+    if (chunks.length >= 5) return 0.6;
+    if (chunks.length >= 3) return 0.5;
+    if (chunks.length >= 1) return 0.35;
+    return 0;
   }
 
-  if (chunks.length === 1) return distFactor;
+  if (chunks.length === 1) return distFactor ?? 0.5;
 
   // Relative spread-based confidence
   const scores = chunks.map((c) => c.score).sort((a, b) => b - a);
@@ -698,7 +707,7 @@ function computeConfidence(chunks: PackedChunk[], bestDistance?: number, fallbac
   spreadConf = Math.min(1, Math.max(0, spreadConf));
 
   // Blend absolute quality with relative ranking
-  return Math.min(1, 0.5 * distFactor + 0.5 * spreadConf);
+  return Math.min(1, 0.5 * (distFactor ?? 0.5) + 0.5 * spreadConf);
 }
 
 interface ChunkRow {
@@ -738,15 +747,34 @@ function enrichWithParentContext(db: Database.Database, chunks: ChunkRow[]): Chu
 
   if (docIds.length > 0) {
     try {
-      const placeholders = docIds.map(() => "?").join(",");
-      const allDocChunks = db.prepare(
-        `SELECT document_id, id, text, context_prefix as contextPrefix, position FROM chunks
-         WHERE document_id IN (${placeholders}) ORDER BY document_id, position`,
-      ).all(...docIds) as { document_id: string; id: string; text: string; contextPrefix: string | null; position: number }[];
+      // Build targeted position queries: only fetch [pos-1, pos, pos+1] per match
+      // instead of ALL chunks per document (avoids loading entire large documents)
+      const positionPairs: Array<{ docId: string; pos: number }> = [];
+      for (const c of validChunks) {
+        for (let p = Math.max(0, c.position - 1); p <= c.position + 1; p++) {
+          positionPairs.push({ docId: c.documentId, pos: p });
+        }
+      }
 
-      for (const c of allDocChunks) {
-        if (!neighborMap.has(c.document_id)) neighborMap.set(c.document_id, new Map());
-        neighborMap.get(c.document_id)!.set(c.position, c);
+      // Deduplicate (docId, pos) pairs
+      const uniquePairs = [...new Map(positionPairs.map(p => [`${p.docId}:${p.pos}`, p])).values()];
+
+      // Build a single query with OR conditions for each (document_id, position) pair
+      // Batch into groups to avoid excessively long SQL
+      const BATCH_SIZE = 200;
+      for (let i = 0; i < uniquePairs.length; i += BATCH_SIZE) {
+        const batch = uniquePairs.slice(i, i + BATCH_SIZE);
+        const conditions = batch.map(() => "(document_id = ? AND position = ?)").join(" OR ");
+        const args = batch.flatMap(p => [p.docId, p.pos]);
+        const rows = db.prepare(
+          `SELECT document_id, id, text, context_prefix as contextPrefix, position FROM chunks
+           WHERE ${conditions}`,
+        ).all(...args) as { document_id: string; id: string; text: string; contextPrefix: string | null; position: number }[];
+
+        for (const c of rows) {
+          if (!neighborMap.has(c.document_id)) neighborMap.set(c.document_id, new Map());
+          neighborMap.get(c.document_id)!.set(c.position, c);
+        }
       }
     } catch {
       // Fall back to returning chunks as-is

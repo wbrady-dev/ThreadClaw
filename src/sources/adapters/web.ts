@@ -14,6 +14,7 @@
  *   - 30s fetch timeout
  */
 import { createHash } from "crypto";
+import { lookup } from "dns/promises";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { resolve, join } from "path";
 import { homedir } from "os";
@@ -42,24 +43,45 @@ interface ParsedUrl {
   collection: string;
 }
 
-/** Check if a hostname resolves to a private/reserved IP range */
-function isPrivateHost(hostname: string): boolean {
-  if (BLOCKED_HOSTS.includes(hostname.toLowerCase())) return true;
-
-  // Check for IP address patterns in private ranges
-  const ipMatch = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+/** Check if an IP address is in a private/reserved range */
+function isPrivateIP(ip: string): boolean {
+  const ipMatch = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipMatch) {
-    const [, a, b] = ipMatch;
-    const first = parseInt(a, 10);
-    const second = parseInt(b, 10);
+    const first = parseInt(ipMatch[1], 10);
+    const second = parseInt(ipMatch[2], 10);
     if (first === 10) return true;                           // 10.0.0.0/8
     if (first === 172 && second >= 16 && second <= 31) return true; // 172.16.0.0/12
     if (first === 192 && second === 168) return true;        // 192.168.0.0/16
     if (first === 169 && second === 254) return true;        // 169.254.0.0/16 (link-local)
+    if (first === 127) return true;                          // 127.0.0.0/8 (loopback)
     if (first === 0) return true;                            // 0.0.0.0/8
   }
-
+  // IPv6 loopback
+  if (ip === "::1" || ip === "::") return true;
   return false;
+}
+
+/** Check if a hostname string is private (fast, no DNS) */
+function isPrivateHost(hostname: string): boolean {
+  if (BLOCKED_HOSTS.includes(hostname.toLowerCase())) return true;
+  return isPrivateIP(hostname);
+}
+
+/** Resolve hostname and verify the resolved IP is not private (SSRF protection) */
+async function assertPublicHost(hostname: string): Promise<void> {
+  // Skip DNS lookup for raw IP addresses — already checked by isPrivateHost
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return;
+  if (hostname.startsWith("[")) return; // IPv6 literal already checked
+
+  try {
+    const { address } = await lookup(hostname);
+    if (isPrivateIP(address)) {
+      throw new Error(`Blocked host (${hostname} resolves to private IP ${address}): SSRF protection`);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("SSRF")) throw err;
+    // DNS failure — let fetch handle it
+  }
 }
 
 /** Validate a URL for safety */
@@ -102,6 +124,34 @@ function parseWebUrls(raw: string): ParsedUrl[] {
 /** Hash content for change detection */
 function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+const MAX_REDIRECTS = 5;
+
+/**
+ * Fetch with SSRF-safe redirect handling.
+ * Uses redirect: "manual" and validates each redirect target against private IP ranges.
+ */
+async function safeFetch(url: string, init: RequestInit): Promise<Response> {
+  let currentUrl = url;
+  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    const parsed = validateUrl(currentUrl);
+    await assertPublicHost(parsed.hostname);
+
+    const res = await fetch(currentUrl, { ...init, redirect: "manual" });
+
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) throw new Error(`Redirect ${res.status} with no Location header from ${currentUrl}`);
+      // Resolve relative redirects
+      currentUrl = new URL(location, currentUrl).href;
+      if (i === MAX_REDIRECTS) throw new Error(`Too many redirects (>${MAX_REDIRECTS}) starting from ${url}`);
+      continue;
+    }
+
+    return res;
+  }
+  throw new Error(`Too many redirects (>${MAX_REDIRECTS}) starting from ${url}`);
 }
 
 /** Sanitize URL into a safe filename */
@@ -188,11 +238,10 @@ export class WebAdapter extends PollingAdapterBase {
 
       try {
         // Use HEAD to check if content might have changed
-        const headRes = await fetch(entry.url, {
+        const headRes = await safeFetch(entry.url, {
           method: "HEAD",
           headers: { "User-Agent": USER_AGENT },
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-          redirect: "follow",
         });
 
         if (!headRes.ok) {
@@ -225,11 +274,10 @@ export class WebAdapter extends PollingAdapterBase {
     const entry = this.urls.find((u) => urlToFilename(u.url) === item.id);
     const url = entry?.url ?? item.name;
 
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "GET",
       headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: "follow",
     });
 
     if (!res.ok) {
@@ -271,7 +319,7 @@ export class WebAdapter extends PollingAdapterBase {
     if (prevHash === hash) {
       // Content hasn't changed despite header hints — skip re-ingestion
       logger.debug({ url }, "Web content unchanged (hash match), skipping");
-      throw new Error("SKIP: content unchanged");
+      return null;
     }
 
     // Save hash for future comparisons

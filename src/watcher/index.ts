@@ -143,6 +143,7 @@ export class ThreadClawWatcher {
   }
 
   private ingestQueue: { filePath: string; wc: WatchConfig }[] = [];
+  private ingestQueuePaths = new Set<string>(); // O(1) duplicate check mirror of ingestQueue
   private activeIngests = 0;
   private retryPending = false;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -161,12 +162,13 @@ export class ThreadClawWatcher {
     // awaitWriteFinish already debounces — enqueue directly
     // Check for duplicate queue entries before checking capacity (prevents
     // dropping a file as "queue full" when it's actually already queued)
-    if (this.ingestQueue.some((q) => resolve(q.filePath) === normalizedPath)) return;
+    if (this.ingestQueuePaths.has(normalizedPath)) return;
     if (this.ingestQueue.length >= MAX_QUEUE_SIZE) {
       logger.warn(`Watcher queue full (${MAX_QUEUE_SIZE}), dropping: ${normalizedPath.split(/[\\/]/).pop()}`);
       return;
     }
     this.ingestQueue.push({ filePath: normalizedPath, wc });
+    this.ingestQueuePaths.add(normalizedPath);
     this.drainQueue();
   }
 
@@ -185,7 +187,7 @@ export class ThreadClawWatcher {
 
       const doc = db.prepare(
         "SELECT id FROM documents WHERE source_path = ? AND collection_id = ?",
-      ).get(resolve(filePath), collection.id) as { id: string } | undefined;
+      ).get(normalizedPath, collection.id) as { id: string } | undefined;
 
       if (doc) {
         deleteDocument(db, doc.id);
@@ -226,6 +228,7 @@ export class ThreadClawWatcher {
 
     while (this.activeIngests < MAX_CONCURRENT_INGESTS && this.ingestQueue.length > 0) {
       const item = this.ingestQueue.shift()!;
+      this.ingestQueuePaths.delete(item.filePath);
       if (this.processing.has(item.filePath)) continue;
       this.processing.add(item.filePath);
       this.activeIngests++;
@@ -284,13 +287,19 @@ export class ThreadClawWatcher {
     this.ensureRetryDrainTimer();
   }
 
-  /** Start the retry drain timer if not already running. */
+  /** Start the retry drain timer targeting the nearest retry time. */
   private ensureRetryDrainTimer(): void {
     if (this.retryDrainTimer) return;
+    // Compute delay from nearest retry time (floor at 1s to avoid busy-loop)
+    let nearest = Infinity;
+    for (const entry of this.retryQueue.values()) {
+      if (entry.nextRetry < nearest) nearest = entry.nextRetry;
+    }
+    const delay = Math.max(1000, nearest === Infinity ? 5000 : nearest - Date.now());
     this.retryDrainTimer = setTimeout(() => {
       this.retryDrainTimer = null;
       this.drainRetryQueue();
-    }, 5000);
+    }, delay);
     this.retryDrainTimer.unref();
   }
 
@@ -303,8 +312,9 @@ export class ThreadClawWatcher {
         logger.info({ filePath, attempt: entry.attempts }, "Retrying failed ingestion");
         // Re-queue through normal path (handleFile checks will be bypassed since
         // the file isn't in processing set and isn't in ingestQueue)
-        if (!this.processing.has(filePath) && !this.ingestQueue.some((q) => q.filePath === filePath)) {
+        if (!this.processing.has(filePath) && !this.ingestQueuePaths.has(filePath)) {
           this.ingestQueue.push({ filePath, wc: entry.wc });
+          this.ingestQueuePaths.add(filePath);
         }
       }
     }
@@ -333,6 +343,7 @@ export class ThreadClawWatcher {
 
     // Drain the ingest queue (discard pending items)
     this.ingestQueue.length = 0;
+    this.ingestQueuePaths.clear();
 
     // Close watchers immediately — don't wait for active ingests to finish.
     // Active ingests will fail gracefully when the DB closes during shutdown.

@@ -7,6 +7,7 @@ import { isLocalRequest } from "./guards.js";
 import { getRecords, clearRecords } from "../analytics/query-recorder.js";
 import { config } from "../config.js";
 import { logger } from "../utils/logger.js";
+import { toClientError } from "../utils/errors.js";
 
 /** Cached memory DB connection for diagnostics (avoids opening a new connection per request) */
 let cachedMemDb: import("better-sqlite3").Database | null = null;
@@ -50,7 +51,7 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
         .filter((r) => r.confidence < 0.3 && !r.cached && r.chunksReturned > 0)
         .slice(-10)
         .map((r) => ({
-          query: r.query,
+          query: r.query.substring(0, 80),
           confidence: r.confidence,
           collection: r.collection,
           strategy: r.strategy,
@@ -63,7 +64,7 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
         .filter((r) => r.chunksReturned === 0 && !r.cached)
         .slice(-10)
         .map((r) => ({
-          query: r.query,
+          query: r.query.substring(0, 80),
           collection: r.collection,
           vectorHits: r.vectorHits,
           bm25Hits: r.bm25Hits,
@@ -74,7 +75,7 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
         .filter((r) => r.elapsedMs > 2000 && !r.cached)
         .slice(-10)
         .map((r) => ({
-          query: r.query,
+          query: r.query.substring(0, 80),
           elapsedMs: r.elapsedMs,
           strategy: r.strategy,
           candidates: r.candidates,
@@ -106,7 +107,8 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
         slow,
       };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch analytics: ${err instanceof Error ? err.message : String(err)}` });
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to fetch analytics");
+      return reply.code(500).send({ error: toClientError(err, "Fetch analytics") });
     }
   });
 
@@ -122,15 +124,21 @@ export function registerAnalyticsRoutes(server: FastifyInstance) {
       const n = Math.min(isNaN(parsed) ? 20 : Math.max(1, parsed), 100);
       return { queries: records.slice(-n).reverse() };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch recent analytics: ${err instanceof Error ? err.message : String(err)}` });
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to fetch recent analytics");
+      return reply.code(500).send({ error: toClientError(err, "Fetch recent analytics") });
     }
   });
 
   /**
    * DELETE /analytics — clear analytics data.
+   * Requires { confirm: true } in body to prevent accidental deletion.
    */
   server.delete("/analytics", async (req, reply) => {
     if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const { confirm } = (req.body as { confirm?: boolean }) ?? {};
+    if (confirm !== true) {
+      return reply.status(400).send({ error: "Must send { confirm: true } to clear analytics" });
+    }
     clearRecords();
     return { cleared: true };
   });
@@ -184,6 +192,15 @@ let awarenessStatsGetter: AwarenessStatsGetter | null = null;
 
 export function registerAwarenessStatsGetter(getter: AwarenessStatsGetter): void {
   awarenessStatsGetter = getter;
+}
+
+/** Close the cached memory DB connection. Call during server shutdown. */
+export function closeAnalyticsDb(): void {
+  if (cachedMemDb) {
+    try { cachedMemDb.close(); } catch {}
+    cachedMemDb = null;
+    cachedMemDbPath = null;
+  }
 }
 
 /**

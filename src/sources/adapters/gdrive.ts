@@ -262,12 +262,15 @@ async function listFolderFiles(drive: drive_v3.Drive, folderName: string): Promi
   let pageToken: string | undefined;
 
   do {
-    const res = await drive.files.list({
-      q: `'${folder.id}' in parents and trashed = false`,
-      fields: "nextPageToken, files(id, name, mimeType, modifiedTime, size)",
-      pageSize: 100,
-      pageToken,
-    });
+    const res = await retryOnTransient(
+      () => drive.files.list({
+        q: `'${folder.id}' in parents and trashed = false`,
+        fields: "nextPageToken, files(id, name, mimeType, modifiedTime, size)",
+        pageSize: 100,
+        pageToken,
+      }),
+      { timeoutMs: 30_000 },
+    );
 
     if (res.data.files) allFiles.push(...res.data.files);
     pageToken = res.data.nextPageToken ?? undefined;
@@ -312,14 +315,62 @@ async function downloadFile(drive: drive_v3.Drive, fileId: string, destDir: stri
   return outPath;
 }
 
+const STREAM_TIMEOUT_MS = 120_000; // 2 minutes
+
 function streamToFile(stream: NodeJS.ReadableStream, path: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const ws = createWriteStream(path);
-    stream.on("error", reject);
+    let done = false;
+
+    const timer = setTimeout(() => {
+      if (!done) {
+        done = true;
+        stream.destroy?.();
+        ws.destroy();
+        reject(new Error(`Stream timeout after ${STREAM_TIMEOUT_MS}ms writing to ${path}`));
+      }
+    }, STREAM_TIMEOUT_MS);
+
+    const finish = () => {
+      if (!done) { done = true; clearTimeout(timer); resolve(); }
+    };
+    const fail = (err: Error) => {
+      if (!done) { done = true; clearTimeout(timer); reject(err); }
+    };
+
+    stream.on("error", fail);
     stream.pipe(ws);
-    ws.on("finish", resolve);
-    ws.on("error", reject);
+    ws.on("finish", finish);
+    ws.on("error", fail);
   });
+}
+
+/** Retry a Drive API call on 429/5xx with exponential backoff */
+async function retryOnTransient<T>(
+  fn: () => Promise<T>,
+  opts: { timeoutMs?: number; maxRetries?: number } = {},
+): Promise<T> {
+  const { timeoutMs = 30_000, maxRetries = 3 } = opts;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Drive API timeout after ${timeoutMs}ms`)), timeoutMs),
+        ),
+      ]);
+    } catch (err: any) {
+      lastErr = err;
+      const status = err?.response?.status ?? err?.code ?? 0;
+      const isRetryable = status === 429 || (status >= 500 && status < 600) ||
+        (err?.message?.includes("timeout"));
+      if (!isRetryable || attempt === maxRetries) throw err;
+      const delay = Math.min(1000 * 2 ** attempt, 10_000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 // ────────────────────────────────────────────

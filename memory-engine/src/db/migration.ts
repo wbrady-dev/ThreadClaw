@@ -81,6 +81,10 @@ function isoStringOrNull(value: Date | null): string | null {
 }
 
 function backfillSummaryDepths(db: DatabaseSync): void {
+  // Wrap entire backfill in a transaction — partial depth updates leave the
+  // tree in an inconsistent state and break incremental compaction.
+  db.exec("BEGIN");
+  try {
   // Leaves are always depth 0, even if legacy rows had malformed values.
   db.exec(`UPDATE summaries SET depth = 0 WHERE kind = 'leaf'`);
 
@@ -184,6 +188,11 @@ function backfillSummaryDepths(db: DatabaseSync): void {
       updateDepthStmt.run(depth, summary.summary_id);
     }
   }
+  db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw err;
+  }
 }
 
 function backfillSummaryMetadata(db: DatabaseSync): void {
@@ -193,6 +202,11 @@ function backfillSummaryMetadata(db: DatabaseSync): void {
   if (conversationRows.length === 0) {
     return;
   }
+
+  // Wrap entire backfill in a transaction — partial metadata updates leave
+  // summaries in an inconsistent state (some with time ranges, some without).
+  db.exec("BEGIN");
+  try {
 
   const updateMetadataStmt = db.prepare(
     `UPDATE summaries
@@ -356,6 +370,11 @@ function backfillSummaryMetadata(db: DatabaseSync): void {
       );
     }
   }
+  db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw err;
+  }
 }
 
 /**
@@ -384,9 +403,17 @@ function backfillConversationAgentIds(db: DatabaseSync): void {
   if (rows.length === 0) {
     return;
   }
-  const stmt = db.prepare(`UPDATE conversations SET agent_id = ? WHERE conversation_id = ?`);
-  for (const row of rows) {
-    stmt.run(extractAgentIdFromSessionId(row.session_id), row.conversation_id);
+  // Wrap in transaction — partial agent_id backfill causes duplicate-agent queries.
+  db.exec("BEGIN");
+  try {
+    const stmt = db.prepare(`UPDATE conversations SET agent_id = ? WHERE conversation_id = ?`);
+    for (const row of rows) {
+      stmt.run(extractAgentIdFromSessionId(row.session_id), row.conversation_id);
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    throw err;
   }
 }
 

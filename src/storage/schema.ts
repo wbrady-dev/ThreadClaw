@@ -10,6 +10,10 @@ function getMigrationStatements(): Record<number, string[]> {
   // A startup validation check should verify that the configured dimension matches
   // the existing vec0 table dimension.
   const dim = config.embedding.dimensions;
+  // Validate dimension before interpolating into SQL template literal
+  if (!Number.isInteger(dim) || dim <= 0 || dim > 10000) {
+    throw new Error(`Invalid embedding dimension for migration: ${dim}`);
+  }
 
   return {
     // NOTE: Migration 1 uses IF NOT EXISTS which is partially redundant with the

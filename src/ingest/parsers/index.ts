@@ -14,7 +14,7 @@ import { parseAudio } from "./audio.js";
 import { parseCanvas } from "./canvas.js";
 import { ParseError } from "../../utils/errors.js";
 import { extname } from "path";
-import { readFileSync, openSync, readSync, closeSync } from "fs";
+import { openSync, readSync, closeSync } from "fs";
 import { logger } from "../../utils/logger.js";
 
 export interface StructureHint {
@@ -135,7 +135,7 @@ const DOCLING_PREFERRED = new Set([".pdf", ".docx", ".pptx", ".xlsx"]);
 
 // Cache the Docling wrapper function to avoid creating a new closure per call
 let _doclingWrapper: Parser | null = null;
-function getDoclingWrapper(ext: string): Parser {
+function getDoclingWrapper(): Parser {
   if (_doclingWrapper) return _doclingWrapper;
   _doclingWrapper = async (fp: string) => {
     const { parseWithDocling } = await import("./docling.js");
@@ -216,7 +216,7 @@ export function getParser(filePath: string): Parser {
   // For complex document formats, try Docling first (layout-aware, multi-language)
   // Falls back to local parser if Docling is unavailable
   if (DOCLING_PREFERRED.has(ext)) {
-    return getDoclingWrapper(ext);
+    return getDoclingWrapper();
   }
 
   const parser = PARSER_MAP[ext];

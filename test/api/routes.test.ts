@@ -575,7 +575,7 @@ describe("Analytics", () => {
   });
 
   it("DELETE /analytics clears data and returns confirmation", async () => {
-    const res = await app.inject({ method: "DELETE", url: "/analytics" });
+    const res = await app.inject({ method: "DELETE", url: "/analytics", payload: { confirm: true } });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.cleared).toBe(true);

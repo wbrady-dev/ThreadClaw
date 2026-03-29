@@ -16,14 +16,10 @@ export function safeParseStructured(val: unknown): Record<string, unknown> {
 }
 
 /**
- * Safely parse a metadata column value.
- * Identical to safeParseStructured — separate name for call-site readability.
+ * Safely parse a metadata/provenance column value.
+ * Alias for safeParseStructured — separate name for call-site readability.
  */
-export function safeParseMetadata(val: unknown): Record<string, unknown> {
-  if (!val || typeof val !== "string") return {};
-  try { return JSON.parse(val) as Record<string, unknown>; }
-  catch { return {}; }
-}
+export const safeParseMetadata = safeParseStructured;
 
 /**
  * Escape SQL LIKE meta-characters (%, _, \) so the value is treated literally.

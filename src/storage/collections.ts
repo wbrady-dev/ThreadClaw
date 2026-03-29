@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "../config.js";
+import { logger } from "../utils/logger.js";
 import { getGraphDb } from "./graph-sqlite.js";
 import { deleteSourceData } from "../relations/ingest-hook.js";
 
@@ -64,11 +65,13 @@ export function listCollections(db: Database.Database): Collection[] {
 }
 
 export function deleteCollection(db: Database.Database, id: string): void {
-  // Gather document IDs before deletion (needed for graph cleanup)
-  const docIds = (db.prepare("SELECT id FROM documents WHERE collection_id = ?").all(id) as { id: string }[])
-    .map((d) => d.id);
+  // Gather document IDs inside transaction to avoid race with concurrent inserts
+  const docIds: string[] = [];
 
   db.transaction(() => {
+    const rows = db.prepare("SELECT id FROM documents WHERE collection_id = ?").all(id) as { id: string }[];
+    for (const r of rows) docIds.push(r.id);
+
     // Delete vectors for chunks in this collection
     db.prepare(
       `DELETE FROM chunk_vectors WHERE chunk_id IN (
@@ -82,17 +85,29 @@ export function deleteCollection(db: Database.Database, id: string): void {
     db.prepare("DELETE FROM collections WHERE id = ?").run(id);
   })();
 
-  // Clean up graph data for each document (best-effort, outside transaction since it's a separate DB)
-  // Retry once per document to avoid orphaned graph records on transient failures
+  // Clean up graph data in batch (best-effort, outside transaction since it's a separate DB)
   try {
     if (config.relations?.enabled && config.relations?.graphDbPath && docIds.length > 0) {
       const graphDb = getGraphDb(config.relations.graphDbPath);
-      for (const docId of docIds) {
+      // Batch delete: single DELETE with IN clause instead of N individual deletes
+      const objectKeys = docIds.map((id) => `document:${id}`);
+      const BATCH = 500;
+      for (let i = 0; i < objectKeys.length; i += BATCH) {
+        const batch = objectKeys.slice(i, i + BATCH);
+        const placeholders = batch.map(() => "?").join(",");
         try {
-          deleteSourceData(graphDb, "document", docId);
-        } catch (err) {
-          // Retry once on transient failure
-          try { deleteSourceData(graphDb, "document", docId); } catch {}
+          graphDb.prepare(
+            `DELETE FROM provenance_links WHERE object_id IN (${placeholders}) AND predicate = 'mentioned_in'`,
+          ).run(...batch);
+        } catch {
+          // Fallback: try individual deletes on batch failure
+          for (const key of batch) {
+            try {
+              graphDb.prepare(
+                "DELETE FROM provenance_links WHERE object_id = ? AND predicate = 'mentioned_in'",
+              ).run(key);
+            } catch {}
+          }
         }
       }
     }
@@ -212,24 +227,34 @@ export function resetKnowledgeBase(db: Database.Database): { collectionsDeleted:
     throw new Error(`Invalid embedding dimension: ${dim}`);
   }
   db.transaction(() => {
-    try { db.exec("DROP TABLE IF EXISTS chunk_vectors"); } catch {}
+    try { db.exec("DROP TABLE IF EXISTS chunk_vectors"); } catch (err) {
+      logger.warn({ error: String(err) }, "resetKnowledgeBase: failed to drop chunk_vectors");
+    }
     try {
       db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
         chunk_id TEXT PRIMARY KEY,
         embedding float[${dim}]
       )`);
-    } catch {}
+    } catch (err) {
+      logger.warn({ error: String(err) }, "resetKnowledgeBase: failed to recreate chunk_vectors");
+    }
 
     // Delete all collections (cascades: documents, chunks, metadata_index, watch_paths; triggers: chunk_fts)
     db.prepare("DELETE FROM collections").run();
 
     // Rebuild FTS index to clear shadow table bloat
-    try { db.exec("INSERT INTO chunk_fts(chunk_fts) VALUES('rebuild')"); } catch {}
+    try { db.exec("INSERT INTO chunk_fts(chunk_fts) VALUES('rebuild')"); } catch (err) {
+      logger.warn({ error: String(err) }, "resetKnowledgeBase: failed to rebuild FTS index");
+    }
   })();
 
   // Compact database file (must be outside transaction — SQLite requirement)
-  try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch {}
-  try { db.exec("VACUUM"); } catch {}
+  try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch (err) {
+    logger.warn({ error: String(err) }, "resetKnowledgeBase: WAL checkpoint failed");
+  }
+  try { db.exec("VACUUM"); } catch (err) {
+    logger.warn({ error: String(err) }, "resetKnowledgeBase: VACUUM failed");
+  }
 
   return { collectionsDeleted: collCount, documentsDeleted: docCount, chunksDeleted: chunkCount };
 }

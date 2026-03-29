@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { stopSources, startSources, getSourceEntries } from "../sources/index.js";
 import { logger } from "../utils/logger.js";
 import { isLocalRequest } from "./guards.js";
+import { toClientError } from "../utils/errors.js";
 
 /** Concurrency guard: prevents overlapping reload operations */
 let reloadInProgress = false;
@@ -26,7 +27,7 @@ export function registerSourceRoutes(server: FastifyInstance) {
       return reply.send({ status: "ok", message: "Sources reloaded" });
     } catch (err) {
       logger.error({ error: String(err) }, "Failed to reload sources");
-      return reply.status(500).send({ error: String(err) });
+      return reply.status(500).send({ error: toClientError(err, "Source reload") });
     } finally {
       reloadInProgress = false;
     }
@@ -48,7 +49,7 @@ export function registerSourceRoutes(server: FastifyInstance) {
         })),
       });
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to fetch sources: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "Fetch sources") });
     }
   });
 }

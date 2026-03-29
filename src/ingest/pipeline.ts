@@ -1,5 +1,4 @@
 import { readFile, stat } from "fs/promises";
-import { homedir } from "os";
 import { resolve, sep } from "path";
 import { v4 as uuidv4 } from "uuid";
 
@@ -94,11 +93,17 @@ async function ingestFileInner(
   const collection = ensureCollection(db, collectionName);
 
   // Path containment check — prevent directory traversal attacks.
-  // Allow: service root, user home (watch paths), and ~/.threadclaw (staging).
+  // Allow: service root, configured watch paths (not entire homedir), and ~/.threadclaw (staging).
   const allowedBases = [
     resolve(config.dataDir, ".."),                                    // service root
-    homedir(),                                                         // user home (watch paths)
   ];
+  // Add configured watch paths (parsed from WATCH_PATHS=path1|col1,path2|col2)
+  if (config.watch.paths) {
+    for (const entry of config.watch.paths.split(",")) {
+      const watchDir = entry.split("|")[0]?.trim();
+      if (watchDir) allowedBases.push(resolve(watchDir));
+    }
+  }
   const pathOk = allowedBases.some(
     (base) => absPath.startsWith(resolve(base) + sep) || absPath === resolve(base),
   );
@@ -277,27 +282,11 @@ async function ingestFileInner(
   );
   const embeddings = await embedBatch(chunkTexts, "passage");
 
-  // Issue 1 fix: For updates, delete old document's chunks BEFORE running cross-DB dedup.
-  // This prevents self-matching (old embeddings matching new ones) while still catching
-  // cross-document duplicates. Wrapped in a transaction for atomicity.
-  if (existing) {
-    const deleteOld = db.transaction(() => {
-      const oldChunkIds = db.prepare("SELECT id FROM chunks WHERE document_id = ?").all(existing.id) as { id: string }[];
-      if (oldChunkIds.length > 0) {
-        const delVecStmt = db.prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?");
-        for (const c of oldChunkIds) delVecStmt.run(c.id);
-      }
-      db.prepare("DELETE FROM chunks WHERE document_id = ?").run(existing.id);
-      db.prepare("DELETE FROM metadata_index WHERE document_id = ?").run(existing.id);
-      db.prepare("DELETE FROM documents WHERE id = ?").run(existing.id);
-    });
-    deleteOld();
-  }
-
-  // Semantic deduplication — remove near-duplicate chunks
-  // Now safe to run cross-DB dedup even for updates: old embeddings are already gone.
+  // Semantic deduplication — remove near-duplicate chunks.
+  // For updates, old embeddings are deleted inside store() transaction below (atomically).
+  // Cross-DB dedup uses force=true for updates to avoid self-matching.
   const intraDupes = findIntraBatchDuplicates(embeddings);
-  const existingDupes = options.force
+  const existingDupes = (options.force || existing)
     ? new Set<number>()
     : findExistingDuplicates(db, embeddings, collection.id);
   const allDupes = new Set([...intraDupes, ...existingDupes]);
@@ -341,7 +330,17 @@ async function ingestFileInner(
     : null;
 
   const store = db.transaction(() => {
-    // Old version already deleted above (before dedup) for updates.
+    // Delete old version inside the same transaction for atomicity (no window for data loss).
+    if (existing) {
+      const oldChunkIds = db.prepare("SELECT id FROM chunks WHERE document_id = ?").all(existing.id) as { id: string }[];
+      if (oldChunkIds.length > 0) {
+        const delVecStmt = db.prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?");
+        for (const c of oldChunkIds) delVecStmt.run(c.id);
+      }
+      db.prepare("DELETE FROM chunks WHERE document_id = ?").run(existing.id);
+      db.prepare("DELETE FROM metadata_index WHERE document_id = ?").run(existing.id);
+      db.prepare("DELETE FROM documents WHERE id = ?").run(existing.id);
+    }
 
     // Insert document with mtime for incremental indexing.
     // ON CONFLICT handles race-condition duplicates (Issue 3).
@@ -463,7 +462,6 @@ async function ingestFileInner(
   // Track token usage
   const totalIngestTokens = dedupedIndices.reduce((sum, i) => sum + (chunks[i].tokenCount ?? 0), 0);
   trackTokens("ingest", totalIngestTokens);
-  trackTokens("embed", totalIngestTokens); // embed processes same tokens
 
   const elapsed = Date.now() - start;
   const dedupSkipped = allDupes.size;
@@ -495,9 +493,10 @@ function generateAutoTags(filePath: string, fileType: string): string[] {
 
   for (const dir of meaningfulDirs) {
     const lower = dir.toLowerCase();
-    // Skip generic directory names
+    // Skip generic directory names and Windows drive letters (e.g., "c:", "d:")
     if (
       !["src", "dist", "build", "node_modules", "users", ".openclaw", "workspace", "documents"].includes(lower) &&
+      !/^[a-z]:$/.test(lower) &&
       lower.length > 1 &&
       lower.length < 30
     ) {

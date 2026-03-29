@@ -10,7 +10,15 @@
  */
 
 import { createHash } from "node:crypto";
-import type { MemoryKind, StructuredInvariant, StructuredClaim } from "./types.js";
+import type {
+  MemoryKind,
+  StructuredInvariant,
+  StructuredClaim,
+  StructuredDecision,
+  StructuredProcedure,
+  StructuredRelation,
+  StructuredCapability,
+} from "./types.js";
 
 // ── Normalization ───────────────────────────────────────────────────────────
 
@@ -77,26 +85,6 @@ export function normalizeTopic(topic: string): string {
 }
 
 // ── Per-Kind Key Strategies ─────────────────────────────────────────────────
-
-interface StructuredDecision {
-  topic?: string;
-}
-
-interface StructuredProcedure {
-  toolName?: string;
-  key?: string;
-}
-
-interface StructuredRelation {
-  subjectName?: string;
-  predicate?: string;
-  objectName?: string;
-}
-
-interface StructuredCapability {
-  capabilityType?: string;
-  capabilityKey?: string;
-}
 
 /**
  * Build a canonical key for a MemoryObject based on its kind.

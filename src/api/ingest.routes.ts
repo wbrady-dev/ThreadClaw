@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { ingestFile } from "../ingest/pipeline.js";
 import { isLocalRequest } from "./guards.js";
 import { logger } from "../utils/logger.js";
+import { toClientError } from "../utils/errors.js";
 
 /**
  * Validate that a file path is safe to ingest.
@@ -73,7 +74,7 @@ export function registerIngestRoutes(server: FastifyInstance) {
       const result = await ingestFile(filePath, { collection, tags });
       return { ok: true, ...result };
     } catch (err) {
-      return reply.status(500).send({ error: `Ingest failed: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.status(500).send({ error: toClientError(err, "Ingest") });
     }
   });
 
@@ -104,14 +105,14 @@ export function registerIngestRoutes(server: FastifyInstance) {
     try {
       await writeFile(tmpPath, content, "utf-8");
     } catch (err) {
-      return reply.status(500).send({ error: `Failed to write temp file: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.status(500).send({ error: toClientError(err, "Ingest temp file") });
     }
 
     try {
       const result = await ingestFile(tmpPath, { collection });
       return { ok: true, ...result };
     } catch (err) {
-      return reply.status(500).send({ error: `Ingest failed: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.status(500).send({ error: toClientError(err, "Ingest") });
     } finally {
       await unlink(tmpPath).catch((err) => {
         logger.warn({ tmpPath, error: String(err) }, "Failed to clean up temp file");

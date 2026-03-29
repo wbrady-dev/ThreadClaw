@@ -79,7 +79,7 @@ export function chunkDocument(doc: ParsedDocument): Chunk[] {
   // Add overlap: prepend last N% of previous chunk's text for context preservation
   // KNOWN LIMITATION: Overlap is applied AFTER merge, which can create cross-section
   // overlap (a chunk from section A gets prepended to a chunk from section B).
-  // NOTE: Overlap splits on whitespace, which can destroy formatting for code/table chunks.
+  // NOTE: Overlap uses line-based splitting to preserve formatting (code indentation, tables).
   // TODO: Add file-type metadata on chunks as an enhancement.
   chunks = addOverlap(chunks, Math.floor(chunkTargetTokens * config.extraction.chunkOverlapRatio));
 
@@ -109,13 +109,14 @@ function addOverlap(chunks: Chunk[], overlapTokens: number): Chunk[] {
     const prev = chunks[i - 1];
     const curr = chunks[i];
 
-    // Extract tail of previous chunk as overlap context
-    const prevWords = prev.text.split(/\s+/);
-    // ~1 token per word (conservative) for overlap sizing
-    const overlapWordCount = Math.max(overlapTokens > 0 && prevWords.length > 0 ? 1 : 0, Math.min(overlapTokens, Math.floor(prevWords.length * 0.3)));
+    // Extract tail of previous chunk as overlap context.
+    // Use line-based overlap to preserve whitespace (code indentation, table formatting).
+    const prevLines = prev.text.split("\n");
+    // ~1 token per short line (conservative) for overlap sizing
+    const overlapLineCount = Math.max(overlapTokens > 0 && prevLines.length > 0 ? 1 : 0, Math.min(overlapTokens, Math.floor(prevLines.length * 0.3)));
 
-    if (overlapWordCount > 0) {
-      const overlapText = prevWords.slice(-overlapWordCount).join(" ");
+    if (overlapLineCount > 0) {
+      const overlapText = prevLines.slice(-overlapLineCount).join("\n");
       result.push({
         ...curr,
         text: overlapText + "\n" + curr.text,

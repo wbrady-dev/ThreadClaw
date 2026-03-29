@@ -18,7 +18,11 @@ import os
 import json
 import re
 import subprocess
+import platform
+import tempfile
 from typing import Optional
+
+_IS_WINDOWS = platform.system() == "Windows"
 
 
 def main() -> None:
@@ -36,7 +40,7 @@ def main() -> None:
 
     # Ensure threadclaw is available as a global command
     try:
-        subprocess.run(["npm", "link"], cwd=threadclaw_dir_native, capture_output=True, timeout=30)
+        subprocess.run(["npm", "link"], cwd=threadclaw_dir_native, capture_output=True, timeout=30, shell=_IS_WINDOWS)
     except FileNotFoundError:
         pass  # npm not installed
     except subprocess.TimeoutExpired:
@@ -183,9 +187,19 @@ exec: threadclaw ingest "path/to/file" --collection default
             "config": memory_config
         }
 
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=2)
-            f.write("\n")
+        # Atomic write: write to temp file then rename to prevent corruption on crash
+        config_dir = os.path.dirname(config_path)
+        fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=config_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2)
+                f.write("\n")
+            # On Windows, os.replace is atomic within the same volume
+            os.replace(tmp_path, config_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
         print("[OK] OpenClaw configured for RSMA (Memory Engine + contextEngine slot)")
 
     except (json.JSONDecodeError, OSError, KeyError) as e:
@@ -195,7 +209,7 @@ exec: threadclaw ingest "path/to/file" --collection default
     try:
         result = subprocess.run(
             ["openclaw", "plugins", "install", "--link", memory_engine_dir],
-            capture_output=True, timeout=60
+            capture_output=True, timeout=60, shell=_IS_WINDOWS
         )
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace").strip()
@@ -245,7 +259,7 @@ exec: threadclaw ingest "path/to/file" --collection default
 
             # Set token budget to 2000 for RSMA
             if "QUERY_TOKEN_BUDGET=" in env_content:
-                env_content = re.sub(r"QUERY_TOKEN_BUDGET=.*", "QUERY_TOKEN_BUDGET=2000", env_content)
+                env_content = re.sub(r"^QUERY_TOKEN_BUDGET=.*", "QUERY_TOKEN_BUDGET=2000", env_content, flags=re.MULTILINE)
 
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write(env_content)

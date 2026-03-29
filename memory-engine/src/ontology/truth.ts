@@ -426,7 +426,7 @@ function checkSupersessionGuards(
   const reason = `correction_supersession: signal="${correctionSignal ?? "unknown"}", `
     + `canonical_key="${candidate.canonical_key}", `
     + `old_id="${existing.id}", `
-    + `confidence=${candidate.confidence.toFixed(2)}>${existing.confidence.toFixed(2)}`;
+    + `confidence=${candidate.confidence.toFixed(2)} vs ${existing.confidence.toFixed(2)}`;
 
   return { pass: true, reason };
 }
@@ -452,7 +452,7 @@ function createConflictObject(
       canonicalKey: objA.canonical_key,
       kind: objA.kind,
     },
-    canonical_key: `conflict::${contentA} vs ${contentB}::${Date.now()}`,
+    canonical_key: `conflict::${objA.canonical_key ?? contentA}::vs::${existing.canonicalKey ?? contentB}`,
     provenance: {
       source_kind: "inference",
       source_id: objA.id,

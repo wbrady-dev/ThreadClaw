@@ -168,5 +168,8 @@ try {
 }
 
 // Graceful shutdown — await server.close() to drain pending requests
-process.on("SIGINT", async () => { await server.close(); closeDb(); process.exit(0); });
-process.on("SIGTERM", async () => { await server.close(); closeDb(); process.exit(0); });
+const mcpShutdown = async () => {
+  try { await server.close(); } catch {} finally { closeDb(); process.exit(0); }
+};
+process.on("SIGINT", mcpShutdown);
+process.on("SIGTERM", mcpShutdown);

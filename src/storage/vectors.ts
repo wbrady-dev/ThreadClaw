@@ -1,10 +1,12 @@
 import type Database from "better-sqlite3";
+import { config } from "../config.js";
 
 export interface VectorSearchResult {
   chunkId: string;
   distance: number;
 }
 
+/** @deprecated Pipeline inserts vectors inline in a transaction. Use direct SQL instead. */
 export function insertVector(
   db: Database.Database,
   chunkId: string,
@@ -30,8 +32,7 @@ export function searchVectors(
   if (collectionId) {
     // sqlite-vec requires k=? in WHERE, can't JOIN on vec0 directly.
     // Over-retrieve then batch-filter by collection in a single query.
-    // TODO: Make over-retrieval factor configurable via config.query.vectorOverRetrieveFactor
-    const overRetrieve = topK * 3;
+    const overRetrieve = topK * config.query.vectorOverRetrieveFactor;
     const stmt = db.prepare(`
       SELECT chunk_id as chunkId, distance
       FROM chunk_vectors

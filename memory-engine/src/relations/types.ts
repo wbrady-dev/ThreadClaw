@@ -93,7 +93,12 @@ export interface StoreExtractionInput {
 // Horizon 2: Claims
 // ---------------------------------------------------------------------------
 
-export type ClaimStatus = "active" | "superseded" | "retracted" | "stale";
+/**
+ * ClaimStatus is now an alias for MemoryStatus from the unified ontology.
+ * Keeps backward-compat for any external consumers while ensuring
+ * "needs_confirmation" is available everywhere claims reference status.
+ */
+export { type MemoryStatus as ClaimStatus } from "../ontology/types.js";
 export type EvidenceRole = "support" | "contradict" | "update";
 export type ValueType = "text" | "json" | "number" | "boolean" | "date";
 
@@ -160,7 +165,7 @@ export interface UpsertDecisionResult {
 // ---------------------------------------------------------------------------
 
 export type LoopStatus = "open" | "closed" | "blocked" | "stale";
-export type LoopType = "task" | "question" | "follow_up" | "dependency" | "test" | "smoke";
+export type LoopType = "task" | "question" | "follow_up" | "dependency";
 
 export interface OpenLoopInput {
   scopeId: number;

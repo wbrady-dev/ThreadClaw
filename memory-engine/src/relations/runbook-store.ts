@@ -175,14 +175,21 @@ export interface AddRunbookEvidenceInput {
 }
 
 export function addRunbookEvidence(db: GraphDb, input: AddRunbookEvidenceInput): number {
+  // Look up composite_id from memory_objects for consistent provenance subject_id
+  const moRow = db.prepare(
+    "SELECT composite_id FROM memory_objects WHERE id = ?",
+  ).get(input.runbookId) as { composite_id: string } | undefined;
+  const subjectId = moRow?.composite_id ?? `procedure:${input.runbookId}`;
+  const objectId = input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`;
+
   // Write ONLY to provenance_links
   const result = db.prepare(`
     INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
-    `procedure:${input.runbookId}`,
+    subjectId,
     "supports",
-    input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
+    objectId,
     1.0,
     input.evidenceRole ?? "success",
     1,
@@ -191,10 +198,7 @@ export function addRunbookEvidence(db: GraphDb, input: AddRunbookEvidenceInput):
 
   const evidenceRow = db.prepare(
     "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = 'supports' AND object_id = ?",
-  ).get(
-    `procedure:${input.runbookId}`,
-    input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
-  ) as { id: number } | undefined;
+  ).get(subjectId, objectId) as { id: number } | undefined;
   const evidenceId = evidenceRow?.id ?? 0;
 
   const parentRow = db.prepare(
@@ -229,14 +233,15 @@ export function getRunbookWithEvidence(db: GraphDb, runbookId: number): RunbookW
 
   const runbook = moRowToRunbookRow(row);
 
-  // Read from provenance_links
+  // Read from provenance_links — use composite_id for consistent subject_id
+  const compositeId = String(row.composite_id ?? `procedure:${runbookId}`);
   let evidence: RunbookWithEvidence["evidence"] = [];
   try {
     const rows = db.prepare(`
       SELECT id, object_id, detail, metadata, created_at
       FROM provenance_links WHERE subject_id = ? AND predicate = 'supports'
       ORDER BY created_at DESC
-    `).all(`procedure:${runbookId}`) as Array<Record<string, unknown>>;
+    `).all(compositeId) as Array<Record<string, unknown>>;
 
     evidence = rows.map((r) => {
       let meta: Record<string, unknown> = {};

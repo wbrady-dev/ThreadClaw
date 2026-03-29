@@ -389,7 +389,7 @@ export function detectGpu(): GpuInfo {
   try {
     const output = execFileSync(
       "nvidia-smi", ["--query-gpu=name,memory.total,memory.used,memory.free", "--format=csv,noheader,nounits"],
-      { stdio: "pipe", timeout: 3000 },
+      { stdio: "pipe", timeout: 1000 },
     ).toString().trim();
     const [name, total, used, free] = output.split(",").map((s) => s.trim());
     if (name && total) {

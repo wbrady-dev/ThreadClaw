@@ -9,6 +9,7 @@ import { clearScreen, kvLine, section, t } from "./theme.js";
 import { runStreamedCommand, sanitizeCommandLine } from "./process.js";
 import {
   findOpenClaw,
+  getNpmCmd,
   getPlatform,
   getPythonCmd,
   getRootDir,
@@ -201,7 +202,7 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
   const hadExistingEnv = existsSync(envPath);
   const existingEnv = hadExistingEnv ? readFileSync(envPath, "utf-8") : "";
 
-  const npmCmd = getPlatform() === "windows" ? "npm.cmd" : "npm";
+  const npmCmd = getNpmCmd();
   const failures: string[] = [];
 
   // ── Step 1: Node.js dependencies ──

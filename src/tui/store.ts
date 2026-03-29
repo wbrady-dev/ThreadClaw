@@ -53,6 +53,9 @@ export function subscribe(key: StoreKey, listener: () => void): () => void {
 /**
  * React hook — subscribes to a store key and re-renders on change.
  * Returns the current value (or `initial` if not yet set).
+ *
+ * @remarks Available for TUI screens that need reactive store subscriptions.
+ * Currently unused but kept as a public API for future screen components.
  */
 export function useStoreValue<T>(key: StoreKey, initial?: T): T | undefined {
   const [value, setValue] = useState<T | undefined>(() => (get<T>(key) ?? initial));

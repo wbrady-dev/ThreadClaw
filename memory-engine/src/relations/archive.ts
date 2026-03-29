@@ -98,23 +98,26 @@ CREATE INDEX IF NOT EXISTS idx_arch_events_run ON archived_evidence_log(archive_
 
 // ── Archive DB connection ──
 
-let _archiveDb: DatabaseSync | null = null;
+const _archiveDbMap = new Map<string, DatabaseSync>();
 
 export function getArchiveDb(archivePath: string): DatabaseSync {
-  if (_archiveDb) return _archiveDb;
+  const cached = _archiveDbMap.get(archivePath);
+  if (cached) return cached;
   mkdirSync(dirname(archivePath), { recursive: true });
   const db = new DatabaseSync(archivePath);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
   db.exec(ARCHIVE_SCHEMA);
-  _archiveDb = db;
+  _archiveDbMap.set(archivePath, db);
   return db;
 }
 
 export function closeArchiveDb(): void {
-  try { _archiveDb?.close(); } catch {}
-  _archiveDb = null;
+  for (const db of _archiveDbMap.values()) {
+    try { db.close(); } catch {}
+  }
+  _archiveDbMap.clear();
 }
 
 // ── Archive result ──
@@ -150,7 +153,7 @@ function archiveStaleObjects(
   if (stale.length === 0) return { archived: 0, candidates: 0 };
 
   const insert = archiveDb.prepare(`
-    INSERT INTO archived_memory_objects
+    INSERT OR IGNORE INTO archived_memory_objects
       (id, composite_id, kind, canonical_key, content, structured_json,
        scope_id, branch_id, status, confidence, trust_score,
        influence_weight, superseded_by,
@@ -161,17 +164,26 @@ function archiveStaleObjects(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  for (const row of stale) {
-    insert.run(
-      row.id, row.composite_id, row.kind, row.canonical_key,
-      row.content, row.structured_json,
-      row.scope_id, row.branch_id, row.status, row.confidence,
-      row.trust_score, row.influence_weight, row.superseded_by,
-      row.source_kind, row.source_id, row.source_detail, row.source_authority,
-      row.first_observed_at, row.last_observed_at, row.observed_at,
-      row.created_at, row.updated_at,
-      `stale:conf<${confidenceThreshold}:${staleDays}d`, runId,
-    );
+  // Wrap archive inserts in a transaction for atomicity — if any insert fails,
+  // none are committed, and we don't proceed to delete from hotDb.
+  archiveDb.exec("BEGIN");
+  try {
+    for (const row of stale) {
+      insert.run(
+        row.id, row.composite_id, row.kind, row.canonical_key,
+        row.content, row.structured_json,
+        row.scope_id, row.branch_id, row.status, row.confidence,
+        row.trust_score, row.influence_weight, row.superseded_by,
+        row.source_kind, row.source_id, row.source_detail, row.source_authority,
+        row.first_observed_at, row.last_observed_at, row.observed_at,
+        row.created_at, row.updated_at,
+        `stale:conf<${confidenceThreshold}:${staleDays}d`, runId,
+      );
+    }
+    archiveDb.exec("COMMIT");
+  } catch (err) {
+    archiveDb.exec("ROLLBACK");
+    throw err;
   }
 
   hotDb.exec("BEGIN IMMEDIATE");
@@ -201,7 +213,7 @@ function archiveSupersededObjects(
   if (old.length === 0) return { archived: 0, candidates: 0 };
 
   const insert = archiveDb.prepare(`
-    INSERT INTO archived_memory_objects
+    INSERT OR IGNORE INTO archived_memory_objects
       (id, composite_id, kind, canonical_key, content, structured_json,
        scope_id, branch_id, status, confidence, trust_score,
        influence_weight, superseded_by,
@@ -212,17 +224,25 @@ function archiveSupersededObjects(
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  for (const row of old) {
-    insert.run(
-      row.id, row.composite_id, row.kind, row.canonical_key,
-      row.content, row.structured_json,
-      row.scope_id, row.branch_id, row.status, row.confidence,
-      row.trust_score, row.influence_weight, row.superseded_by,
-      row.source_kind, row.source_id, row.source_detail, row.source_authority,
-      row.first_observed_at, row.last_observed_at, row.observed_at,
-      row.created_at, row.updated_at,
-      `superseded:${olderThanDays}d`, runId,
-    );
+  // Wrap archive inserts in a transaction for atomicity
+  archiveDb.exec("BEGIN");
+  try {
+    for (const row of old) {
+      insert.run(
+        row.id, row.composite_id, row.kind, row.canonical_key,
+        row.content, row.structured_json,
+        row.scope_id, row.branch_id, row.status, row.confidence,
+        row.trust_score, row.influence_weight, row.superseded_by,
+        row.source_kind, row.source_id, row.source_detail, row.source_authority,
+        row.first_observed_at, row.last_observed_at, row.observed_at,
+        row.created_at, row.updated_at,
+        `superseded:${olderThanDays}d`, runId,
+      );
+    }
+    archiveDb.exec("COMMIT");
+  } catch (err) {
+    archiveDb.exec("ROLLBACK");
+    throw err;
   }
 
   hotDb.exec("BEGIN IMMEDIATE");
@@ -267,7 +287,7 @@ function archiveOldEvents(
     if (batch.length === 0) break;
 
     const insert = archiveDb.prepare(`
-      INSERT INTO archived_evidence_log
+      INSERT OR IGNORE INTO archived_evidence_log
         (id, scope_id, branch_id, object_type, object_id, event_type,
          actor, run_id, idempotency_key, payload_json, created_at, scope_seq,
          archive_run_id)
@@ -357,7 +377,7 @@ export function runArchive(
 
     if (old.length > 0) {
       const insert = archiveDb.prepare(`
-        INSERT INTO archived_memory_objects
+        INSERT OR IGNORE INTO archived_memory_objects
           (id, composite_id, kind, canonical_key, content, structured_json,
            scope_id, branch_id, status, confidence, trust_score,
            influence_weight, superseded_by,
@@ -368,17 +388,25 @@ export function runArchive(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      for (const row of old) {
-        insert.run(
-          row.id, row.composite_id, row.kind, row.canonical_key,
-          row.content, row.structured_json,
-          row.scope_id, row.branch_id, row.status, row.confidence,
-          row.trust_score, row.influence_weight, row.superseded_by,
-          row.source_kind, row.source_id, row.source_detail, row.source_authority,
-          row.first_observed_at, row.last_observed_at, row.observed_at,
-          row.created_at, row.updated_at,
-          `closed:${opts?.loopStaleDays ?? 30}d`, runId,
-        );
+      // Wrap archive inserts in a transaction for atomicity
+      archiveDb.exec("BEGIN");
+      try {
+        for (const row of old) {
+          insert.run(
+            row.id, row.composite_id, row.kind, row.canonical_key,
+            row.content, row.structured_json,
+            row.scope_id, row.branch_id, row.status, row.confidence,
+            row.trust_score, row.influence_weight, row.superseded_by,
+            row.source_kind, row.source_id, row.source_detail, row.source_authority,
+            row.first_observed_at, row.last_observed_at, row.observed_at,
+            row.created_at, row.updated_at,
+            `closed:${opts?.loopStaleDays ?? 30}d`, runId,
+          );
+        }
+        archiveDb.exec("COMMIT");
+      } catch (err) {
+        archiveDb.exec("ROLLBACK");
+        throw err;
       }
 
       hotDb.exec("BEGIN IMMEDIATE");

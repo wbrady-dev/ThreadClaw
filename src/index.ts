@@ -1,5 +1,7 @@
 import { startServer } from "./server.js";
 import { logger } from "./utils/logger.js";
+import { closeDb } from "./storage/index.js";
+import { flushTokens } from "./utils/token-tracker.js";
 
 // Catch unhandled promise rejections so they don't silently crash the process
 process.on("unhandledRejection", (reason) => {
@@ -8,6 +10,8 @@ process.on("unhandledRejection", (reason) => {
 
 process.on("uncaughtException", (err) => {
   logger.error({ err }, "Uncaught exception — shutting down");
+  try { flushTokens(); } catch {}
+  try { closeDb(); } catch {}
   process.exit(1);
 });
 

@@ -118,8 +118,7 @@ export function findExistingDuplicates(
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
-  // Debug assertion: vectors must be the same length
-  if (process.env.NODE_ENV !== "production" && a.length !== b.length) {
+  if (a.length !== b.length) {
     throw new Error(`cosineSimilarity: vector length mismatch (${a.length} vs ${b.length})`);
   }
   let dot = 0, normA = 0, normB = 0;

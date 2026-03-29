@@ -6,7 +6,7 @@ Vitest with in-memory SQLite databases for isolation. No external dependencies n
 
 ## Test Suites
 
-### ThreadClaw (src/) -- 89 tests
+### ThreadClaw (src/) -- 103 tests
 
 | File | Tests | Coverage |
 |------|-------|----------|
@@ -15,7 +15,7 @@ Vitest with in-memory SQLite databases for isolation. No external dependencies n
 | chunker.test.ts | 14 | Chunking strategy tests (prose, markdown, merging, context prefix) |
 | cli.test.ts | 8 | CLI command structure, subcommand registration, version/help output |
 
-### Memory Engine (memory-engine/) -- 858 tests (43 test files)
+### Memory Engine (memory-engine/) -- 866 tests (44 test files)
 
 | File | Tests | Coverage |
 |------|-------|----------|

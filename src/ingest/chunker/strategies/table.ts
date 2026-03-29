@@ -2,8 +2,6 @@ import { estimateTokens } from "../../../utils/format.js";
 import { config } from "../../../config.js";
 import type { Chunk } from "../semantic.js";
 
-const ROWS_PER_CHUNK = config.extraction.chunkTableRows;
-
 /** Detect if a line is a markdown table separator (e.g., |---|---|) */
 function isSeparatorLine(line: string): boolean {
   return /^[\s|:-]+$/.test(line) && line.includes("-");
@@ -17,6 +15,8 @@ export function chunkTable(
   text: string,
   maxTokens: number,
 ): Chunk[] {
+  // Read at call time so config changes are respected (not cached at module load)
+  const ROWS_PER_CHUNK = config.extraction.chunkTableRows;
   const lines = text.split("\n");
   if (lines.length <= 2) {
     // Two-line CSV: if second line is a separator, strip it

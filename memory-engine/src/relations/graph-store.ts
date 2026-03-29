@@ -187,13 +187,18 @@ export function deleteGraphDataForSource(
     // Delete memory_objects from this source
     deleteMemoryObjectsBySource(db, sourceType, sourceId);
 
-    // Clean up orphaned provenance_links where subject or object no longer exists
+    // Clean up orphaned provenance_links where subject no longer exists.
+    // Use OR so a link is removed if EITHER side is orphaned (not just both).
+    // Skip 'mentioned_in' links from the object_id check because their
+    // object_id is a source ref (e.g. "document:xyz") that intentionally
+    // doesn't exist in memory_objects.
     let orphansRemoved = 0;
     try {
       const orphanResult = db.prepare(`
         DELETE FROM provenance_links
         WHERE subject_id NOT IN (SELECT composite_id FROM memory_objects)
-          AND object_id NOT IN (SELECT composite_id FROM memory_objects)
+          OR (predicate != 'mentioned_in'
+              AND object_id NOT IN (SELECT composite_id FROM memory_objects))
       `).run();
       orphansRemoved = Number(orphanResult.changes);
     } catch { /* non-fatal */ }
@@ -236,52 +241,69 @@ export function deleteGraphDataForSource(
 /**
  * Store a batch of extraction results: upsert entities, insert mentions,
  * and log evidence for each.
+ *
+ * Wrapped in a write transaction so all entity upserts, mentions, and evidence
+ * writes for the batch are atomic. Safe to call from within an existing
+ * transaction (falls through without nesting).
  */
 export function storeExtractionResult(
   db: GraphDb,
   results: ExtractionResult[],
   input: StoreExtractionInput,
 ): void {
-  for (const result of results) {
-    const name = result.name.toLowerCase().trim();
-    if (name.length === 0) continue;
+  const doWork = (): void => {
+    for (const result of results) {
+      const name = result.name.toLowerCase().trim();
+      if (name.length === 0) continue;
 
-    const { entityId } = upsertEntity(db, {
-      name: result.name,
-      displayName: result.name,
-      entityType: result.entityType,
-      actor: input.actor,
-      runId: input.runId,
-    });
-
-    const inserted = insertMention(db, {
-      entityId,
-      scopeId: input.scopeId,
-      sourceType: input.sourceType,
-      sourceId: input.sourceId,
-      sourceDetail: input.sourceDetail,
-      contextTerms: result.contextTerms,
-      actor: input.actor,
-      runId: input.runId,
-    });
-
-    if (inserted) {
-      logEvidence(db, {
-        scopeId: input.scopeId,
-        objectType: "entity",
-        objectId: entityId,
-        eventType: "mention_insert",
-        actor: input.actor ?? "system",
+      const { entityId } = upsertEntity(db, {
+        name: result.name,
+        displayName: result.name,
+        entityType: result.entityType,
+        actor: input.actor,
         runId: input.runId,
-        idempotencyKey: `extract:${input.sourceType}:${input.sourceId}:${name}:${result.strategy ?? "unknown"}`,
-        payload: {
-          confidence: result.confidence,
-          strategy: result.strategy,
-          sourceType: input.sourceType,
-          sourceId: input.sourceId,
-        },
       });
+
+      const inserted = insertMention(db, {
+        entityId,
+        scopeId: input.scopeId,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+        sourceDetail: input.sourceDetail,
+        contextTerms: result.contextTerms,
+        actor: input.actor,
+        runId: input.runId,
+      });
+
+      if (inserted) {
+        logEvidence(db, {
+          scopeId: input.scopeId,
+          objectType: "entity",
+          objectId: entityId,
+          eventType: "mention_insert",
+          actor: input.actor ?? "system",
+          runId: input.runId,
+          idempotencyKey: `extract:${input.sourceType}:${input.sourceId}:${name}:${result.strategy ?? "unknown"}`,
+          payload: {
+            confidence: result.confidence,
+            strategy: result.strategy,
+            sourceType: input.sourceType,
+            sourceId: input.sourceId,
+          },
+        });
+      }
     }
+  };
+
+  // Wrap in write transaction; if already inside one (e.g. reExtractGraphForDocument), run directly
+  try {
+    withWriteTransaction(db, doWork);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("transaction")) {
+      doWork();
+      return;
+    }
+    throw err;
   }
 }
 

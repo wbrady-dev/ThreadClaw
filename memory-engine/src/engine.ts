@@ -1734,7 +1734,7 @@ export class LcmContextEngine implements ContextEngine {
               });
               if (directFn) {
                 completeFn = directFn;
-                console.log(`[rsma] Using direct ${extractionProvider}/${extractionModel} for extraction (API key configured)`);
+                console.debug(`[rsma] Using direct ${extractionProvider}/${extractionModel} for extraction (API key configured)`);
               }
             }
 

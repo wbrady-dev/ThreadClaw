@@ -11,6 +11,7 @@ import {
 } from "../storage/collections.js";
 import { invalidateCollection } from "../query/cache.js";
 import { isLocalRequest } from "./guards.js";
+import { toClientError } from "../utils/errors.js";
 
 function db() {
   return getMainDb();
@@ -23,7 +24,7 @@ export function registerCollectionRoutes(server: FastifyInstance) {
       const collections = listCollections(db());
       return { collections };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to list collections: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "List collections") });
     }
   });
 
@@ -86,7 +87,7 @@ export function registerCollectionRoutes(server: FastifyInstance) {
 
       return { deleted: true, collection: collection.name };
     } catch (err) {
-      return reply.code(500).send({ error: `Failed to delete collection: ${err instanceof Error ? err.message : String(err)}` });
+      return reply.code(500).send({ error: toClientError(err, "Delete collection") });
     }
   });
 

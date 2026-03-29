@@ -74,13 +74,8 @@ Examples:
         process.exit(1);
       }
 
-      // Keep the process alive — chokidar events are async
-      // Without this, Node exits after the action resolves
-      const keepAlive = setInterval(() => {}, 60000);
-
       const shutdown = async () => {
         console.log("\nStopping watcher...");
-        clearInterval(keepAlive);
         await watcher.stop();
         process.exit(0);
       };

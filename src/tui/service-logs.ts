@@ -21,6 +21,7 @@ export function readLatestServiceLogLine(name: ServiceLogName, root = getRootDir
 
   // Read only the tail of the file (last 4KB) to avoid reading multi-MB logs
   let raw: string;
+  let isPartial = false;
   try {
     const stat = statSync(logPath);
     const tailBytes = 4096;
@@ -33,6 +34,7 @@ export function readLatestServiceLogLine(name: ServiceLogName, root = getRootDir
         closeSync(fd);
       }
       raw = buf.toString("utf-8");
+      isPartial = true;
     } else {
       raw = readFileSync(logPath, "utf-8");
     }
@@ -40,8 +42,10 @@ export function readLatestServiceLogLine(name: ServiceLogName, root = getRootDir
     return "";
   }
 
-  const lines = raw
-    .split(/\r?\n/)
+  const allLines = raw
+    .split(/\r?\n/);
+  // Drop first line of partial reads — it may start mid-character (split UTF-8)
+  const lines = (isPartial ? allLines.slice(1) : allLines)
     .map((line) => sanitizeCommandLine(line))
     .filter(Boolean)
     // Filter out tqdm progress bars and garbled carriage-return output
@@ -60,6 +64,7 @@ export function readServiceLogTail(name: ServiceLogName, lines = 5, root = getRo
     // Read only the tail — estimate ~200 bytes per line
     const tailBytes = Math.min(stat.size, lines * 200);
     let raw: string;
+    let isPartial = false;
     if (stat.size > tailBytes) {
       const buf = Buffer.alloc(tailBytes);
       const fd = openSync(logPath, "r");
@@ -69,12 +74,13 @@ export function readServiceLogTail(name: ServiceLogName, lines = 5, root = getRo
         closeSync(fd);
       }
       raw = buf.toString("utf-8");
+      isPartial = true;
     } else {
       raw = readFileSync(logPath, "utf-8");
     }
 
-    return raw
-      .split(/\r?\n/)
+    const allLines = raw.split(/\r?\n/);
+    return (isPartial ? allLines.slice(1) : allLines)
       .map((line) => sanitizeCommandLine(line))
       .filter(Boolean)
       .slice(-lines);

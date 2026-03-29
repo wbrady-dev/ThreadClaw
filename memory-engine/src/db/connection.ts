@@ -26,6 +26,15 @@ function forceCloseConnection(entry: ConnectionEntry): void {
   }
 }
 
+/**
+ * Get a pooled connection to the LCM (memory) database.
+ * WAL mode, foreign keys ON, busy_timeout configurable.
+ *
+ * WARNING: Ref counting is best-effort. Callers MUST call closeLcmConnection()
+ * exactly once per getLcmConnection() call. If a caller leaks a reference,
+ * the connection stays open until process exit (or closeLcmConnection() with
+ * no argument is called to force-close all).
+ */
 export function getLcmConnection(dbPath: string, busyTimeoutMs = 5000): DatabaseSync {
   const existing = _connections.get(dbPath);
   if (existing) {

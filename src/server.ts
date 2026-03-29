@@ -3,13 +3,14 @@ import { resolve } from "path";
 import { existsSync, chmodSync, mkdirSync, renameSync } from "fs";
 import { homedir } from "os";
 import { createHash, timingSafeEqual } from "crypto";
-import { config, warnIfNoApiKey } from "./config.js";
+import { config, warnIfNoApiKey, cleanupConfigWatcher } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { getDb, closeDb, runMigrations, ensureCollection } from "./storage/index.js";
 import { registerRoutes } from "./api/routes.js";
 import { registerRateLimit } from "./api/ratelimit.js";
 import { startSources, stopSources } from "./sources/index.js";
 import { flushTokens } from "./utils/token-tracker.js";
+import { toClientError } from "./utils/errors.js";
 
 /**
  * Check OpenClaw integration on startup (read-only).
@@ -135,6 +136,33 @@ export async function startServer() {
   const db = getDb(dbPath);
   runMigrations(db);
 
+  // Validate that configured embedding dimensions match existing vec0 table.
+  // A mismatch means the model changed but the DB wasn't rebuilt — queries will
+  // return garbage or crash. Fail fast with a clear message.
+  try {
+    const vecSchema = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='chunk_vectors'"
+    ).get() as { sql: string } | undefined;
+    if (vecSchema?.sql) {
+      const match = vecSchema.sql.match(/float\[(\d+)\]/);
+      if (match) {
+        const dbDim = parseInt(match[1], 10);
+        if (dbDim !== config.embedding.dimensions) {
+          logger.error(
+            { configured: config.embedding.dimensions, existing: dbDim },
+            "FATAL: Embedding dimension mismatch — configured EMBEDDING_DIMENSIONS does not match existing vec0 table. " +
+            "Either change EMBEDDING_DIMENSIONS back to the original value, or delete the database and re-ingest."
+          );
+          closeDb();
+          process.exit(1);
+        }
+      }
+    }
+  } catch (err) {
+    // vec0 table may not exist yet (fresh DB) — that's fine
+    logger.debug({ err: err instanceof Error ? err.message : String(err) }, "Vec0 dimension check skipped");
+  }
+
   // Run graph/evidence migrations against the same DB (consolidated from graph.db).
   // Try .js first (works under tsx ESM loader), then .ts (direct tsx import).
   try {
@@ -186,7 +214,8 @@ export async function startServer() {
   // Global error handlers — catch unhandled errors and 404s
   server.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
     logger.error({ err: error }, "Unhandled server error");
-    reply.code(error.statusCode ?? 500).send({ error: error.message ?? "Internal server error" });
+    const code = error.statusCode ?? 500;
+    reply.code(code).send({ error: toClientError(error, "Request", code) });
   });
   server.setNotFoundHandler((_request, reply) => {
     reply.code(404).send({ error: "Not found" });
@@ -223,6 +252,7 @@ export async function startServer() {
     shuttingDown = true;
     logger.info("Shutting down...");
     flushTokens();
+    cleanupConfigWatcher();
     // Don't await stopSources — watcher ingests will fail gracefully when DB closes
     stopSources().catch(() => {});
     // Skip server.close() — it waits for connections to drain. Just close DB and exit.

@@ -25,6 +25,25 @@ export interface SourceEntry {
 }
 
 /**
+ * Parse a pipe-delimited config string into collection entries.
+ * Format: "path1|collection1,path2|collection2,..."
+ * If no pipe, uses defaultCollection as the collection name.
+ */
+function parsePipeDelimited(raw: string, defaultCollection: string): { path: string; collection: string }[] {
+  return raw
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const pipe = entry.lastIndexOf("|");
+      return {
+        path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
+        collection: pipe > 0 ? entry.slice(pipe + 1).trim() : defaultCollection,
+      };
+    });
+}
+
+/**
  * Parse the .env file to build source configs.
  * Local adapter reads from WATCH_PATHS.
  * Obsidian reads from OBSIDIAN_* vars.
@@ -36,17 +55,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
 
   // --- Local adapter: uses config object (frozen at startup from process.env) ---
   if (config.watch.paths) {
-    const collections = config.watch.paths
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const pipe = entry.lastIndexOf("|");
-        return {
-          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
-          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : config.defaults.collection,
-        };
-      });
+    const collections = parsePipeDelimited(config.watch.paths, config.defaults.collection);
     configs.set("local", {
       enabled: collections.length > 0,
       syncInterval: 0,
@@ -70,17 +79,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   const gdriveEnabled = (env.GDRIVE_ENABLED ?? "") === "true";
   const gdriveFolders = env.GDRIVE_FOLDERS ?? "";
   if (gdriveFolders) {
-    const collections = gdriveFolders
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const pipe = entry.lastIndexOf("|");
-        return {
-          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
-          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : "gdrive",
-        };
-      });
+    const collections = parsePipeDelimited(gdriveFolders, "gdrive");
     configs.set("gdrive", {
       enabled: gdriveEnabled,
       syncInterval: parseInt(env.GDRIVE_SYNC_INTERVAL || "300", 10),
@@ -92,17 +91,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   const onedriveEnabled = (env.ONEDRIVE_ENABLED ?? "") === "true";
   const onedriveFolders = env.ONEDRIVE_FOLDERS ?? "";
   if (onedriveFolders) {
-    const collections = onedriveFolders
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const pipe = entry.lastIndexOf("|");
-        return {
-          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
-          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : "onedrive",
-        };
-      });
+    const collections = parsePipeDelimited(onedriveFolders, "onedrive");
     configs.set("onedrive", {
       enabled: onedriveEnabled,
       syncInterval: parseInt(env.ONEDRIVE_SYNC_INTERVAL || "300", 10),
@@ -114,17 +103,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   const notionEnabled = (env.NOTION_ENABLED ?? "") === "true";
   const notionDbs = env.NOTION_DATABASES ?? "";
   if (notionDbs) {
-    const collections = notionDbs
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const pipe = entry.lastIndexOf("|");
-        return {
-          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
-          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : "notion",
-        };
-      });
+    const collections = parsePipeDelimited(notionDbs, "notion");
     configs.set("notion", {
       enabled: notionEnabled,
       syncInterval: parseInt(env.NOTION_SYNC_INTERVAL || "600", 10),
@@ -136,17 +115,7 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
   const notesEnabled = (env.APPLE_NOTES_ENABLED ?? "") === "true";
   const notesFolders = env.APPLE_NOTES_FOLDERS ?? "";
   if (notesFolders) {
-    const collections = notesFolders
-      .split(",")
-      .map((e) => e.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const pipe = entry.lastIndexOf("|");
-        return {
-          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
-          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : "notes",
-        };
-      });
+    const collections = parsePipeDelimited(notesFolders, "notes");
     configs.set("apple-notes", {
       enabled: notesEnabled,
       syncInterval: parseInt(env.APPLE_NOTES_SYNC_INTERVAL || "600", 10),

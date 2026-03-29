@@ -361,7 +361,7 @@ export async function semanticExtract(
       messages: [{ role: "user", content: textForExtraction.slice(0, maxChars) }],
       temperature: 0.1,
       maxTokens: 1500,
-    }), LLM_TIMEOUT_MS, "semantic extraction timed out");
+    }), config.timeoutMs ?? LLM_TIMEOUT_MS, "semantic extraction timed out");
 
     // Parse LLM response
     const content = extractTextContent(result.content);
@@ -681,7 +681,7 @@ function convertToWriterResult(
 
     let confidence = event.confidence;
     if (isUncertain) {
-      confidence = Math.min(confidence, confidence * PROVISIONAL_CONFIDENCE_FACTOR);
+      confidence = confidence * PROVISIONAL_CONFIDENCE_FACTOR;
     }
 
     const influenceWeight: InfluenceWeight =
@@ -812,7 +812,7 @@ function convertToWriterResult(
             created_at: timestamp,
             updated_at: timestamp,
           };
-          entityObj.canonical_key = buildCanonicalKey("entity", entityName);
+          entityObj.canonical_key = buildCanonicalKey("entity", entityName, entityObj.structured);
           objects.push(entityObj);
         }
       }

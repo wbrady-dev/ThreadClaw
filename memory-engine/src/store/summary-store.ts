@@ -255,6 +255,9 @@ export class SummaryStore {
     this.fts5Available = options?.fts5Available ?? true;
   }
 
+  /** Expose the underlying database for read-only stat queries. */
+  getDb(): DatabaseSync { return this.db; }
+
   // ── Summary CRUD ──────────────────────────────────────────────────────────
 
   async insertSummary(input: CreateSummaryInput): Promise<SummaryRecord> {
@@ -940,6 +943,10 @@ export class SummaryStore {
   ): SummarySearchResult[] {
     if (pattern.length > 200) {
       throw new Error("Regex pattern too long (max 200 characters)");
+    }
+    // Reject patterns with nested quantifiers that can cause catastrophic backtracking (ReDoS)
+    if (/(\+|\*|\?|\{)\s*(\+|\*|\?|\{)/.test(pattern) || /\([^)]*(\+|\*)\)[+*]/.test(pattern)) {
+      throw new Error("Regex pattern rejected: nested quantifiers may cause catastrophic backtracking");
     }
     let re: RegExp;
     try {

@@ -161,14 +161,21 @@ export function addAntiRunbookEvidence(
   antiRunbookId: number,
   input: { attemptId?: number; sourceType: string; sourceId: string; evidenceRole?: string },
 ): number {
+  // Look up composite_id from memory_objects for consistent provenance subject_id
+  const moRow = db.prepare(
+    "SELECT composite_id FROM memory_objects WHERE id = ?",
+  ).get(antiRunbookId) as { composite_id: string } | undefined;
+  const subjectId = moRow?.composite_id ?? `antirunbook:${antiRunbookId}`;
+  const objectId = input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`;
+
   // Write ONLY to provenance_links
   db.prepare(`
     INSERT OR IGNORE INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
-    `antirunbook:${antiRunbookId}`,
+    subjectId,
     "supports",
-    input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
+    objectId,
     1.0,
     input.evidenceRole ?? "failure",
     1,
@@ -177,10 +184,7 @@ export function addAntiRunbookEvidence(
 
   const evidenceRow = db.prepare(
     "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = 'supports' AND object_id = ?",
-  ).get(
-    `antirunbook:${antiRunbookId}`,
-    input.attemptId ? `attempt:${input.attemptId}` : `${input.sourceType}:${input.sourceId}`,
-  ) as { id: number } | undefined;
+  ).get(subjectId, objectId) as { id: number } | undefined;
   const evidenceId = evidenceRow?.id ?? 0;
 
   const parentRow = db.prepare(
@@ -213,11 +217,17 @@ export function getAntiRunbookEvidence(
   antiRunbookId: number,
 ): AntiRunbookEvidenceRow[] {
   try {
+    // Look up composite_id for consistent provenance subject_id
+    const moRow = db.prepare(
+      "SELECT composite_id FROM memory_objects WHERE id = ?",
+    ).get(antiRunbookId) as { composite_id: string } | undefined;
+    const subjectId = moRow?.composite_id ?? `antirunbook:${antiRunbookId}`;
+
     const rows = db.prepare(`
       SELECT id, object_id, detail, metadata, created_at
       FROM provenance_links WHERE subject_id = ? AND predicate = 'supports'
       ORDER BY created_at DESC
-    `).all(`antirunbook:${antiRunbookId}`) as Array<Record<string, unknown>>;
+    `).all(subjectId) as Array<Record<string, unknown>>;
 
     return rows.map((r) => {
       let meta: Record<string, unknown> = {};

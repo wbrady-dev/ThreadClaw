@@ -14,7 +14,7 @@ import type {
   AddClaimEvidenceInput,
   ClaimExtractionResult,
 } from "./types.js";
-import { logEvidence } from "./evidence-log.js";
+import { logEvidence, withWriteTransaction } from "./evidence-log.js";
 import { buildCanonicalKey as ontologyCanonicalKey, normalize } from "../ontology/canonical.js";
 import { upsertMemoryObject, supersedeMemoryObject } from "../ontology/mo-store.js";
 import type { MemoryObject } from "../ontology/types.js";
@@ -116,78 +116,99 @@ export function upsertClaim(db: GraphDb, input: UpsertClaimInput): UpsertClaimRe
 // Evidence
 // ---------------------------------------------------------------------------
 
-export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput): number {
-  // Look up the claim's scope_id and composite_id for consistent provenance format
-  const claimRow = db.prepare(
-    "SELECT scope_id, composite_id FROM memory_objects WHERE id = ?",
-  ).get(input.claimId) as { scope_id: number; composite_id: string } | undefined;
-  const scopeId = claimRow?.scope_id ?? 1;
-  const subjectId = claimRow?.composite_id ?? `claim:${input.claimId}`;
+export function addClaimEvidence(db: GraphDb, input: AddClaimEvidenceInput, opts?: { skipPropagation?: boolean }): number {
+  const doWork = (): number => {
+    // Look up the claim's scope_id and composite_id for consistent provenance format
+    const claimRow = db.prepare(
+      "SELECT scope_id, composite_id FROM memory_objects WHERE id = ?",
+    ).get(input.claimId) as { scope_id: number; composite_id: string } | undefined;
+    const scopeId = claimRow?.scope_id ?? 1;
+    const subjectId = claimRow?.composite_id ?? `claim:${input.claimId}`;
 
-  // Write ONLY to provenance_links (unified relationship table)
-  db.prepare(`
-    INSERT INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(subject_id, predicate, object_id) DO UPDATE SET
-      confidence = MAX(provenance_links.confidence, excluded.confidence),
-      detail = COALESCE(excluded.detail, provenance_links.detail)
-  `).run(
-    subjectId,
-    input.evidenceRole === "contradict" ? "contradicts" : "supports",
-    `${input.sourceType}:${input.sourceId}`,
-    Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1)),
-    input.sourceDetail ?? null,
-    scopeId,
-    JSON.stringify({ evidence_role: input.evidenceRole, snippet_hash: input.snippetHash, confidence_delta: input.confidenceDelta }),
-  );
+    // Write ONLY to provenance_links (unified relationship table)
+    db.prepare(`
+      INSERT INTO provenance_links (subject_id, predicate, object_id, confidence, detail, scope_id, metadata)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(subject_id, predicate, object_id) DO UPDATE SET
+        confidence = MAX(provenance_links.confidence, excluded.confidence),
+        detail = COALESCE(excluded.detail, provenance_links.detail)
+    `).run(
+      subjectId,
+      input.evidenceRole === "contradict" ? "contradicts" : "supports",
+      `${input.sourceType}:${input.sourceId}`,
+      Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1)),
+      input.sourceDetail ?? null,
+      scopeId,
+      JSON.stringify({ evidence_role: input.evidenceRole, snippet_hash: input.snippetHash, confidence_delta: input.confidenceDelta }),
+    );
 
-  // Get the actual row ID
-  const evidenceRow = db.prepare(
-    "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = ? AND object_id = ?",
-  ).get(
-    subjectId,
-    input.evidenceRole === "contradict" ? "contradicts" : "supports",
-    `${input.sourceType}:${input.sourceId}`,
-  ) as { id: number };
-  const evidenceId = evidenceRow.id;
+    // Get the actual row ID
+    const evidenceRow = db.prepare(
+      "SELECT id FROM provenance_links WHERE subject_id = ? AND predicate = ? AND object_id = ?",
+    ).get(
+      subjectId,
+      input.evidenceRole === "contradict" ? "contradicts" : "supports",
+      `${input.sourceType}:${input.sourceId}`,
+    ) as { id: number };
+    const evidenceId = evidenceRow.id;
 
-  logEvidence(db, {
-    scopeId,
-    objectType: "claim_evidence",
-    objectId: evidenceId,
-    eventType: "create",
-    payload: { claimId: input.claimId, role: input.evidenceRole },
-  });
+    logEvidence(db, {
+      scopeId,
+      objectType: "claim_evidence",
+      objectId: evidenceId,
+      eventType: "create",
+      payload: { claimId: input.claimId, role: input.evidenceRole },
+    });
 
-  // Propagate evidence to claim confidence
-  const weight = Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1));
-  try {
-    if (input.evidenceRole === "contradict") {
-      // Reduce confidence — floor at 0.05 to prevent total erasure
-      db.prepare(
-        `UPDATE memory_objects SET
-           confidence = MAX(0.05, confidence * (1.0 - ?)),
-           updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
-         WHERE id = ?`,
-      ).run(weight, input.claimId);
-    } else if (input.evidenceRole === "support") {
-      // Boost with diminishing returns — harder to push past 0.9
-      db.prepare(
-        `UPDATE memory_objects SET
-           confidence = MIN(1.0, confidence + ? * (1.0 - confidence) * 0.7),
-           updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
-         WHERE id = ?`,
-      ).run(weight, input.claimId);
+    // Propagate evidence to claim confidence (skip when caller handles batch propagation)
+    if (!opts?.skipPropagation) {
+      const weight = Math.min(1.0, Math.max(0.0, input.confidenceDelta ?? 0.1));
+      try {
+        if (input.evidenceRole === "contradict") {
+          // Reduce confidence — floor at 0.05 to prevent total erasure
+          db.prepare(
+            `UPDATE memory_objects SET
+               confidence = MAX(0.05, confidence * (1.0 - ?)),
+               updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
+             WHERE id = ?`,
+          ).run(weight, input.claimId);
+        } else if (input.evidenceRole === "support") {
+          // Boost with diminishing returns — harder to push past 0.9
+          db.prepare(
+            `UPDATE memory_objects SET
+               confidence = MIN(1.0, confidence + ? * (1.0 - confidence) * 0.7),
+               updated_at = strftime('%Y-%m-%dT%H:%M:%f','now')
+             WHERE id = ?`,
+          ).run(weight, input.claimId);
+        }
+      } catch (err) { console.warn("[rsma] belief propagation failed:", err); }
     }
-  } catch (err) { console.warn("[rsma] belief propagation failed:", err); }
 
-  return evidenceId;
+    return evidenceId;
+  };
+
+  // Wrap in write transaction; if already inside one, run directly
+  try {
+    return withWriteTransaction(db, doWork);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("transaction")) {
+      return doWork();
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Supersede
 // ---------------------------------------------------------------------------
 
+/**
+ * Supersede a claim by marking the old one as superseded and linking to the new one.
+ *
+ * TRANSACTION SAFETY: This function performs multiple writes (supersedeMemoryObject + logEvidence).
+ * All production callers (engine.ts reconciliation) already wrap in withWriteTransaction.
+ * If calling from new code, ensure a surrounding transaction is active.
+ */
 export function supersedeClaim(db: GraphDb, claimId: number, supersededBy: number): void {
   // Find composite_ids and scope from moIds
   const oldRow = db.prepare("SELECT composite_id, scope_id FROM memory_objects WHERE id = ?").get(claimId) as { composite_id: string; scope_id: number } | undefined;
@@ -363,16 +384,9 @@ export function storeClaimExtractionResults(
   for (const r of results) {
     const { claimId } = upsertClaim(db, { ...r.claim, scopeId: context.scopeId, actor: context.actor, runId: context.runId });
 
-    // Record evidence link in provenance_links + evidence_log, but we'll
-    // handle confidence update ourselves below. Save the current confidence first.
-    const before = db.prepare("SELECT confidence FROM memory_objects WHERE id = ?").get(claimId) as { confidence: number } | undefined;
-
-    addClaimEvidence(db, { ...r.evidence, claimId });
-
-    // Undo the per-row propagation that addClaimEvidence applied
-    if (before) {
-      db.prepare("UPDATE memory_objects SET confidence = ? WHERE id = ?").run(before.confidence, claimId);
-    }
+    // Record evidence link in provenance_links + evidence_log, but skip
+    // per-row confidence propagation — we batch-apply deltas below.
+    addClaimEvidence(db, { ...r.evidence, claimId }, { skipPropagation: true });
 
     // Accumulate the delta
     const delta = Math.min(1.0, Math.max(0.0, r.evidence.confidenceDelta ?? 0.1));
@@ -473,33 +487,47 @@ export function getClaimHistory(
 /**
  * Retract a claim: sets status='retracted', logs evidence with event_type='retract',
  * and records a state delta for the retraction.
+ *
+ * Wrapped in a write transaction for atomicity (UPDATE + logEvidence + recordStateDelta).
  */
 export function retractClaim(db: GraphDb, claimId: number, reason: string): void {
-  const row = db.prepare(
-    "SELECT composite_id, scope_id, canonical_key, status, confidence FROM memory_objects WHERE id = ?",
-  ).get(claimId) as { composite_id: string; scope_id: number; canonical_key: string; status: string; confidence: number } | undefined;
+  const doWork = (): void => {
+    const row = db.prepare(
+      "SELECT composite_id, scope_id, canonical_key, status, confidence FROM memory_objects WHERE id = ?",
+    ).get(claimId) as { composite_id: string; scope_id: number; canonical_key: string; status: string; confidence: number } | undefined;
 
-  if (!row) return;
+    if (!row) return;
 
-  db.prepare(
-    `UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') WHERE id = ?`,
-  ).run(claimId);
+    db.prepare(
+      `UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') WHERE id = ?`,
+    ).run(claimId);
 
-  logEvidence(db, {
-    scopeId: row.scope_id,
-    objectType: "claim",
-    objectId: claimId,
-    eventType: "retract",
-    payload: { reason },
-  });
+    logEvidence(db, {
+      scopeId: row.scope_id,
+      objectType: "claim",
+      objectId: claimId,
+      eventType: "retract",
+      payload: { reason },
+    });
 
-  recordStateDelta(db, {
-    scopeId: row.scope_id,
-    deltaType: "claim_retracted",
-    entityKey: row.canonical_key,
-    summary: reason,
-    oldValue: row.status,
-    newValue: "retracted",
-    confidence: row.confidence,
-  });
+    recordStateDelta(db, {
+      scopeId: row.scope_id,
+      deltaType: "claim_retracted",
+      entityKey: row.canonical_key,
+      summary: reason,
+      oldValue: row.status,
+      newValue: "retracted",
+      confidence: row.confidence,
+    });
+  };
+
+  try {
+    withWriteTransaction(db, doWork);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("transaction")) {
+      doWork();
+      return;
+    }
+    throw err;
+  }
 }

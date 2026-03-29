@@ -133,11 +133,14 @@ async function queryDatabase(client: Client, databaseId: string): Promise<any[]>
   do {
     // NOTE: Cast to any because the @notionhq/client types don't expose databases.query
     // as a public method in all versions. This is safe — the API exists and is documented.
-    const res = await (client.databases as any).query({
-      database_id: databaseId,
-      page_size: 100,
-      start_cursor: cursor,
-    });
+    const res = await withTimeout(
+      (client.databases as any).query({
+        database_id: databaseId,
+        page_size: 100,
+        start_cursor: cursor,
+      }),
+      `databases.query(${databaseId})`,
+    );
 
     pages.push(...(res.results ?? []));
     cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined;
@@ -164,7 +167,7 @@ function extractPageTitle(page: any): string {
 /** Export a Notion page as Markdown by reading its blocks */
 async function exportPageAsMarkdown(client: Client, pageId: string): Promise<string> {
   // Get page metadata for title
-  const page = await client.pages.retrieve({ page_id: pageId });
+  const page = await withTimeout(client.pages.retrieve({ page_id: pageId }), `pages.retrieve(${pageId})`);
   const title = extractPageTitle(page);
 
   // Get all blocks
@@ -199,11 +202,14 @@ async function getAllBlocks(client: Client, blockId: string): Promise<any[]> {
   let cursor: string | undefined;
 
   do {
-    const res = await client.blocks.children.list({
-      block_id: blockId,
-      start_cursor: cursor,
-      page_size: 100,
-    });
+    const res = await withTimeout(
+      client.blocks.children.list({
+        block_id: blockId,
+        start_cursor: cursor,
+        page_size: 100,
+      }),
+      `blocks.children.list(${blockId})`,
+    );
 
     blocks.push(...res.results);
     cursor = res.has_more ? (res.next_cursor ?? undefined) : undefined;
@@ -291,6 +297,18 @@ function richTextToMd(richText: any[]): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+const NOTION_TIMEOUT_MS = 30_000;
+
+/** Wrap a Notion API call with a timeout */
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Notion API timeout after ${NOTION_TIMEOUT_MS}ms: ${label}`)), NOTION_TIMEOUT_MS),
+    ),
+  ]);
 }
 
 /** Check if NOTION_API_KEY is set */

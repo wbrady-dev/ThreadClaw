@@ -33,6 +33,5 @@ export {
   resetKnowledgeBase,
 } from "./collections.js";
 export type { Collection, CollectionStats, DocumentInfo } from "./collections.js";
-export { insertMetadata, getDocumentIdsByMetadata } from "./metadata.js";
 export type { MetadataFilter } from "./metadata.js";
 export { getGraphDb, closeGraphDb } from "./graph-sqlite.js";

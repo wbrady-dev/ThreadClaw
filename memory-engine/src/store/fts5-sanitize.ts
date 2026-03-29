@@ -70,6 +70,9 @@ export function sanitizeFts5QueryPrefix(raw: string): string | null {
   // Short tokens: fall back to exact match (prefix too broad for 1-2 char tokens)
   if (last.length < 3) return sanitizeFts5Query(raw);
   const parts = tokens.slice(0, -1).map(quoteToken);
-  parts.push(`${quoteToken(last)}*`);
+  // FTS5 prefix: token must NOT be quoted — "token"* is invalid syntax.
+  // Sanitize by stripping internal double-quotes, then append * unquoted.
+  const sanitizedLast = last.replaceAll('"', '');
+  parts.push(`${sanitizedLast}*`);
   return parts.join(" ");
 }

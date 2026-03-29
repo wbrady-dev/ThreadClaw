@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from "child_process";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from "fs";
+import http from "http";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "node:url";
 import { platform, homedir } from "os";
@@ -124,6 +125,7 @@ export function getNodeCmd(): string {
 export function getNpmCmd(): string {
   return getPlatform() === "windows" ? "npm.cmd" : "npm";
 }
+
 
 export function findOpenClaw(): string | null {
   const candidates = [
@@ -632,7 +634,6 @@ export function stopServices(): { success: boolean; error?: string } {
   try {
     // 1. HTTP shutdown: works from any terminal, no permissions needed
     try {
-      const http = require("http") as typeof import("http");
       for (const port of [getApiPort(), getModelPort()]) {
         const req = http.request({ hostname: "127.0.0.1", port, path: "/shutdown", method: "POST", timeout: 2000 });
         req.on("error", () => {});
@@ -889,12 +890,3 @@ export function removeMacServices(): { success: boolean } {
   return { success: true };
 }
 
-export function isAdmin(): boolean {
-  if (getPlatform() !== "windows") return process.getuid?.() === 0;
-  try {
-    execFileSync("net", ["session"], { stdio: "pipe", timeout: 10000 });
-    return true;
-  } catch {
-    return false;
-  }
-}

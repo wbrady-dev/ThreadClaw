@@ -8,7 +8,7 @@
  */
 
 import type { GraphDb, UpsertDecisionInput, UpsertDecisionResult } from "./types.js";
-import { logEvidence } from "./evidence-log.js";
+import { logEvidence, withWriteTransaction } from "./evidence-log.js";
 import { upsertMemoryObject, supersedeMemoryObject } from "../ontology/mo-store.js";
 import type { MemoryObject, MemoryStatus } from "../ontology/types.js";
 import { safeParseStructured } from "../ontology/json-utils.js";
@@ -76,22 +76,39 @@ export function upsertDecision(db: GraphDb, input: UpsertDecisionInput): UpsertD
 // Supersede
 // ---------------------------------------------------------------------------
 
+/**
+ * Supersede a decision: marks the old one as superseded and logs evidence.
+ *
+ * Wrapped in a write transaction for atomicity (supersedeMemoryObject + logEvidence).
+ */
 export function supersedeDecision(db: GraphDb, decisionId: number, supersededBy: number): void {
-  const oldRow = db.prepare("SELECT composite_id, scope_id, branch_id FROM memory_objects WHERE id = ?").get(decisionId) as { composite_id: string; scope_id: number; branch_id: number | null } | undefined;
-  const newRow = db.prepare("SELECT composite_id FROM memory_objects WHERE id = ?").get(supersededBy) as { composite_id: string } | undefined;
+  const doWork = (): void => {
+    const oldRow = db.prepare("SELECT composite_id, scope_id, branch_id FROM memory_objects WHERE id = ?").get(decisionId) as { composite_id: string; scope_id: number; branch_id: number | null } | undefined;
+    const newRow = db.prepare("SELECT composite_id FROM memory_objects WHERE id = ?").get(supersededBy) as { composite_id: string } | undefined;
 
-  if (oldRow && newRow) {
-    supersedeMemoryObject(db, oldRow.composite_id, newRow.composite_id);
+    if (oldRow && newRow) {
+      supersedeMemoryObject(db, oldRow.composite_id, newRow.composite_id);
+    }
+
+    logEvidence(db, {
+      scopeId: oldRow?.scope_id,
+      branchId: oldRow?.branch_id ?? undefined,
+      objectType: "decision",
+      objectId: decisionId,
+      eventType: "supersede",
+      payload: { supersededBy },
+    });
+  };
+
+  try {
+    withWriteTransaction(db, doWork);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("transaction")) {
+      doWork();
+      return;
+    }
+    throw err;
   }
-
-  logEvidence(db, {
-    scopeId: oldRow?.scope_id,
-    branchId: oldRow?.branch_id ?? undefined,
-    objectType: "decision",
-    objectId: decisionId,
-    eventType: "supersede",
-    payload: { supersededBy },
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -184,24 +201,38 @@ export function getDecisionHistory(
 
 /**
  * Revoke a decision: sets status='retracted', logs evidence with event_type='revoke'.
+ *
+ * Wrapped in a write transaction for atomicity (UPDATE + logEvidence).
  */
 export function revokeDecision(db: GraphDb, decisionId: number, reason: string): void {
-  const row = db.prepare(
-    "SELECT scope_id, branch_id, status FROM memory_objects WHERE id = ?",
-  ).get(decisionId) as { scope_id: number; branch_id: number | null; status: string } | undefined;
+  const doWork = (): void => {
+    const row = db.prepare(
+      "SELECT scope_id, branch_id, status FROM memory_objects WHERE id = ?",
+    ).get(decisionId) as { scope_id: number; branch_id: number | null; status: string } | undefined;
 
-  if (!row) return;
+    if (!row) return;
 
-  db.prepare(
-    `UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') WHERE id = ?`,
-  ).run(decisionId);
+    db.prepare(
+      `UPDATE memory_objects SET status = 'retracted', updated_at = strftime('%Y-%m-%dT%H:%M:%f','now') WHERE id = ?`,
+    ).run(decisionId);
 
-  logEvidence(db, {
-    scopeId: row.scope_id,
-    branchId: row.branch_id ?? undefined,
-    objectType: "decision",
-    objectId: decisionId,
-    eventType: "revoke",
-    payload: { reason, previousStatus: row.status },
-  });
+    logEvidence(db, {
+      scopeId: row.scope_id,
+      branchId: row.branch_id ?? undefined,
+      objectType: "decision",
+      objectId: decisionId,
+      eventType: "revoke",
+      payload: { reason, previousStatus: row.status },
+    });
+  };
+
+  try {
+    withWriteTransaction(db, doWork);
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("transaction")) {
+      doWork();
+      return;
+    }
+    throw err;
+  }
 }

@@ -220,6 +220,9 @@ export class ConversationStore {
     this.fts5Available = options?.fts5Available ?? true;
   }
 
+  /** Expose the underlying database for read-only stat queries. */
+  getDb(): DatabaseSync { return this.db; }
+
   // ── Transaction helpers ──────────────────────────────────────────────────
 
   async withTransaction<T>(operation: () => Promise<T> | T): Promise<T> {
@@ -819,6 +822,10 @@ export class ConversationStore {
     // SQLite has no native POSIX regex; fetch candidates and filter in JS
     if (pattern.length > 200) {
       throw new Error("Regex pattern too long (max 200 characters)");
+    }
+    // Reject patterns with nested quantifiers that can cause catastrophic backtracking (ReDoS)
+    if (/(\+|\*|\?|\{)\s*(\+|\*|\?|\{)/.test(pattern) || /\([^)]*(\+|\*)\)[+*]/.test(pattern)) {
+      throw new Error("Regex pattern rejected: nested quantifiers may cause catastrophic backtracking");
     }
     let re: RegExp;
     try {

@@ -1,9 +1,9 @@
 import { Command } from "commander";
 import { resolve } from "path";
-import { homedir } from "os";
 
 import { config } from "../../config.js";
-import { getInitializedDb } from "../../storage/index.js";
+import { THREADCLAW_DATA_DIR } from "../../version.js";
+import { getInitializedDb, closeDb } from "../../storage/index.js";
 import { getGraphDb, closeGraphDb } from "../../storage/graph-sqlite.js";
 import { extractEntitiesFromDocument } from "../../relations/ingest-hook.js";
 import { getRootDir } from "../../tui/platform.js";
@@ -123,6 +123,7 @@ relationsCommand
     console.log(`  Elapsed: ${(elapsed / 1000).toFixed(1)}s`);
 
     closeGraphDb();
+    closeDb();
   });
 
 relationsCommand
@@ -156,6 +157,7 @@ relationsCommand
     }
 
     closeGraphDb();
+    closeDb();
   });
 
 relationsCommand
@@ -169,7 +171,7 @@ relationsCommand
     if (!config.relations) { console.error("Relations not configured. Enable Evidence OS in the TUI (Configure > Evidence OS) or set THREADCLAW_RELATIONS_ENABLED=true in .env"); process.exit(1); }
     const graphDb = getGraphDb(config.relations.graphDbPath);
 
-    const archivePath = resolve(homedir(), ".threadclaw", "data", "archive.db");
+    const archivePath = resolve(THREADCLAW_DATA_DIR, "archive.db");
 
     const claimDays = parseDays(opts.claimDays, 30);
     const decisionDays = parseDays(opts.decisionDays, 90);
@@ -226,13 +228,14 @@ relationsCommand
     }
 
     closeGraphDb();
+    closeDb();
   });
 
 relationsCommand
   .command("archive-status")
   .description("Show archive run history and cold storage stats")
   .action(async () => {
-    const archivePath = resolve(homedir(), ".threadclaw", "data", "archive.db");
+    const archivePath = resolve(THREADCLAW_DATA_DIR, "archive.db");
     const { existsSync: exists } = await import("fs");
     if (!exists(archivePath)) {
       console.log("No archive DB found. Run 'threadclaw relations archive' first.");

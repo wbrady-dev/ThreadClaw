@@ -3,7 +3,7 @@ import { resolve } from "path";
 import { existsSync, statSync } from "fs";
 import { t } from "../../tui/theme.js";
 import { config } from "../../config.js";
-import { getInitializedDb, listCollections } from "../../storage/index.js";
+import { getInitializedDb, listCollections, closeDb } from "../../storage/index.js";
 import { getCollectionStats } from "../../storage/collections.js";
 import { getGraphDb, closeGraphDb } from "../../storage/graph-sqlite.js";
 import { isPortReachable } from "../../tui/runtime-status.js";
@@ -104,4 +104,6 @@ export const statusCommand = new Command("status")
     console.log(`\nEndpoints:`);
     console.log(`  CLI:  threadclaw query / threadclaw ingest`);
     console.log(`  HTTP: http://localhost:${config.port}/query`);
+
+    closeDb();
   });

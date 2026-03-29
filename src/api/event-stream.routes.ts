@@ -18,12 +18,20 @@ export function registerEventStreamRoute(server: FastifyInstance) {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       "Connection": "keep-alive",
-      "Access-Control-Allow-Origin": "*",
       "X-Accel-Buffering": "no",
     });
 
-    // Send initial connected event
-    reply.raw.write(`data: ${JSON.stringify({ ts: Date.now(), type: "connected", detail: { listeners: listenerCount() + 1 } })}\n\n`);
+    // Subscribe to pipeline events first so listenerCount() is accurate
+    const unsub = onPipelineEvent((event) => {
+      try {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        cleanup();
+      }
+    });
+
+    // Send initial connected event (after subscription so listenerCount is accurate)
+    reply.raw.write(`data: ${JSON.stringify({ ts: Date.now(), type: "connected", detail: { listeners: listenerCount() } })}\n\n`);
 
     // Keepalive every 15s (.unref so it doesn't block process.exit)
     const keepalive = setInterval(() => {
@@ -34,15 +42,6 @@ export function registerEventStreamRoute(server: FastifyInstance) {
       }
     }, 15000);
     if (keepalive.unref) keepalive.unref();
-
-    // Subscribe to pipeline events
-    const unsub = onPipelineEvent((event) => {
-      try {
-        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-      } catch {
-        cleanup();
-      }
-    });
 
     let cleaned = false;
     function cleanup() {

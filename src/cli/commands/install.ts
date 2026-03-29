@@ -20,14 +20,7 @@ export const installCommand = new Command("install")
         return;
       }
 
-      if (capabilities.rich && !options.plain) {
-        const { runInkInstall } = await import("../../tui/ink/install-actions.js");
-        const completed = await runInkInstall();
-        if (!completed) process.exit(1);
-        return;
-      }
-
-      // Plain fallback — use Ink installer even without rich terminal detection
+      // Ink installer handles both rich and plain terminals internally
       const { runInkInstall } = await import("../../tui/ink/install-actions.js");
       const completed = await runInkInstall();
       if (!completed) process.exit(1);

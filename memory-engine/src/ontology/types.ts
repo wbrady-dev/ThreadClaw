@@ -14,15 +14,15 @@ export type MemoryKind =
   | "chunk"      // document chunks (projected to threadclaw.db)
   | "message"    // conversation messages (projected to memory.db)
   | "summary"    // compacted summaries (projected to memory.db)
-  | "claim"      // factual assertions (projected to graph.db)
-  | "decision"   // recorded choices (projected to graph.db)
-  | "entity"     // named things (projected to graph.db)
-  | "relation"   // entity-to-entity relationships (projected to graph.db)
-  | "loop"       // open tasks/questions (projected to graph.db)
-  | "attempt"    // tool execution records (projected to graph.db)
-  | "procedure"  // runbooks + anti-runbooks merged (projected to graph.db)
-  | "invariant"  // constraints/rules (projected to graph.db)
-  | "delta"      // state changes (projected to graph.db)
+  | "claim"      // factual assertions (projected to threadclaw.db)
+  | "decision"   // recorded choices (projected to threadclaw.db)
+  | "entity"     // named things (projected to threadclaw.db)
+  | "relation"   // entity-to-entity relationships (projected to threadclaw.db)
+  | "loop"       // open tasks/questions (projected to threadclaw.db)
+  | "attempt"    // tool execution records (projected to threadclaw.db)
+  | "procedure"  // runbooks + anti-runbooks merged (projected to threadclaw.db)
+  | "invariant"  // constraints/rules (projected to threadclaw.db)
+  | "delta"      // state changes (projected to threadclaw.db)
   | "conflict"    // first-class contradiction between two+ claims/decisions
   | "capability"; // tracked tools, systems, and services
 
@@ -109,6 +109,25 @@ export interface StructuredLoop {
 export interface StructuredEntity {
   name: string;
   entityType?: string;
+}
+
+/** Structured data for kind="relation" — entity-to-entity relationships. */
+export interface StructuredRelation {
+  subjectName?: string;
+  predicate?: string;
+  objectName?: string;
+}
+
+/** Structured data for kind="procedure" — runbooks and anti-runbooks. */
+export interface StructuredProcedure {
+  toolName?: string;
+  key?: string;
+}
+
+/** Structured data for kind="capability" — tracked tools, systems, services. */
+export interface StructuredCapability {
+  capabilityType?: string;
+  capabilityKey?: string;
 }
 
 // ── Provenance ──────────────────────────────────────────────────────────────

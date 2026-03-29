@@ -16,16 +16,8 @@ export interface PipelineEvent {
     | "query.rerank"
     | "query.expansion"
     | "query.pack"
-    | "query.done"
-    | "ingest.start"
-    | "ingest.embed"
-    | "ingest.chunk"
-    | "ingest.store"
-    | "ingest.done"
-    | "ingest.parse"
-    | "graph.extract"
-    | "graph.store"
-    | "health.check";
+    | "query.done";
+  // TODO: wire up ingest.* / graph.* / health.check events when those pipelines emit
   detail: Record<string, unknown>;
 }
 
@@ -67,6 +59,6 @@ export function listenerCount(): number {
 }
 
 /** Remove all listeners. Call during shutdown for cleanup. */
-export function removeAllListeners(): void {
+function removeAllListeners(): void {
   listeners.clear();
 }
