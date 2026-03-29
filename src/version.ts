@@ -20,7 +20,9 @@ import { createHash } from "crypto";
 // ── Paths ──
 
 export const THREADCLAW_HOME = resolve(homedir(), ".threadclaw");
-export const THREADCLAW_DATA_DIR = resolve(THREADCLAW_HOME, "data");
+export const THREADCLAW_DATA_DIR = process.env.THREADCLAW_DATA_DIR
+  ? resolve(process.env.THREADCLAW_DATA_DIR)
+  : resolve(THREADCLAW_HOME, "data");
 export const THREADCLAW_BACKUPS_DIR = resolve(THREADCLAW_HOME, "backups");
 export const MANIFEST_PATH = resolve(THREADCLAW_HOME, "manifest.json");
 

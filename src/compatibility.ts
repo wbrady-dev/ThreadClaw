@@ -18,6 +18,12 @@ export interface CompatEntry {
 
 /** Compatibility requirements per ThreadClaw version. */
 export const COMPAT_MATRIX: Record<string, CompatEntry> = {
+  "0.3.0": {
+    openclaw: { min: "2026.3.0", max: "2026.12.99" },
+    node: ">=22",
+    evidenceSchema: { min: 1, max: 28 },
+    ragSchema: { min: 1, max: 2 },
+  },
   "0.2.0": {
     openclaw: { min: "2026.3.0", max: "2026.12.99" },
     node: ">=22",

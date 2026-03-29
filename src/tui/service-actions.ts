@@ -9,7 +9,7 @@ function safeParseInt(value: string | undefined, fallback: number): number {
 
 const MODEL_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_MODEL_TIMEOUT, 180000);
 const API_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_API_TIMEOUT, 30000);
-const STOP_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_STOP_TIMEOUT, 3000);
+const STOP_WAIT_TIMEOUT = safeParseInt(process.env.THREADCLAW_STOP_TIMEOUT, 20000);
 
 export type ServiceAction = "start" | "stop" | "restart" | "stop-models" | "start-models";
 
