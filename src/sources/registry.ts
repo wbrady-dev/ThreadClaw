@@ -12,6 +12,7 @@ import type { SourceAdapter, SourceConfig, SourceStatus } from "./types.js";
 import { LocalAdapter } from "./adapters/local.js";
 import { ObsidianAdapter } from "./adapters/obsidian.js";
 import { GDriveAdapter } from "./adapters/gdrive.js";
+import { OneDriveAdapter } from "./adapters/onedrive.js";
 import { NotionAdapter } from "./adapters/notion.js";
 import { AppleNotesAdapter } from "./adapters/apple-notes.js";
 import { WebAdapter } from "./adapters/web.js";
@@ -83,6 +84,28 @@ function loadSourceConfigs(): Map<string, SourceConfig> {
     configs.set("gdrive", {
       enabled: gdriveEnabled,
       syncInterval: parseInt(env.GDRIVE_SYNC_INTERVAL || "300", 10),
+      collections,
+    });
+  }
+
+  // --- OneDrive adapter ---
+  const onedriveEnabled = (env.ONEDRIVE_ENABLED ?? "") === "true";
+  const onedriveFolders = env.ONEDRIVE_FOLDERS ?? "";
+  if (onedriveFolders) {
+    const collections = onedriveFolders
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const pipe = entry.lastIndexOf("|");
+        return {
+          path: pipe > 0 ? entry.slice(0, pipe).trim() : entry.trim(),
+          collection: pipe > 0 ? entry.slice(pipe + 1).trim() : "onedrive",
+        };
+      });
+    configs.set("onedrive", {
+      enabled: onedriveEnabled,
+      syncInterval: parseInt(env.ONEDRIVE_SYNC_INTERVAL || "300", 10),
       collections,
     });
   }
@@ -167,6 +190,7 @@ const adapters: SourceAdapter[] = [
   new LocalAdapter(),
   new ObsidianAdapter(),
   new GDriveAdapter(),
+  new OneDriveAdapter(),
 
   new NotionAdapter(),
   new AppleNotesAdapter(),

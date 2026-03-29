@@ -1,6 +1,6 @@
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 import { hasGDriveCredentials, listDriveFolders, removeGDriveCredentials, runGDriveOAuth } from "../../sources/adapters/gdrive.js";
-
+import { hasOneDriveCredentials, listOneDriveFolders, removeOneDriveCredentials, runOneDriveOAuth } from "../../sources/adapters/onedrive.js";
 import { hasNotionApiKey, listNotionDatabases } from "../../sources/adapters/notion.js";
 import { listNotesFolders } from "../../sources/adapters/apple-notes.js";
 import { ensureEnvFile, readEnvMap, updateEnvValues } from "../env.js";
@@ -11,7 +11,7 @@ import { promptMenu, promptText } from "./prompts.js";
 export async function runInkSourceAction(action: string): Promise<void> {
   if (action === "sources-obsidian") await configureObsidian();
   else if (action === "sources-gdrive") await configureGDrive();
-
+  else if (action === "sources-onedrive") await configureOneDrive();
   else if (action === "sources-notion") await configureNotion();
   else if (action === "sources-apple-notes") await configureAppleNotes();
   else if (action === "sources-web") await configureWeb();
@@ -217,6 +217,142 @@ async function configureGDrive(): Promise<void> {
     removeGDriveCredentials();
     updateEnvValues(root, { GDRIVE_ENABLED: "false" });
     await showNotice("Google Drive", "Google account disconnected.");
+  }
+}
+
+async function configureOneDrive(): Promise<void> {
+  const root = getRootDir();
+  ensureEnvFile(root);
+  const env = readEnvMap(root);
+  const currentEnabled = env.ONEDRIVE_ENABLED === "true";
+  const currentFolders = parseRemoteEntries(env.ONEDRIVE_FOLDERS);
+  const currentInterval = env.ONEDRIVE_SYNC_INTERVAL ?? "300";
+  const clientId = env.ONEDRIVE_CLIENT_ID ?? "";
+  const connected = hasOneDriveCredentials();
+
+  let effectiveClientId = clientId;
+
+  const action = await promptMenu({
+    title: "Microsoft OneDrive",
+    message: connected
+      ? `${currentFolders.length} configured folder(s), sync every ${currentInterval}s.`
+      : effectiveClientId
+        ? "Client ID set. Connect your Microsoft account to start syncing."
+        : "Set your Azure App Registration Client ID, then connect. No client secret needed (PKCE).",
+    items: [
+      ...(!effectiveClientId ? [{ label: "Set Client ID", value: "credentials", description: "Enter Client ID from Azure App Registrations" }] : []),
+      ...(effectiveClientId && !connected ? [{ label: "Connect Microsoft account", value: "auth" }] : []),
+      ...(effectiveClientId && connected ? [{ label: "Update Client ID", value: "credentials", description: "Change Azure Client ID" }] : []),
+      ...(connected ? [{
+        label: currentEnabled ? "Disable ingestion" : "Enable ingestion",
+        value: currentEnabled ? "disable" : "enable",
+      }] : []),
+      ...(connected ? [{ label: "Add folder", value: "add" }] : []),
+      ...(connected && currentFolders.length > 0 ? [{ label: "Remove folder", value: "remove" }] : []),
+      ...(connected ? [{ label: "Change sync interval", value: "interval" }] : []),
+      ...(connected ? [{ label: "Disconnect Microsoft account", value: "disconnect" }] : []),
+      { label: "Back", value: "__back__", color: t.dim },
+    ],
+  });
+
+  if (!action || action === "__back__") return;
+
+  if (action === "credentials") {
+    const newClientId = await promptText({
+      title: "OneDrive — Azure Client ID",
+      message: "From portal.azure.com > App Registrations > Your App > Application (client) ID",
+      label: "Client ID",
+      initial: effectiveClientId,
+    });
+    if (!newClientId) return;
+
+    updateEnvValues(root, {
+      ONEDRIVE_CLIENT_ID: newClientId,
+    });
+    effectiveClientId = newClientId;
+    await showNotice("OneDrive", "Client ID saved. Use 'Connect Microsoft account' to authenticate.");
+    return;
+  }
+
+  if (action === "auth") {
+    const success = await runOneDriveOAuth(effectiveClientId);
+    await showNotice("OneDrive", success ? "Microsoft account connected." : "Authentication failed.");
+    return;
+  }
+
+  if (action === "enable") {
+    if (currentFolders.length === 0) {
+      const folder = await promptOneDriveFolder();
+      if (!folder) return;
+      updateEnvValues(root, {
+        ONEDRIVE_FOLDERS: folder,
+        ONEDRIVE_ENABLED: "true",
+      });
+    } else {
+      updateEnvValues(root, { ONEDRIVE_ENABLED: "true" });
+    }
+    await triggerSourcesReload();
+    await showNotice("OneDrive", "OneDrive ingestion enabled.");
+    return;
+  }
+
+  if (action === "disable") {
+    updateEnvValues(root, { ONEDRIVE_ENABLED: "false" });
+    await triggerSourcesReload();
+    await showNotice("OneDrive", "OneDrive ingestion disabled.");
+    return;
+  }
+
+  if (action === "add") {
+    const folder = await promptOneDriveFolder();
+    if (!folder) return;
+    updateEnvValues(root, {
+      ONEDRIVE_FOLDERS: [...currentFolders, folder].join(","),
+      ONEDRIVE_ENABLED: "true",
+    });
+    await triggerSourcesReload();
+    await showNotice("OneDrive", "OneDrive folder added.");
+    return;
+  }
+
+  if (action === "remove") {
+    const selected = await promptMenu({
+      title: "Remove OneDrive Folder",
+      items: [
+        ...currentFolders.map((entry) => ({ label: entry, value: entry })),
+        { label: "Cancel", value: "__back__", color: t.dim },
+      ],
+    });
+    if (!selected || selected === "__back__") return;
+
+    const remaining = currentFolders.filter((entry) => entry !== selected);
+    updateEnvValues(root, {
+      ONEDRIVE_FOLDERS: remaining.join(","),
+      ONEDRIVE_ENABLED: remaining.length > 0 ? env.ONEDRIVE_ENABLED ?? "true" : "false",
+    });
+    await triggerSourcesReload();
+    await showNotice("OneDrive", "OneDrive folder removed.");
+    return;
+  }
+
+  if (action === "interval") {
+    const interval = await promptText({
+      title: "Sync Interval",
+      message: "How often to sync OneDrive, in seconds.",
+      label: "Seconds",
+      initial: currentInterval,
+    });
+    if (!interval) return;
+    updateEnvValues(root, { ONEDRIVE_SYNC_INTERVAL: interval });
+    await triggerSourcesReload();
+    await showNotice("OneDrive", `Sync interval set to ${interval}s.`);
+    return;
+  }
+
+  if (action === "disconnect") {
+    removeOneDriveCredentials();
+    updateEnvValues(root, { ONEDRIVE_ENABLED: "false" });
+    await showNotice("OneDrive", "Microsoft account disconnected.");
   }
 }
 
@@ -437,6 +573,56 @@ async function promptDriveFolder(): Promise<string | null> {
     title: "Collection Name",
     label: "Collection",
     initial: `gdrive-${slugify(folderName)}`,
+  });
+  if (!collection) return null;
+  return `${folderName}|${collection}`;
+}
+
+async function promptOneDriveFolder(): Promise<string | null> {
+  console.log(t.dim("  Fetching folders from OneDrive..."));
+  const folders = await listOneDriveFolders();
+  if (folders.length === 0) {
+    console.log(t.dim("  Could not list folders — check console output above for errors."));
+    const name = await promptText({
+      title: "OneDrive Folder Name",
+      message: "Could not fetch folder list. Type the exact folder name from your OneDrive.",
+      label: "Folder",
+    });
+    if (!name) return null;
+    const collection = await promptText({
+      title: "Collection Name",
+      message: "Collection name for this OneDrive folder.",
+      label: "Collection",
+      initial: `onedrive-${slugify(name)}`,
+    });
+    if (!collection) return null;
+    return `${name}|${collection}`;
+  }
+
+  console.log(t.ok(`  Found ${folders.length} folder(s) in your OneDrive.`));
+  const picked = await promptMenu({
+    title: "Select a OneDrive Folder",
+    message: `${folders.length} top-level folder(s) found.`,
+    items: [
+      ...folders.map((folder) => ({ label: folder.name, value: folder.name })),
+      { label: "Type manually", value: "__manual__" },
+      { label: "Cancel", value: "__back__", color: t.dim },
+    ],
+  });
+  if (!picked || picked === "__back__") return null;
+
+  const folderName = picked === "__manual__"
+    ? await promptText({
+        title: "OneDrive Folder Name",
+        label: "Folder",
+      })
+    : picked;
+  if (!folderName) return null;
+
+  const collection = await promptText({
+    title: "Collection Name",
+    label: "Collection",
+    initial: `onedrive-${slugify(folderName)}`,
   });
   if (!collection) return null;
   return `${folderName}|${collection}`;

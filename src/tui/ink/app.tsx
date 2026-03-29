@@ -588,7 +588,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     const isEnabled = (key: string) => ec.includes(`${key}=true`) || ec.includes(`${key}="true"`);
     if (isEnabled("OBSIDIAN_ENABLED")) sourceIcons.push(`${t.ok("●")} Obsidian`);
     if (isEnabled("GDRIVE_ENABLED")) sourceIcons.push(`${t.ok("●")} Google Drive`);
-
+    if (isEnabled("ONEDRIVE_ENABLED")) sourceIcons.push(`${t.ok("●")} OneDrive`);
     if (isEnabled("NOTION_ENABLED")) sourceIcons.push(`${t.ok("●")} Notion`);
     if (isEnabled("APPLE_NOTES_ENABLED")) sourceIcons.push(`${t.ok("●")} Apple Notes`);
     // Helper to extract env value, stripping optional quotes: KEY="value" or KEY=value
