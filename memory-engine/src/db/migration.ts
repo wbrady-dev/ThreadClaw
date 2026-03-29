@@ -92,6 +92,7 @@ function backfillSummaryDepths(db: DatabaseSync): void {
     .prepare(`SELECT DISTINCT conversation_id FROM summaries WHERE kind = 'condensed'`)
     .all() as Array<{ conversation_id: number }>;
   if (conversationRows.length === 0) {
+    db.exec("COMMIT");
     return;
   }
 
