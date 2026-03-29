@@ -34,6 +34,8 @@ interface FieldDef {
   type: "number" | "string" | "url";
   requiresRestart?: boolean;
   mask?: string;
+  /** Group header — shown as a section separator before this field's group */
+  group?: string;
 }
 
 function validateField(value: string, type: FieldDef["type"]): string | null {
@@ -54,13 +56,15 @@ const WHISPER_MODELS = [
 ];
 
 const SEARCH_FIELDS: FieldDef[] = [
-  { key: "RERANK_SCORE_THRESHOLD", label: "Rerank Threshold", fallback: "0.0", message: "Minimum rerank score to keep a result.", description: "Minimum reranker score to keep (default: 0.0)", type: "number" },
+  // Reranking
+  { key: "RERANK_SCORE_THRESHOLD", label: "Rerank Threshold", fallback: "0.0", message: "Minimum rerank score to keep a result.", description: "Minimum score to keep (default: 0.0)", type: "number", group: "Reranking" },
   { key: "RERANK_TOP_K", label: "Rerank Candidates", fallback: "20", message: "How many chunks go through the reranker.", description: "Candidates sent to reranker (default: 20)", type: "number" },
-  { key: "RERANK_SMART_SKIP", label: "Smart Skip", fallback: "true", message: "Auto-skip reranking when vector results are decisive.", description: "Skip reranking when top result dominates (default: true)", type: "string" },
-  { key: "RERANK_DISABLED", label: "Reranking Disabled", fallback: "false", message: "Set true to disable reranking entirely.", description: "Disable reranking entirely (default: false)", type: "string" },
-  { key: "EMBEDDING_SIMILARITY_THRESHOLD", label: "Similarity Gate", fallback: "1.05", message: "Max L2 distance to consider a vector match.", description: "Max L2 distance for vector match (default: 1.05)", type: "number" },
-  { key: "EMBEDDING_PREFIX_MODE", label: "Prefix Mode", fallback: "auto", message: "auto, always, or never for query:/passage: prefixes.", description: "Embedding prefix: auto, always, or never (default: auto)", type: "string" },
-  { key: "EMBEDDING_BATCH_SIZE", label: "Embed Batch Size", fallback: "32", message: "Texts per embedding batch during ingestion.", description: "Batch size for bulk embedding (default: 32)", type: "number" },
+  { key: "RERANK_SMART_SKIP", label: "Smart Skip", fallback: "true", message: "Auto-skip reranking when vector results are decisive.", description: "Skip when top result dominates (default: true)", type: "string" },
+  { key: "RERANK_DISABLED", label: "Reranking Disabled", fallback: "false", message: "Set true to disable reranking entirely.", description: "Disable entirely (default: false)", type: "string" },
+  // Vector Search
+  { key: "EMBEDDING_SIMILARITY_THRESHOLD", label: "Similarity Gate", fallback: "1.05", message: "Max L2 distance to consider a vector match.", description: "Max L2 distance (default: 1.05)", type: "number", group: "Vector Search" },
+  { key: "EMBEDDING_PREFIX_MODE", label: "Prefix Mode", fallback: "auto", message: "auto, always, or never for query:/passage: prefixes.", description: "auto, always, or never (default: auto)", type: "string" },
+  { key: "EMBEDDING_BATCH_SIZE", label: "Embed Batch Size", fallback: "32", message: "Texts per embedding batch during ingestion.", description: "Batch size (default: 32)", type: "number" },
 ];
 
 const EMBEDDING_TUNING_FIELDS: FieldDef[] = [
@@ -83,17 +87,19 @@ const RATE_LIMITING_FIELDS: FieldDef[] = [
 ];
 
 const EXTRACTION_TUNING_FIELDS: FieldDef[] = [
-  { key: "THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE", label: "Extraction Mode", fallback: "smart", message: "Extraction method: smart (LLM) or fast (regex, <5ms)", description: "How entities are extracted: smart uses an LLM for accuracy, fast uses regex for speed (default: smart)", type: "string" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_MIN_MENTIONS", label: "Min Mentions", fallback: "2", message: "Min entity mentions before surfacing", description: "How many times an entity must appear before it shows up in results (default: 2)", type: "number" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_STALE_DAYS", label: "Stale Days", fallback: "30", message: "Days before entity is stale", description: "Days of inactivity before an entity is considered stale (default: 30)", type: "number" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_DECAY_INTERVAL_DAYS", label: "Decay Interval Days", fallback: "90", message: "Days between decay cycles", description: "How often entity relevance scores are reduced over time (default: every 90 days)", type: "number" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_USER_CLAIM_EXTRACTION_ENABLED", label: "User Claim Extraction", fallback: "false", message: "Extract claims from user messages too", description: "Also extract factual claims from user messages, not just assistant output (default: false)", type: "string" },
+  // Method
+  { key: "THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE", label: "Extraction Mode", fallback: "smart", message: "smart = LLM-based, fast = regex only (<5ms)", description: "smart or fast (default: smart)", type: "string", group: "Method" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_USER_CLAIM_EXTRACTION_ENABLED", label: "User Claim Extraction", fallback: "false", message: "Also extract claims from user messages", description: "Extract from user msgs (default: false)", type: "string" },
+  // Lifecycle
+  { key: "THREADCLAW_MEMORY_RELATIONS_MIN_MENTIONS", label: "Min Mentions", fallback: "2", message: "Min entity mentions before surfacing", description: "Threshold to surface (default: 2)", type: "number", group: "Entity Lifecycle" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_STALE_DAYS", label: "Stale Days", fallback: "30", message: "Days before entity is stale", description: "Days until stale (default: 30)", type: "number" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_DECAY_INTERVAL_DAYS", label: "Decay Interval", fallback: "90", message: "Days between decay cycles", description: "Decay period (default: 90 days)", type: "number" },
 ];
 
 const AWARENESS_TUNING_FIELDS: FieldDef[] = [
-  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_MAX_NOTES", label: "Max Notes Per Turn", fallback: "3", message: "Max awareness notes per turn", description: "Maximum entity context notes injected into each prompt turn (default: 3)", type: "number" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_MAX_TOKENS", label: "Max Tokens", fallback: "100", message: "Max tokens for awareness context", description: "Token budget for awareness context added to each prompt (default: 100)", type: "number" },
-  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_DOC_SURFACING", label: "Doc Surfacing", fallback: "false", message: "Surface relevant docs as fallback", description: "Show related documents when no entity matches are found (default: false)", type: "string" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_MAX_NOTES", label: "Max Notes Per Turn", fallback: "3", message: "Max awareness notes per turn", description: "Notes per turn (default: 3)", type: "number", group: "Context Injection" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_MAX_TOKENS", label: "Max Tokens", fallback: "100", message: "Max tokens for awareness context", description: "Token budget (default: 100)", type: "number" },
+  { key: "THREADCLAW_MEMORY_RELATIONS_AWARENESS_DOC_SURFACING", label: "Doc Surfacing", fallback: "false", message: "Show related docs when no entity matches", description: "Fallback docs (default: false)", type: "string" },
 ];
 
 const SUMMARY_MODEL_FIELDS: FieldDef[] = [
@@ -104,14 +110,17 @@ const SUMMARY_MODEL_FIELDS: FieldDef[] = [
 ];
 
 const QUERY_TUNING_FIELDS: FieldDef[] = [
-  { key: "QUERY_EXPANSION_TEMPERATURE", label: "Expansion Temperature", fallback: "0.3", message: "LLM temperature for query expansion", description: "Randomness for query rewriting (0.0 = focused, 2.0 = creative, default: 0.3)", type: "number" },
-  { key: "QUERY_EXPANSION_MAX_TOKENS", label: "Expansion Max Tokens", fallback: "512", message: "Max tokens for expanded queries", description: "Maximum tokens the LLM can use when rewriting a query (default: 512)", type: "number" },
-  { key: "QUERY_EXPANSION_TIMEOUT_MS", label: "Expansion Timeout", fallback: "15000", message: "Timeout for expansion LLM call (ms)", description: "How long to wait for the expansion LLM before timing out, in ms (default: 15000)", type: "number" },
-  { key: "HYBRID_VECTOR_WEIGHT", label: "Hybrid Vector Weight", fallback: "1.0", message: "Weight for semantic search in hybrid mode", description: "How much weight semantic (vector) search gets in hybrid mode (default: 1.0)", type: "number" },
-  { key: "HYBRID_BM25_WEIGHT", label: "Hybrid BM25 Weight", fallback: "1.0", message: "Weight for keyword search in hybrid mode", description: "How much weight keyword (BM25) search gets in hybrid mode (default: 1.0)", type: "number" },
-  { key: "QUERY_CACHE_MAX_ENTRIES", label: "Cache Max Entries", fallback: "50", message: "Max cached query results", description: "Number of recent query results to cache for faster repeat lookups (default: 50)", type: "number" },
-  { key: "QUERY_CACHE_TTL_MS", label: "Cache TTL", fallback: "300000", message: "Cache entry lifetime (ms)", description: "How long cached query results stay valid, in ms (default: 300000 = 5 minutes)", type: "number" },
-  { key: "QUERY_RETRIEVE_MULTIPLIER", label: "Retrieve Multiplier", fallback: "2", message: "Over-retrieve factor before reranking", description: "Fetch this many times more results than requested, then rerank to pick the best (default: 2)", type: "number" },
+  // Query Expansion
+  { key: "QUERY_EXPANSION_TEMPERATURE", label: "Expansion Temperature", fallback: "0.3", message: "LLM temperature for query expansion", description: "0.0 = focused, 2.0 = creative (default: 0.3)", type: "number", group: "Query Expansion" },
+  { key: "QUERY_EXPANSION_MAX_TOKENS", label: "Expansion Max Tokens", fallback: "512", message: "Max tokens for expanded queries", description: "Max tokens for rewritten query (default: 512)", type: "number" },
+  { key: "QUERY_EXPANSION_TIMEOUT_MS", label: "Expansion Timeout", fallback: "15000", message: "Timeout for expansion LLM call (ms)", description: "Timeout in ms (default: 15000)", type: "number" },
+  // Hybrid Weights
+  { key: "HYBRID_VECTOR_WEIGHT", label: "Vector Weight", fallback: "1.0", message: "Weight for semantic search in hybrid mode", description: "Semantic search weight (default: 1.0)", type: "number", group: "Hybrid Search" },
+  { key: "HYBRID_BM25_WEIGHT", label: "BM25 Weight", fallback: "1.0", message: "Weight for keyword search in hybrid mode", description: "Keyword search weight (default: 1.0)", type: "number" },
+  // Caching
+  { key: "QUERY_CACHE_MAX_ENTRIES", label: "Cache Max Entries", fallback: "50", message: "Max cached query results", description: "Cached results count (default: 50)", type: "number", group: "Caching" },
+  { key: "QUERY_CACHE_TTL_MS", label: "Cache TTL", fallback: "300000", message: "Cache entry lifetime (ms)", description: "Lifetime in ms (default: 300000 = 5 min)", type: "number" },
+  { key: "QUERY_RETRIEVE_MULTIPLIER", label: "Retrieve Multiplier", fallback: "2", message: "Over-retrieve factor before reranking", description: "Over-fetch factor (default: 2)", type: "number" },
 ];
 
 export async function runInkConfigureAction(action: ConfigureAction): Promise<void> {
@@ -152,26 +161,32 @@ const SEARCH_AND_RANKING_FIELDS: FieldDef[] = [
 ];
 
 const CHUNKING_AND_PARSING_FIELDS: FieldDef[] = [
-  { key: "CHUNK_MAX_TOKENS", label: "Max Chunk Size", fallback: "1024", message: "Hard upper bound for ingestion chunks.", description: "Maximum tokens per chunk (default: 1024)", type: "number" },
-  { key: "CHUNK_TARGET_TOKENS", label: "Target Chunk Size", fallback: "512", message: "Preferred chunk size for prose splitting.", description: "Target tokens per chunk (default: 512)", type: "number" },
-  { key: "CHUNK_MIN_TOKENS", label: "Min Chunk Size", fallback: "100", message: "Chunks smaller than this get merged.", description: "Minimum tokens per chunk (default: 100)", type: "number" },
-  { key: "CHUNK_OVERLAP_RATIO", label: "Chunk Overlap Ratio", fallback: "0.2", message: "Chunk overlap as fraction of target", description: "Overlap ratio between chunks (default: 0.2)", type: "number" },
-  { key: "DEDUP_SIMILARITY_THRESHOLD", label: "Dedup Threshold", fallback: "0.95", message: "Cosine similarity for dedup", description: "Cosine similarity to deduplicate chunks (default: 0.95)", type: "number" },
-  { key: "INGEST_MAX_FILE_SIZE_MB", label: "Max File Size (MB)", fallback: "100", message: "Max file size to ingest (MB)", description: "Maximum file size to ingest (default: 100 MB)", type: "number" },
-  { key: "OCR_LANGUAGE", label: "OCR Language", fallback: "eng", message: "Tesseract OCR language code", description: "OCR language code (default: eng)", type: "string" },
-  { key: "EMBEDDING_MAX_CONCURRENT", label: "Embedding Concurrency", fallback: "2", message: "Concurrent embedding requests", description: "Concurrent embedding requests during ingest (default: 2)", type: "number" },
-  { key: "EMBEDDING_TIMEOUT_MS", label: "Embedding Timeout", fallback: "30000", message: "Embedding API timeout (ms)", description: "Embedding call timeout in ms (default: 30000)", type: "number" },
+  // Chunk Sizing
+  { key: "CHUNK_MAX_TOKENS", label: "Max Chunk Size", fallback: "1024", message: "Hard upper bound for ingestion chunks.", description: "Max tokens (default: 1024)", type: "number", group: "Chunk Sizing" },
+  { key: "CHUNK_TARGET_TOKENS", label: "Target Chunk Size", fallback: "512", message: "Preferred chunk size for prose splitting.", description: "Target tokens (default: 512)", type: "number" },
+  { key: "CHUNK_MIN_TOKENS", label: "Min Chunk Size", fallback: "100", message: "Chunks smaller than this get merged.", description: "Min tokens (default: 100)", type: "number" },
+  { key: "CHUNK_OVERLAP_RATIO", label: "Chunk Overlap", fallback: "0.2", message: "Chunk overlap as fraction of target", description: "Overlap ratio (default: 0.2)", type: "number" },
+  // Quality
+  { key: "DEDUP_SIMILARITY_THRESHOLD", label: "Dedup Threshold", fallback: "0.95", message: "Cosine similarity for dedup", description: "Cosine threshold (default: 0.95)", type: "number", group: "Quality" },
+  { key: "INGEST_MAX_FILE_SIZE_MB", label: "Max File Size (MB)", fallback: "100", message: "Max file size to ingest (MB)", description: "Max MB (default: 100)", type: "number" },
+  // Processing
+  { key: "OCR_LANGUAGE", label: "OCR Language", fallback: "eng", message: "Tesseract OCR language code", description: "Language code (default: eng)", type: "string", group: "Processing" },
+  { key: "EMBEDDING_MAX_CONCURRENT", label: "Embedding Concurrency", fallback: "2", message: "Concurrent embedding requests", description: "Concurrent requests (default: 2)", type: "number" },
+  { key: "EMBEDDING_TIMEOUT_MS", label: "Embedding Timeout", fallback: "30000", message: "Embedding API timeout (ms)", description: "Timeout in ms (default: 30000)", type: "number" },
 ];
 
 const NETWORK_AND_PORTS_FIELDS: FieldDef[] = [
-  { key: "THREADCLAW_PORT", label: "ThreadClaw API Port", fallback: "18800", message: "HTTP port for the ThreadClaw API.", description: "API server port (default: 18800)", type: "number", requiresRestart: true },
-  { key: "RERANKER_URL", label: "Model Server URL", fallback: "http://127.0.0.1:8012", message: "Base URL for the local or remote model server.", description: "Model server URL for reranking (default: http://127.0.0.1:8012)", type: "url", requiresRestart: true },
-  { key: "QUERY_EXPANSION_URL", label: "Expansion LLM URL", fallback: "http://127.0.0.1:1234/v1", message: "Chat endpoint used for query expansion.", description: "LLM endpoint for query expansion", type: "url" },
-  { key: "THREADCLAW_DATA_DIR", label: "Data Directory", fallback: "./data", message: "Where ingested data and databases live.", description: "Data directory for databases and indexes", type: "string", requiresRestart: true },
-  { key: "DEFAULT_COLLECTION", label: "Default Collection", fallback: "default", message: "Collection used when none is provided.", description: "Default collection for new documents (default: default)", type: "string" },
-  { key: "QUERY_TOP_K", label: "Results Per Query", fallback: "10", message: "How many chunks to return before context compilation.", description: "Default number of results per query (default: 10)", type: "number" },
-  { key: "QUERY_TOKEN_BUDGET", label: "Token Budget", fallback: "4000", message: "Max token budget for response context.", description: "Token budget for query responses (default: 4000)", type: "number" },
-  { key: "WATCH_DEBOUNCE_MS", label: "Watch Debounce", fallback: "3000", message: "Delay before auto-ingesting changed files.", description: "Delay before processing file changes (ms)", type: "number" },
+  // Endpoints
+  { key: "THREADCLAW_PORT", label: "API Port", fallback: "18800", message: "HTTP port for the ThreadClaw API.", description: "Port (default: 18800)", type: "number", requiresRestart: true, group: "Endpoints" },
+  { key: "RERANKER_URL", label: "Model Server URL", fallback: "http://127.0.0.1:8012", message: "Base URL for the model server.", description: "Reranking endpoint", type: "url", requiresRestart: true },
+  { key: "QUERY_EXPANSION_URL", label: "Expansion LLM URL", fallback: "http://127.0.0.1:1234/v1", message: "Chat endpoint for query expansion.", description: "LLM endpoint", type: "url" },
+  // Storage
+  { key: "THREADCLAW_DATA_DIR", label: "Data Directory", fallback: "./data", message: "Where databases and indexes live.", description: "Data directory", type: "string", requiresRestart: true, group: "Storage" },
+  { key: "DEFAULT_COLLECTION", label: "Default Collection", fallback: "default", message: "Collection used when none is provided.", description: "Default collection", type: "string" },
+  // Query Defaults
+  { key: "QUERY_TOP_K", label: "Results Per Query", fallback: "10", message: "How many chunks to return.", description: "Default K (default: 10)", type: "number", group: "Query Defaults" },
+  { key: "QUERY_TOKEN_BUDGET", label: "Token Budget", fallback: "4000", message: "Max token budget for response context.", description: "Budget (default: 4000)", type: "number" },
+  { key: "WATCH_DEBOUNCE_MS", label: "Watch Debounce", fallback: "3000", message: "Delay before processing file changes.", description: "Delay in ms (default: 3000)", type: "number" },
 ];
 
 async function configureSearchAndRanking(): Promise<void> {
@@ -752,22 +767,32 @@ async function configureFieldGroup(
 
   while (true) {
     const env = readEnvMap(root);
+
+    // Build menu items with group section headers
+    const items: MenuItem[] = [];
+    let lastGroup: string | undefined;
+    for (const field of fields) {
+      if (field.group && field.group !== lastGroup) {
+        lastGroup = field.group;
+        items.push({ label: `── ${field.group} ──`, value: `__sep_${field.group}__`, color: t.label });
+      }
+      const currentValue = env[field.key] ?? field.fallback;
+      const changed = currentValue !== field.fallback;
+      const valueDisplay = changed ? t.ok(currentValue) : t.dim(currentValue);
+      items.push({
+        label: `${field.label} ${t.dim("=")} ${valueDisplay}`,
+        value: field.key,
+        description: field.description,
+      });
+    }
+    items.push({ label: "", value: "__sep_footer__", color: t.dim });
+    items.push({ label: "Reset all to defaults", value: "__reset__", color: t.warn });
+    items.push({ label: "Back", value: "__back__", color: t.dim });
+
     const action = await promptMenu({
       title,
       message: "Select a setting to edit. Values save immediately.",
-      items: [
-        ...fields.map((field) => {
-          const currentValue = env[field.key] ?? field.fallback;
-          const desc = field.description ? ` ${t.dim(`— ${field.description}`)}` : "";
-          return {
-            label: `${field.label}${desc} ${t.dim(`(current: ${currentValue})`)}`,
-            value: field.key,
-            description: field.message,
-          };
-        }),
-        { label: "Reset all to defaults", value: "__reset__", color: t.warn },
-        { label: "Back", value: "__back__", color: t.dim },
-      ],
+      items,
     });
 
     if (!action || action === "__back__") return;
