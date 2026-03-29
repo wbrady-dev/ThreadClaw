@@ -671,7 +671,12 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
 
   // Use pre-parsed env values from refresh() — no regex in render path
   const parsedEnv = (store.get<any>("parsedEnv") ?? {});
-  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons, qeEnabled, qeModel, audioEnabled, whisperModel } = parsedEnv;
+  const {
+    deepEnabled = false, relationsEnabled = false, awarenessEnabled = false,
+    claimsEnabled = false, attemptEnabled = false, watchCount = 0,
+    sourceIcons = [] as string[], qeEnabled = "", qeModel = "",
+    audioEnabled = false, whisperModel = "base",
+  } = parsedEnv;
   const envContent = (store.get<string>("envContent") ?? "");
 
   let deepExtractLabel = t.dim("off");
