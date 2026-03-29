@@ -279,6 +279,102 @@ export function registerGraphObjectRoutes(server: FastifyInstance) {
       return reply.status(503).send({ error: "Graph DB unavailable" });
     }
   });
+  // ── Detail endpoints ─────────────────────────────────────────────
+
+  /** GET /graph/claims/:id — claim detail with provenance. */
+  server.get("/graph/claims/:id", async (req, reply) => {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const idNum = parseInt((req.params as { id: string }).id, 10);
+    if (isNaN(idNum)) return reply.status(400).send({ error: "Invalid ID" });
+    const graphDbPath = config.relations?.graphDbPath;
+    if (!graphDbPath) return reply.status(404).send({ error: "Relations not configured" });
+    try {
+      const db = getGraphDb(graphDbPath);
+      const claim = db.prepare(`
+        SELECT id, composite_id,
+          json_extract(structured_json, '$.subject') as subject,
+          json_extract(structured_json, '$.predicate') as predicate,
+          json_extract(structured_json, '$.object') as object,
+          json_extract(structured_json, '$.confidence') as confidence,
+          json_extract(structured_json, '$.status') as status,
+          json_extract(structured_json, '$.scope_id') as scope_id,
+          created_at, last_observed_at
+        FROM memory_objects WHERE kind = 'claim' AND id = ?
+      `).get(idNum);
+      if (!claim) return reply.status(404).send({ error: "Claim not found" });
+      const provenance = db.prepare(`
+        SELECT id, subject_id, predicate, object_id, confidence, created_at
+        FROM provenance_links WHERE subject_id = ? OR object_id = ?
+        ORDER BY created_at DESC LIMIT 50
+      `).all((claim as any).composite_id, (claim as any).composite_id);
+      return { claim, provenance };
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get claim detail");
+      return reply.status(503).send({ error: "Graph DB unavailable" });
+    }
+  });
+
+  /** GET /graph/decisions/:id — decision detail with provenance. */
+  server.get("/graph/decisions/:id", async (req, reply) => {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const idNum = parseInt((req.params as { id: string }).id, 10);
+    if (isNaN(idNum)) return reply.status(400).send({ error: "Invalid ID" });
+    const graphDbPath = config.relations?.graphDbPath;
+    if (!graphDbPath) return reply.status(404).send({ error: "Relations not configured" });
+    try {
+      const db = getGraphDb(graphDbPath);
+      const decision = db.prepare(`
+        SELECT id, composite_id,
+          json_extract(structured_json, '$.title') as title,
+          json_extract(structured_json, '$.outcome') as outcome,
+          json_extract(structured_json, '$.rationale') as rationale,
+          json_extract(structured_json, '$.scope_id') as scope_id,
+          created_at, last_observed_at
+        FROM memory_objects WHERE kind = 'decision' AND id = ?
+      `).get(idNum);
+      if (!decision) return reply.status(404).send({ error: "Decision not found" });
+      const provenance = db.prepare(`
+        SELECT id, subject_id, predicate, object_id, confidence, created_at
+        FROM provenance_links WHERE subject_id = ? OR object_id = ?
+        ORDER BY created_at DESC LIMIT 50
+      `).all((decision as any).composite_id, (decision as any).composite_id);
+      return { decision, provenance };
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get decision detail");
+      return reply.status(503).send({ error: "Graph DB unavailable" });
+    }
+  });
+
+  /** GET /graph/loops/:id — loop detail with provenance. */
+  server.get("/graph/loops/:id", async (req, reply) => {
+    if (!isLocalRequest(req)) return reply.status(403).send({ error: "Forbidden" });
+    const idNum = parseInt((req.params as { id: string }).id, 10);
+    if (isNaN(idNum)) return reply.status(400).send({ error: "Invalid ID" });
+    const graphDbPath = config.relations?.graphDbPath;
+    if (!graphDbPath) return reply.status(404).send({ error: "Relations not configured" });
+    try {
+      const db = getGraphDb(graphDbPath);
+      const loop = db.prepare(`
+        SELECT id, composite_id,
+          json_extract(structured_json, '$.question') as question,
+          json_extract(structured_json, '$.status') as status,
+          json_extract(structured_json, '$.opened_by') as opened_by,
+          json_extract(structured_json, '$.resolution') as resolution,
+          created_at, last_observed_at
+        FROM memory_objects WHERE kind = 'loop' AND id = ?
+      `).get(idNum);
+      if (!loop) return reply.status(404).send({ error: "Loop not found" });
+      const provenance = db.prepare(`
+        SELECT id, subject_id, predicate, object_id, confidence, created_at
+        FROM provenance_links WHERE subject_id = ? OR object_id = ?
+        ORDER BY created_at DESC LIMIT 50
+      `).all((loop as any).composite_id, (loop as any).composite_id);
+      return { loop, provenance };
+    } catch (err) {
+      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Failed to get loop detail");
+      return reply.status(503).send({ error: "Graph DB unavailable" });
+    }
+  });
 }
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
