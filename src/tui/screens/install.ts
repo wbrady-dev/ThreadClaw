@@ -21,7 +21,6 @@ import {
   type GpuInfo,
   type ModelInfo,
 } from "../models.js";
-import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 import {
   type EvidenceConfig,
   type InstallPlan,
@@ -31,9 +30,6 @@ import {
   formatTierName,
   getFreeDiskGb,
   performInstallPlan,
-  loginHuggingFace,
-  enableObsidianVault,
-  installWindowsServicesNow,
 } from "../install-helpers.js";
 
 let cancelled = false;
@@ -355,42 +351,6 @@ async function promptEvidenceSettings(): Promise<EvidenceConfig> {
     attemptTracking: Boolean(attempts),
     deepExtraction: false,
   };
-}
-
-async function maybeLoginHuggingFace(python: string, embedChoice: ModelInfo, rerankChoice: ModelInfo): Promise<void> {
-  console.log(section("HuggingFace Login"));
-  try {
-    const whoamiScript = resolve(tmpdir(), `threadclaw_whoami_${randomUUID()}.py`);
-    writeFileSync(whoamiScript, "from huggingface_hub import whoami\nwhoami()");
-    try {
-      execFileSync(python, [whoamiScript], { stdio: "pipe" });
-    } finally { try { unlinkSync(whoamiScript); } catch {} }
-    console.log(t.ok("  Already logged in to HuggingFace.\n"));
-    return;
-  } catch {}
-  const { token } = await prompts({ type: "password", name: "token", message: "HuggingFace token" }, { onCancel });
-  if (!token || cancelled) return;
-  await loginHuggingFace(python, String(token), embedChoice, rerankChoice);
-}
-
-async function maybeEnableObsidian(envPath: string): Promise<void> {
-  console.log(section("Knowledge Sources"));
-  const vaults = detectObsidianVaults();
-  if (vaults.length === 0) {
-    console.log(t.dim("  No Obsidian vault detected.\n"));
-    return;
-  }
-  console.log(t.ok(`  Obsidian vault found: ${vaults[0]}`));
-  const { enableObsidian } = await prompts({ type: "confirm", name: "enableObsidian", message: "Index your Obsidian vault now?", initial: true }, { onCancel });
-  if (!enableObsidian || cancelled) return;
-  await enableObsidianVault(envPath);
-}
-
-async function maybeInstallWindowsServices(root: string): Promise<void> {
-  console.log(section("Background Services"));
-  const { services } = await prompts({ type: "confirm", name: "services", message: "Install Windows services for auto-start?", initial: true }, { onCancel });
-  if (!services || cancelled) return;
-  await installWindowsServicesNow(root);
 }
 
 async function selectModel(models: ModelInfo[], gpu: GpuInfo, otherModelVram: number, pythonCmd: string): Promise<ModelInfo | null> {

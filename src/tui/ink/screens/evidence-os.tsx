@@ -633,7 +633,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
             <KV label="Subject" value={selectedClaim.subject} />
             <KV label="Predicate" value={selectedClaim.predicate} />
             <KV label="Object" value={selectedClaim.object} />
-            <KV label="Confidence" value={`${(selectedClaim.confidence * 100).toFixed(0)}%`} />
+            <KV label="Confidence" value={selectedClaim.confidence != null ? `${(selectedClaim.confidence * 100).toFixed(0)}%` : "unknown"} />
             <KV label="Status" value={selectedClaim.status} />
             {selectedClaim.scope_id && <KV label="Scope" value={selectedClaim.scope_id} />}
             <KV label="Created" value={selectedClaim.created_at} />
@@ -644,7 +644,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
                 <Text>{" "}</Text>
                 <Text>{"  " + t.title("Provenance")}</Text>
                 {claimProvenance.map((p) => (
-                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${(p.confidence * 100).toFixed(0)}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
+                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${p.confidence != null ? (p.confidence * 100).toFixed(0) : "?"}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
                 ))}
               </>
             )}
@@ -738,7 +738,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
                 <Text>{" "}</Text>
                 <Text>{"  " + t.title("Provenance")}</Text>
                 {decisionProvenance.map((p) => (
-                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${(p.confidence * 100).toFixed(0)}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
+                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${p.confidence != null ? (p.confidence * 100).toFixed(0) : "?"}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
                 ))}
               </>
             )}
@@ -823,7 +823,6 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
             <KV label="Status" value={selectedLoop.status} />
             {selectedLoop.opened_by && <KV label="Opened By" value={selectedLoop.opened_by} />}
             {selectedLoop.resolution && <KV label="Resolution" value={selectedLoop.resolution} />}
-            {selectedLoop.scope_id && <KV label="Scope" value={selectedLoop.scope_id} />}
             <KV label="Created" value={selectedLoop.created_at} />
             <KV label="Last Observed" value={selectedLoop.last_observed_at} />
 
@@ -832,7 +831,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
                 <Text>{" "}</Text>
                 <Text>{"  " + t.title("Provenance")}</Text>
                 {loopProvenance.map((p) => (
-                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${(p.confidence * 100).toFixed(0)}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
+                  <Text key={p.id}>{"    " + t.dim("\u2022") + " " + t.value(`${p.subject_id} ${p.predicate} ${p.object_id}`) + "  " + t.dim(`conf=${p.confidence != null ? (p.confidence * 100).toFixed(0) : "?"}%`) + "  " + t.dim(p.created_at.slice(0, 10))}</Text>
                 ))}
               </>
             )}

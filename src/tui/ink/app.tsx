@@ -363,7 +363,7 @@ async function runConfigureScreenAction(action: string): Promise<void> {
   try {
     const { runInkConfigureAction } = await import("./configure-actions.js");
     const target = action.replace(/^configure-/, "");
-    await runInkConfigureAction(target as import("../screens/configure.js").ConfigureAction);
+    await runInkConfigureAction(target as import("../configure-helpers.js").ConfigureAction);
   } catch (error) {
     console.error(t.err(`\n  Error: ${String(error)}`));
     await sleep(1500);
@@ -670,7 +670,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const rerankName = config?.rerank_model?.split("/").pop() ?? "not configured";
 
   // Use pre-parsed env values from refresh() — no regex in render path
-  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons } = (store.get<any>("parsedEnv") ?? {});
+  const parsedEnv = (store.get<any>("parsedEnv") ?? {});
+  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons, qeEnabled, qeModel, audioEnabled, whisperModel } = parsedEnv;
   const envContent = (store.get<string>("envContent") ?? "");
 
   let deepExtractLabel = t.dim("off");
@@ -693,14 +694,14 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   }
 
   let expansionLabel = t.dim("off");
-  if ((store.get<any>("parsedEnv") ?? {}).qeEnabled === "true" && (store.get<any>("parsedEnv") ?? {}).qeModel) expansionLabel = t.value((store.get<any>("parsedEnv") ?? {}).qeModel);
+  if (qeEnabled === "true" && qeModel) expansionLabel = t.value(qeModel);
 
   const doclingDevice = config?.docling_device ?? "off";
   const doclingOk = modelHealth?.models?.docling?.ready === true;
   const doclingLabel = doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.warn(doclingDevice.toUpperCase() + " (not loaded)");
 
   const nerReady = modelHealth?.models?.ner?.ready === true;
-  const audioEnabled = (store.get<any>("parsedEnv") ?? {}).audioEnabled;
+  // audioEnabled already destructured from parsedEnv above
 
   // GPU
   let gpuLine: string;
@@ -772,10 +773,10 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {(process.stdout.columns || 120) < 100 ? (
         <>
           <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
-          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok((store.get<any>("parsedEnv") ?? {}).whisperModel) : t.dim("off"))}</Text>
+          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok((whisperModel || "base")) : t.dim("off"))}</Text>
         </>
       ) : (
-        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok((store.get<any>("parsedEnv") ?? {}).whisperModel) : t.dim("off"))}</Text>
+        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok((whisperModel || "base")) : t.dim("off"))}</Text>
       )}
 
       <Text>{sepLine}</Text>
