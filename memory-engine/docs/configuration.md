@@ -110,6 +110,32 @@ Using a cheaper/faster model for summarization can reduce costs, but quality mat
 - Smaller values reduce render/query cost for very large conversations.
 - Larger values show more context per page but increase render time.
 
+## Context compiler options
+
+These options are exposed via the `ContextCompilerConfig` interface and set through plugin config or the LCM config layer:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tier` | `"standard"` | Token budget tier: `lite` (110 tokens), `standard` (190), `premium` (380), or a numeric value |
+| `queryContext` | *(auto)* | Set automatically to the last user message text for relevance boosting. No manual config needed. |
+| `maxClaims` | `10` | Maximum claim capsules per compilation |
+| `maxDecisions` | `5` | Maximum decision capsules per compilation |
+| `maxLoops` | `5` | Maximum loop capsules per compilation |
+| `maxDeltas` | `5` | Maximum delta capsules per compilation |
+| `maxInvariants` | `5` | Maximum invariant capsules per compilation |
+| `autoArchiveIntervalMs` | `3600000` | How often (ms) to check for evidence archival |
+| `autoArchiveEventThreshold` | `5000` | Evidence log event count that triggers archival |
+| `decayDays` | `90` | Anti-runbook decay interval in days |
+| `runbookStaleDays` | `180` | Days before runbooks are considered stale |
+
+### Deep extraction options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEEP_EXTRACT_MODEL` | `"default"` | Model name for LLM-based deep document extraction |
+
+Deep extraction runs automatically during document ingest when a model server is available. It extracts factual claims from document chunks with confidence capped at 0.4 (provisional). Max 2 concurrent extractions, max 10 chunks per document, 200ms delay between chunks.
+
 ## Database management
 
 The SQLite database lives at `LCM_DATABASE_PATH` (default `~/.threadclaw/data/memory.db`).

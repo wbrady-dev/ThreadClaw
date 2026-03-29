@@ -7,6 +7,8 @@ description: Search the ThreadClaw document knowledge base for files, PDFs, code
 
 Use `threadclaw query` to search the document knowledge base: files, PDFs, code, notes, research, and other ingested reference material. The RAG pipeline uses hybrid search (dense vector + BM25 keyword via FTS5), fused with Reciprocal Rank Fusion (RRF), then cross-encoder reranking for precision.
 
+**Deep document extraction**: When documents are ingested, ThreadClaw automatically extracts factual claims from each chunk using an LLM (subject/predicate/objectText triples). These are stored as provisional claims (confidence capped at 0.4) in the Evidence OS graph, making document knowledge searchable via `cc_memory` and `cc_claims` without manual annotation. Extraction uses NER + regex for entities and LLM for deeper semantic claims. Falls back gracefully to regex-only when no model server is available.
+
 This skill is for **documents and reference material only**.
 
 - For conversation history, use `cc_grep` or `cc_recall`

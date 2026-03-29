@@ -25,7 +25,13 @@ When a conversation grows beyond the model's context window, OpenClaw normally t
 
 Nothing is lost. Raw messages stay in the database. Summaries link back to their source messages. Agents can drill into any summary to recover the original detail.
 
-6. **Extracts structured knowledge** via the RSMA semantic extraction pipeline — claims, decisions, entities, tasks, and corrections are extracted from every message using either **smart** (LLM-based) or **fast** (regex-only) mode
+6. **Smart context injection** — the context compiler scores capsules by `(usefulness x confidence x freshness x scopeFit) / tokenCost` and applies **query-aware relevance boosting**: the last user message is tokenized into keywords, and each capsule's score is multiplied by its keyword overlap (0.2-1.0 range), so the most relevant evidence surfaces first
+7. **Epistemic labels** — every capsule carries an epistemic tag: `[FIRM]` (confidence >= 0.9, not contested), `[CONTESTED]` (referenced by an active conflict), or `[PROVISIONAL]` (confidence < 0.5), giving the model calibrated certainty signals
+8. **Session briefing** — on session change, a `[Session Briefing]` line is prepended to the system prompt summarizing what changed since the last session (new/superseded decisions, new/superseded claims, flagged claims, conflicts, invariants)
+9. **Invariant enforcement at write time** — strict invariants are checked against every incoming write. Forbidden terms are extracted from invariant descriptions via negation patterns (never/do not/must not/avoid/prohibited), cached for 30s, and matched against normalized content (NFKD decomposed, zero-width chars stripped). Violations are returned with the invariant key, severity, and match reason
+10. **Deep document extraction** — during document ingest, an LLM extracts factual claims (subject/predicate/objectText/confidence) from each chunk and stores them as provisional claims (confidence capped at 0.4, trust 0.4) via the claim store. Uses a concurrency semaphore (max 2), processes up to 10 chunks per document, and falls back gracefully when no model is available
+
+11. **Extracts structured knowledge** via the RSMA semantic extraction pipeline — claims, decisions, entities, tasks, and corrections are extracted from every message using either **smart** (LLM-based) or **fast** (regex-only) mode
 7. **Reconciles new knowledge** via the TruthEngine — supersession, conflict detection, evidence accumulation, and correction handling with a 5-point safety guard
 8. **Tracks provenance** via a unified `provenance_links` table — every relationship between knowledge objects is typed (derived_from, supports, contradicts, supersedes, mentioned_in, relates_to, resolved_by)
 

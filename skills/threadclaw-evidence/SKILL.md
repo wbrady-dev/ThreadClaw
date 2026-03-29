@@ -31,7 +31,10 @@ Extraction quality is enforced by multiple filters: code block stripping (```blo
 - **Procedures** learned automatically — success patterns (runbooks) and failure patterns (anti-runbooks). Runbook capsules auto-inferred in CCL after 3+ consecutive successes.
 - **Evidence belief propagation** — contradict/support links between claims automatically update confidence (contradictions lower confidence, support raises it)
 - **Relation lifecycle** — relations stored as `memory_objects` (kind='relation') with full creation, supersession, and decay (stale after 180 days via `decayRelations`)
-- **Context capsules** compiled and injected each turn (top claims, decisions, warnings, constraints) within a token budget
+- **Context capsules** compiled and injected each turn (top claims, decisions, warnings, constraints) within a token budget, with **query-aware relevance boosting** that prioritizes capsules matching the current user message
+- **Epistemic labels** on every capsule: `[FIRM]` (high confidence, uncontested), `[CONTESTED]` (referenced by an active conflict), or `[PROVISIONAL]` (low confidence) — giving you calibrated certainty signals
+- **Session briefing** — when a new session starts, a `[Session Briefing]` line summarizes what changed since the last session (new/superseded decisions, new/superseded/flagged claims, conflicts, invariants)
+- **Invariant enforcement at write time** — strict invariants are checked against every incoming write. Forbidden terms extracted from invariant descriptions (never/do not/must not/avoid/prohibited patterns) are matched against normalized content. Violations are rejected with the invariant key, severity, and match reason. Advisory invariants are surfaced as capsules but not enforced.
 - **Confidence decay** reduces stale evidence over time
 - **Evidence archival** when data exceeds 5000 events
 

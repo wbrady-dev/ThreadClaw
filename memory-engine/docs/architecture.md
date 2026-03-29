@@ -263,7 +263,7 @@ Both modes produce `MemoryObject` instances that are reconciled by the **TruthEn
 
 ### Migrations
 
-The graph database uses 19 versioned migrations (v1-v19):
+The graph database uses 29 versioned migrations (v1-v29):
 - v1-v9: Legacy tables (entities, claims, decisions, loops, attempts, runbooks, invariants, etc.)
 - v10-v11: `provenance_links` table with scope_id and metadata columns
 - v12-v15: Canonical key unification and index improvements
@@ -271,8 +271,56 @@ The graph database uses 19 versioned migrations (v1-v19):
 - v17: Copy all legacy data into memory_objects + provenance_links
 - v18: Rename legacy tables to `_legacy_*`
 - v19: UNIQUE constraint on composite_id, updated_at index
+- v20-v28: Scope sequences, work leases, evidence log improvements, index tuning
+- v29: Index on `evidence_log(event_type, created_at DESC)` for efficient session briefing queries
 
 All migrations are idempotent and safe to run on every startup.
+
+## Context compiler enhancements
+
+### Query-aware relevance boosting
+
+The context compiler accepts an optional `queryContext` string (set to the last user message text in `assemble()`). When present, the query is tokenized into keywords (words > 2 chars, lowercased, punctuation stripped). Each capsule's score is multiplied by a relevance factor based on keyword overlap with the capsule text:
+
+- 0 keyword hits: factor = 0.2 (demoted but not hidden)
+- Full overlap: factor = 1.0 (no penalty)
+
+This ensures capsules relevant to the current conversation turn are prioritized within the token budget.
+
+### Epistemic labels
+
+Every capsule rendered by the context compiler carries an epistemic label:
+
+| Label | Condition |
+|-------|-----------|
+| `[FIRM]` | confidence >= 0.9 AND not referenced by any active conflict |
+| `[CONTESTED]` | composite_id appears in an active conflict's objectIdA or objectIdB |
+| `[PROVISIONAL]` | confidence < 0.5 |
+| *(none)* | Everything else (0.5 <= confidence < 0.9, not contested) |
+
+Labels are appended to the capsule text (e.g., `[claim] X is Y [FIRM]`). Deduplication normalizes labels so the same claim at different confidence levels is not duplicated.
+
+### Session briefing
+
+The engine tracks the last session ID and timestamp. When `assemble()` detects a new session (different `sessionId` from the previous call), it queries `memory_objects` for all rows updated since the last session timestamp and builds a summary line:
+
+```
+[Session Briefing] Since last session (2h ago): 3 new claims, 1 superseded, 2 new decisions.
+```
+
+This is prepended to `systemPromptAddition` so the model knows what changed while it was away. Counts include new/superseded decisions, new/superseded/flagged claims, conflicts, and invariants.
+
+### Invariant enforcement at write time
+
+Strict invariants (enforcement_mode = 'strict') are enforced at write time by `checkStrictInvariants()`:
+
+1. Active strict invariants are loaded and cached (30s TTL)
+2. Forbidden terms are extracted from descriptions using negation patterns: `never|do not|must not|don't|shouldn't|avoid|prohibited|forbidden|no` followed by the forbidden content
+3. Incoming content is normalized (NFKD decomposition, zero-width/control character stripping, lowercase)
+4. Each forbidden term is checked against the normalized text (content + structured fields: objectText, subject, decisionText, object)
+5. Violations are returned as `InvariantViolation[]` with: invariantKey, description, severity, matchReason
+
+The cache includes stem variants (e.g., "MongoDB" also matches "mongo") for broader coverage.
 
 ## Session reconciliation
 
