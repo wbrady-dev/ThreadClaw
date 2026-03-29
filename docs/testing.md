@@ -37,7 +37,7 @@ Vitest with in-memory SQLite databases for isolation. No external dependencies n
 | fts5-sanitize.test.ts | 13 | FTS5 query sanitization |
 | + other test files | ~380 | Config, tools, expand, migration, fallback, ontology, mo-store, truth engine, etc. |
 
-### Combined Total: 89 + 858 = **947 tests**
+### Combined Total: 103 + 866 = **969 tests**
 
 ## Writing Tests
 
@@ -145,10 +145,10 @@ const objects = readMemoryObjects(db, { kinds: ["claim"], keyword: "postgres" })
 ## Running
 
 ```bash
-# ThreadClaw src tests (89)
+# ThreadClaw src tests (103)
 cd threadclaw && npx vitest run
 
-# Memory engine tests (858)
+# Memory engine tests (866)
 cd memory-engine && npx vitest run
 
 # Verbose output
