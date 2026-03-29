@@ -511,46 +511,25 @@ async function runServicesScreenAction(action: string): Promise<void> {
   }
 }
 
-// Module-level cache so re-mounts don't flash or lose data
-let cachedModelsUp = false;
-let cachedThreadclawUp = false;
-let cachedOcrInstalled: boolean | null = null;
-let cachedStats: any = null;
-let cachedSources: any[] = [];
-let cachedModelHealth: any = null;
-let cachedGpu = { detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 };
-let cachedAutoStart = false;
-let cachedEnvContent = "";
+// Shared store replaces module-level caches — see src/tui/store.ts
+import * as store from "../store.js";
+
 let envNeedsReload = true;  // true on first load, set true after config actions
 /** Call after any config action that modifies .env to trigger a re-read on next poll */
 export function markEnvDirty() { envNeedsReload = true; }
-let cachedParsedEnv = {
-  deepEnabled: false,
-  relationsEnabled: false,
-  awarenessEnabled: false,
-  claimsEnabled: false,
-  attemptEnabled: false,
-  qeEnabled: "",
-  qeModel: "",
-  watchCount: 0,
-  watchPaths: "",
-  sourceIcons: [] as string[],
-  audioEnabled: false,
-  whisperModel: "base",
-};
 
 function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const root = getRootDir();
   const config = readConfig();
 
-  const [modelsUp, setModelsUp] = useState(cachedModelsUp);
-  const [threadclawUp, setThreadclawUp] = useState(cachedThreadclawUp);
-  const [gpu, setGpu] = useState(cachedGpu);
-  const [stats, setStats] = useState<any>(cachedStats);
-  const [sources, setSources] = useState<any[]>(cachedSources);
-  const [autoStart, setAutoStart] = useState(cachedAutoStart);
+  const [modelsUp, setModelsUp] = useState(store.get<boolean>("serviceStatus") ? (store.get<any>("serviceStatus")?.models?.running ?? false) : false);
+  const [threadclawUp, setThreadclawUp] = useState(store.get<boolean>("serviceStatus") ? (store.get<any>("serviceStatus")?.threadclaw?.running ?? false) : false);
+  const [gpu, setGpu] = useState(store.get<any>("gpu") ?? { detected: false, name: "", vramUsedMb: 0, vramTotalMb: 0 });
+  const [stats, setStats] = useState<any>(store.get("stats") ?? null);
+  const [sources, setSources] = useState<any[]>(store.get<any[]>("sources") ?? []);
+  const [autoStart, setAutoStart] = useState(store.get<boolean>("autoStart") ?? false);
   const [recentTasks, setRecentTasks] = useState<UiTask[]>(getTaskSnapshot());
-  const [modelHealth, setModelHealth] = useState<any>(cachedModelHealth);
+  const [modelHealth, setModelHealth] = useState<any>(store.get("modelHealth") ?? null);
   const [svcAction, setSvcAction] = useState(activeServiceAction);
 
   // Subscribe to service action progress
@@ -561,7 +540,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   }, []);
 
   // Detect OCR periodically (truly async — no event loop blocking)
-  const [ocrInstalled, setOcrInstalled] = useState(cachedOcrInstalled ?? false);
+  const [ocrInstalled, setOcrInstalled] = useState(store.get<boolean>("ocrInstalled") ?? false);
   useEffect(() => {
     let cancelled = false;
     const tryExec = (cmd: string): Promise<boolean> =>
@@ -576,7 +555,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
         }
       }
       if (!cancelled) {
-        cachedOcrInstalled = found;
+        store.set("ocrInstalled", found);
         setOcrInstalled(found);
       }
     })();
@@ -598,11 +577,11 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     if (envNeedsReload) {
       try {
         const envPath = resolve(root, ".env");
-        if (existsSync(envPath)) cachedEnvContent = readFileSync(envPath, "utf-8");
+        if (existsSync(envPath)) store.set("envContent", readFileSync(envPath, "utf-8"));
       } catch {}
       envNeedsReload = false;
     }
-    const ec = cachedEnvContent;
+    const ec = store.get<string>("envContent") ?? "";
     const watchPaths = ec.match(/WATCH_PATHS=(.+)/)?.[1]?.trim() ?? "";
     const sourceIcons: string[] = [];
     if (watchPaths) sourceIcons.push(`${t.ok("●")} Local Files`);
@@ -614,7 +593,7 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
     if (isEnabled("APPLE_NOTES_ENABLED")) sourceIcons.push(`${t.ok("●")} Apple Notes`);
     // Helper to extract env value, stripping optional quotes: KEY="value" or KEY=value
     const envVal = (key: string): string => ec.match(new RegExp(`${key}="?([^"\\n]+)"?`))?.[1] ?? "";
-    cachedParsedEnv = {
+    store.set("parsedEnv", {
       deepEnabled: envVal("THREADCLAW_MEMORY_RELATIONS_DEEP_EXTRACTION_ENABLED") === "true",
       relationsEnabled: envVal("THREADCLAW_RELATIONS_ENABLED") === "true" || envVal("THREADCLAW_MEMORY_RELATIONS_ENABLED") === "true",
       awarenessEnabled: envVal("THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED") === "true",
@@ -627,41 +606,43 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       sourceIcons,
       audioEnabled: envVal("AUDIO_TRANSCRIPTION_ENABLED") === "true",
       whisperModel: envVal("WHISPER_MODEL") || "base",
-    };
+    });
 
     // Service status: always update (port unreachable = service is down)
-    cachedModelsUp = mUp as boolean;
-    cachedThreadclawUp = cUp as boolean;
-    setModelsUp(cachedModelsUp);
-    setThreadclawUp(cachedThreadclawUp);
+    const svcStatus = { models: { running: mUp as boolean }, threadclaw: { running: cUp as boolean } };
+    store.set("serviceStatus", svcStatus);
+    setModelsUp(svcStatus.models.running);
+    setThreadclawUp(svcStatus.threadclaw.running);
 
     // GPU and auto-start: always update GPU state
     if (gpuState) {
-      cachedGpu = { detected: gpuState.detected, name: gpuState.name || "", vramUsedMb: gpuState.vramUsedMb || 0, vramTotalMb: gpuState.vramTotalMb || 0 };
-      setGpu(cachedGpu);
+      const gpuData = { detected: gpuState.detected, name: gpuState.name || "", vramUsedMb: gpuState.vramUsedMb || 0, vramTotalMb: gpuState.vramTotalMb || 0 };
+      store.set("gpu", gpuData);
+      setGpu(gpuData);
     }
     if (autoStartState !== null) {
-      cachedAutoStart = autoStartState;
-      setAutoStart(cachedAutoStart);
+      store.set("autoStart", autoStartState);
+      setAutoStart(autoStartState);
     }
 
     // Update on success; clear when service is confirmed down (not just a timeout)
     try {
-      if (statsRes?.ok) { cachedStats = await statsRes.json(); setStats(cachedStats); }
-      else if (!cachedThreadclawUp) { cachedStats = null; setStats(null); }
+      if (statsRes?.ok) { const s = await statsRes.json(); store.set("stats", s); setStats(s); }
+      else if (!svcStatus.threadclaw.running) { store.set("stats", null); setStats(null); }
     } catch {}
 
     try {
       if (sourcesRes?.ok) {
         const payload = await sourcesRes.json() as { sources?: any[] };
-        cachedSources = payload.sources ?? [];
-        setSources(cachedSources);
+        const src = payload.sources ?? [];
+        store.set("sources", src);
+        setSources(src);
       }
     } catch {}
 
     try {
-      if (healthRes?.ok) { cachedModelHealth = await healthRes.json(); setModelHealth(cachedModelHealth); }
-      else if (!cachedModelsUp) { cachedModelHealth = null; setModelHealth(null); }
+      if (healthRes?.ok) { const h = await healthRes.json(); store.set("modelHealth", h); setModelHealth(h); }
+      else if (!svcStatus.models.running) { store.set("modelHealth", null); setModelHealth(null); }
     } catch {}
   } catch {} };
 
@@ -689,8 +670,8 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   const rerankName = config?.rerank_model?.split("/").pop() ?? "not configured";
 
   // Use pre-parsed env values from refresh() — no regex in render path
-  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons } = cachedParsedEnv;
-  const envContent = cachedEnvContent;
+  const { deepEnabled, relationsEnabled, awarenessEnabled, claimsEnabled, attemptEnabled, watchCount, sourceIcons } = (store.get<any>("parsedEnv") ?? {});
+  const envContent = (store.get<string>("envContent") ?? "");
 
   let deepExtractLabel = t.dim("off");
   if (deepEnabled) {
@@ -712,14 +693,14 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
   }
 
   let expansionLabel = t.dim("off");
-  if (cachedParsedEnv.qeEnabled === "true" && cachedParsedEnv.qeModel) expansionLabel = t.value(cachedParsedEnv.qeModel);
+  if ((store.get<any>("parsedEnv") ?? {}).qeEnabled === "true" && (store.get<any>("parsedEnv") ?? {}).qeModel) expansionLabel = t.value((store.get<any>("parsedEnv") ?? {}).qeModel);
 
   const doclingDevice = config?.docling_device ?? "off";
   const doclingOk = modelHealth?.models?.docling?.ready === true;
   const doclingLabel = doclingOk ? t.ok(doclingDevice.toUpperCase()) : doclingDevice === "off" ? t.dim("off") : t.warn(doclingDevice.toUpperCase() + " (not loaded)");
 
   const nerReady = modelHealth?.models?.ner?.ready === true;
-  const audioEnabled = cachedParsedEnv.audioEnabled;
+  const audioEnabled = (store.get<any>("parsedEnv") ?? {}).audioEnabled;
 
   // GPU
   let gpuLine: string;
@@ -791,10 +772,10 @@ function HomeScreen({ onAction }: { onAction: (action: string) => void }) {
       {(process.stdout.columns || 120) < 100 ? (
         <>
           <Text>{"  " + t.dim("Docling: ") + doclingLabel + "    " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb"))}</Text>
-          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+          <Text>{"  " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "    " + t.dim("Whisper: ") + (audioEnabled ? t.ok((store.get<any>("parsedEnv") ?? {}).whisperModel) : t.dim("off"))}</Text>
         </>
       ) : (
-        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok(cachedParsedEnv.whisperModel) : t.dim("off"))}</Text>
+        <Text>{"  " + t.dim("Docling: ") + doclingLabel + "      " + t.dim("OCR: ") + (ocrInstalled ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("NER: ") + (nerReady ? t.ok("\u25cf") : t.err("\u25cb")) + "      " + t.dim("Whisper: ") + (audioEnabled ? t.ok((store.get<any>("parsedEnv") ?? {}).whisperModel) : t.dim("off"))}</Text>
       )}
 
       <Text>{sepLine}</Text>

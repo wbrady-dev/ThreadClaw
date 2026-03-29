@@ -11,17 +11,15 @@ import { readConfig, getRootDir, getDataDir, findOpenClaw, getPlatform, getApiPo
 import { checkAutoStartupAsync, detectGpuAsync, isPortReachable } from "../../runtime-status.js";
 import { subscribeTasks } from "../../tasks.js";
 import type { GpuInfo } from "../../models.js";
+import * as store from "../../store.js";
 
-// Module-level cache for status screen so re-mounts don't flash
-let cachedSvc: ServiceStatus = { models: { running: false }, threadclaw: { running: false } };
-let cachedAutoStart = false;
-let cachedGpu: GpuInfo = { name: "None detected", vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: false };
+// Read initial values from shared store (populated by HomeScreen polling)
 
 export function StatusScreen({ onBack }: { onBack: () => void }) {
   const [tick, setTick] = useState(0);
-  const [svc, setSvc] = useState<ServiceStatus>(cachedSvc);
-  const [autoStart, setAutoStart] = useState(cachedAutoStart);
-  const [gpu, setGpu] = useState<GpuInfo>(cachedGpu);
+  const [svc, setSvc] = useState<ServiceStatus>(store.get<ServiceStatus>("serviceStatus") ?? { models: { running: false }, threadclaw: { running: false } });
+  const [autoStart, setAutoStart] = useState(store.get<boolean>("autoStart") ?? false);
+  const [gpu, setGpu] = useState<GpuInfo>(store.get<GpuInfo>("gpu") ?? { name: "None detected", vramTotalMb: 0, vramUsedMb: 0, vramFreeMb: 0, detected: false });
 
   const [gpuTick, setGpuTick] = useState(0);
   useInterval(() => setTick((n: number) => n + 1), 3000);
@@ -38,7 +36,7 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     let cancelled = false;
     detectGpuAsync().then((gpuState) => {
-      if (!cancelled) { cachedGpu = gpuState; setGpu(gpuState); }
+      if (!cancelled) { store.set("gpu", gpuState); setGpu(gpuState); }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [gpuTick]);
@@ -63,8 +61,8 @@ export function StatusScreen({ onBack }: { onBack: () => void }) {
         models: { running: modelsUp },
         threadclaw: { running: threadclawUp },
       };
-      cachedSvc = serviceState;
-      cachedAutoStart = autoStartState;
+      store.set("serviceStatus", serviceState);
+      store.set("autoStart", autoStartState);
       setSvc(serviceState);
       setAutoStart(autoStartState);
 

@@ -4,6 +4,7 @@ import TextInput from "ink-text-input";
 import { Menu, Section, Separator, KV, Spinner, t, useInterval, type MenuItem } from "../components.js";
 import { getApiBaseUrl, getApiPort } from "../../platform.js";
 import { isPortReachable } from "../../runtime-status.js";
+import * as store from "../../store.js";
 
 /* ── Types ────────────────────────────────────────────────────────── */
 
@@ -42,11 +43,7 @@ interface TermsData {
   terms: string[];
 }
 
-/* ── Module-level cache ───────────────────────────────────────────── */
-
-let cachedGraphStats: GraphStats | null = null;
-let cachedEntities: EntityRow[] = [];
-let cachedTerms: string[] = [];
+/* ── Store-backed cache ───────────────────────────────────────────── */
 
 /* ── Screen ───────────────────────────────────────────────────────── */
 
@@ -57,9 +54,9 @@ const MENTIONS_PER_PAGE = 15;
 
 export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
   const [level, setLevel] = useState<Level>("overview");
-  const [graphStats, setGraphStats] = useState<GraphStats | null>(cachedGraphStats);
-  const [entities, setEntities] = useState<EntityRow[]>(cachedEntities);
-  const [terms, setTerms] = useState<string[]>(cachedTerms);
+  const [graphStats, setGraphStats] = useState<GraphStats | null>(store.get<GraphStats>("graphStats") ?? null);
+  const [entities, setEntities] = useState<EntityRow[]>(store.get<EntityRow[]>("entities") ?? []);
+  const [terms, setTerms] = useState<string[]>(store.get<string[]>("terms") ?? []);
   const [selectedEntity, setSelectedEntity] = useState<EntityRow | null>(null);
   const [mentions, setMentions] = useState<MentionRow[]>([]);
   const [status, setStatus] = useState("");
@@ -104,7 +101,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
       if (statsRes.ok) {
         const data = await statsRes.json() as { graphStats?: GraphStats | null };
         if (data.graphStats) {
-          cachedGraphStats = data.graphStats;
+          store.set("graphStats", data.graphStats);
           setGraphStats(data.graphStats);
           setRelationsEnabled(true);
         } else {
@@ -118,7 +115,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
       const entRes = await fetch(`${getApiBaseUrl()}/graph/entities?limit=${entLimit}&offset=${entOffset}`, { signal: AbortSignal.timeout(3000) });
       if (entRes.ok) {
         const data = await entRes.json() as { entities: EntityRow[]; total: number };
-        cachedEntities = data.entities;
+        store.set("entities", data.entities);
         setEntities(data.entities);
         if (typeof data.total === "number") setEntityTotal(data.total);
       }
@@ -127,7 +124,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
       const termsRes = await fetch(`${getApiBaseUrl()}/graph/terms`, { signal: AbortSignal.timeout(3000) });
       if (termsRes.ok) {
         const data = await termsRes.json() as TermsData;
-        cachedTerms = data.terms;
+        store.set("terms", data.terms);
         setTerms(data.terms);
       }
     } catch (err) {
@@ -169,7 +166,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
-        cachedTerms = updated;
+        store.set("terms", updated);
         setTerms(updated);
         setStatus(`Removed "${term}"`);
       } else {
@@ -197,7 +194,7 @@ export function EvidenceOsScreen({ onBack }: { onBack: () => void }) {
         signal: AbortSignal.timeout(3000),
       });
       if (res.ok) {
-        cachedTerms = updated;
+        store.set("terms", updated);
         setTerms(updated);
         setStatus(`Added "${trimmed}"`);
       } else {

@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import { Menu, Section, Separator, KV, t, useInterval, formatAge, type MenuItem } from "../components.js";
 import { getApiBaseUrl, getApiPort } from "../../platform.js";
 import { isPortReachable } from "../../runtime-status.js";
+import * as store from "../../store.js";
 
 /* ── Types ────────────────────────────────────────────────────────── */
 
@@ -26,7 +27,7 @@ const DOCS_PER_PAGE = 20;
 
 /* ── Module-level cache ───────────────────────────────────────────── */
 
-let cachedCollections: CollectionData[] = [];
+// Per-collection document cache stays local (screen-specific navigation state)
 const cachedDocuments: Record<string, DocumentData[]> = {};
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -49,7 +50,7 @@ type Level = "collections" | "documents" | "doc-action";
 
 export function DocumentsScreen({ onBack }: { onBack: () => void }) {
   const [level, setLevel] = useState<Level>("collections");
-  const [collections, setCollections] = useState<CollectionData[]>(cachedCollections);
+  const [collections, setCollections] = useState<CollectionData[]>(store.get<CollectionData[]>("collections") ?? []);
   const [documents, setDocuments] = useState<DocumentData[]>([]);
   const [selectedCollection, setSelectedCollection] = useState<CollectionData | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<DocumentData | null>(null);
@@ -74,7 +75,7 @@ export function DocumentsScreen({ onBack }: { onBack: () => void }) {
           collections?: CollectionData[];
         };
         const cols = payload.collections ?? [];
-        cachedCollections = cols;
+        store.set("collections", cols);
         setCollections(cols);
       }
     } catch {

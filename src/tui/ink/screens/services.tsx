@@ -5,6 +5,7 @@ import { getApiPort, getModelPort, type ServiceStatus } from "../../platform.js"
 import { readServiceLogTail } from "../../service-logs.js";
 import { checkAutoStartupAsync, isPortReachable } from "../../runtime-status.js";
 import { subscribeTasks } from "../../tasks.js";
+import * as store from "../../store.js";
 
 /** Color-code a log line based on severity keywords. */
 function colorLogLine(line: string): string {
@@ -13,10 +14,7 @@ function colorLogLine(line: string): string {
   return t.dim(line);
 }
 
-// Module-level cache — intentionally per-screen (not shared) so each screen
-// controls its own poll interval and re-mount doesn't flash stale data.
-let cachedServicesSvc: ServiceStatus = { models: { running: false }, threadclaw: { running: false } };
-let cachedServicesAutoStart = false;
+// Read initial values from shared store (populated by HomeScreen polling)
 
 export function ServicesScreen({
   onBack,
@@ -26,8 +24,8 @@ export function ServicesScreen({
   onAction: (action: string) => void;
 }) {
   const [tick, setTick] = useState(0);
-  const [autoStart, setAutoStart] = useState(cachedServicesAutoStart);
-  const [services, setServices] = useState<ServiceStatus>(cachedServicesSvc);
+  const [autoStart, setAutoStart] = useState(store.get<boolean>("autoStart") ?? false);
+  const [services, setServices] = useState<ServiceStatus>(store.get<ServiceStatus>("serviceStatus") ?? { models: { running: false }, threadclaw: { running: false } });
 
   useInterval(() => setTick((value) => value + 1), 3000);
 
@@ -46,8 +44,8 @@ export function ServicesScreen({
         models: { running: modelsUp },
         threadclaw: { running: threadclawUp },
       };
-      cachedServicesSvc = serviceState;
-      cachedServicesAutoStart = autoStartState;
+      store.set("serviceStatus", serviceState);
+      store.set("autoStart", autoStartState);
       setServices(serviceState);
       setAutoStart(autoStartState);
     })();
