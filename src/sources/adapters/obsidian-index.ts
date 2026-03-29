@@ -7,7 +7,7 @@
  */
 import { readdirSync, readFileSync } from "fs";
 import { resolve, basename, extname, relative } from "path";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 import { logger } from "../../utils/logger.js";
 
 // ── Vault Index ─────────────────────────────────────────────────────
@@ -17,6 +17,8 @@ export class ObsidianVaultIndex {
   private vaults = new Map<string, Map<string, string>>();
   /** vaultRoot → Map<lowercaseAlias, absoluteFilePath> */
   private aliases = new Map<string, Map<string, string>>();
+  /** Reverse index: absolutePath → { vault, name } for O(1) removal */
+  private pathIndex = new Map<string, { vault: string; name: string; aliases: string[] }>();
 
   /**
    * Build the index for a vault root by walking all .md files.
@@ -43,9 +45,15 @@ export class ObsidianVaultIndex {
 
             // Quick-parse frontmatter for aliases
             const fileAliases = this.quickExtractAliases(full);
+            const lcAliases: string[] = [];
             for (const alias of fileAliases) {
-              aliasMap.set(alias.toLowerCase(), full);
+              const lc = alias.toLowerCase();
+              aliasMap.set(lc, full);
+              lcAliases.push(lc);
             }
+
+            // Reverse index for O(1) removal
+            this.pathIndex.set(full, { vault: root, name: noteName, aliases: lcAliases });
           }
         }
       } catch {
@@ -84,44 +92,50 @@ export class ObsidianVaultIndex {
   /** Add a note to the index (called on watcher file add). */
   addNote(vaultRoot: string, filePath: string, noteAliases?: string[]): void {
     const root = resolve(vaultRoot);
+    const absPath = resolve(filePath);
     let noteMap = this.vaults.get(root);
-    if (!noteMap) {
-      noteMap = new Map();
-      this.vaults.set(root, noteMap);
-    }
+    if (!noteMap) { noteMap = new Map(); this.vaults.set(root, noteMap); }
     let aliasMap = this.aliases.get(root);
-    if (!aliasMap) {
-      aliasMap = new Map();
-      this.aliases.set(root, aliasMap);
-    }
+    if (!aliasMap) { aliasMap = new Map(); this.aliases.set(root, aliasMap); }
 
     const noteName = basename(filePath, ".md").toLowerCase();
-    noteMap.set(noteName, resolve(filePath));
+    noteMap.set(noteName, absPath);
 
+    const lcAliases: string[] = [];
     if (noteAliases) {
       for (const alias of noteAliases) {
-        aliasMap.set(alias.toLowerCase(), resolve(filePath));
+        const lc = alias.toLowerCase();
+        aliasMap.set(lc, absPath);
+        lcAliases.push(lc);
       }
     }
+
+    // Reverse index for O(1) removal
+    this.pathIndex.set(absPath, { vault: root, name: noteName, aliases: lcAliases });
   }
 
-  /** Remove a note from the index (called on watcher file remove). */
-  removeNote(vaultRoot: string, filePath: string): void {
-    const root = resolve(vaultRoot);
-    const noteMap = this.vaults.get(root);
-    const aliasMap = this.aliases.get(root);
+  /** Remove a note from the index (called on watcher file remove). O(1). */
+  removeNote(_vaultRoot: string, filePath: string): void {
     const absPath = resolve(filePath);
+    const entry = this.pathIndex.get(absPath);
+    if (!entry) return;
 
-    if (noteMap) {
-      for (const [name, path] of noteMap) {
-        if (path === absPath) { noteMap.delete(name); break; }
-      }
-    }
+    const noteMap = this.vaults.get(entry.vault);
+    if (noteMap) noteMap.delete(entry.name);
+
+    const aliasMap = this.aliases.get(entry.vault);
     if (aliasMap) {
-      for (const [alias, path] of aliasMap) {
-        if (path === absPath) aliasMap.delete(alias);
-      }
+      for (const alias of entry.aliases) aliasMap.delete(alias);
     }
+
+    this.pathIndex.delete(absPath);
+  }
+
+  /** Clear all data (called on adapter restart). */
+  clear(): void {
+    this.vaults.clear();
+    this.aliases.clear();
+    this.pathIndex.clear();
   }
 
   /** Get stats for display in TUI. */
@@ -140,7 +154,7 @@ export class ObsidianVaultIndex {
       const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
       if (!fmMatch) return [];
 
-      const parsed = yaml.load(fmMatch[1]);
+      const parsed = yamlLoad(fmMatch[1]);
       if (!parsed || typeof parsed !== "object") return [];
       const fm = parsed as Record<string, unknown>;
 
@@ -166,9 +180,14 @@ export function getVaultIndex(): ObsidianVaultIndex | null {
   return instance;
 }
 
-/** Initialize and return the vault index singleton. */
+/** Initialize and return the vault index singleton. Clears existing data on re-init. */
 export function initVaultIndex(): ObsidianVaultIndex {
-  if (!instance) instance = new ObsidianVaultIndex();
+  if (!instance) {
+    instance = new ObsidianVaultIndex();
+  } else {
+    // Clear stale data from previous adapter run
+    instance.clear();
+  }
   return instance;
 }
 

@@ -367,7 +367,7 @@ export function storeDocumentReferences(
     const insertLink = graphDb.prepare(`
       INSERT OR IGNORE INTO provenance_links
         (subject_id, predicate, object_id, confidence, created_at)
-      VALUES (?, 'references', ?, 1.0, ?)
+      VALUES (?, 'relates_to', ?, 1.0, ?)
     `);
 
     const findDoc = mainDb.prepare(
@@ -377,7 +377,7 @@ export function storeDocumentReferences(
     const tx = graphDb.transaction(() => {
       // Remove old references from this source
       graphDb.prepare(
-        "DELETE FROM provenance_links WHERE subject_id = ? AND predicate = 'references'",
+        "DELETE FROM provenance_links WHERE subject_id = ? AND predicate = 'relates_to'",
       ).run(`document:${sourceDocId}`);
 
       for (const link of resolvedLinks) {

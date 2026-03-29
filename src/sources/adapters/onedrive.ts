@@ -161,7 +161,8 @@ export class OneDriveAdapter extends PollingAdapterBase {
   }
 
   /** List items using delta query for incremental sync */
-  private async listDeltaItems(token: string, deltaLink: string | null): Promise<RemoteItem[]> {
+  private async listDeltaItems(token: string, deltaLink: string | null, depth = 0): Promise<RemoteItem[]> {
+    if (depth > 1) throw new Error("OneDrive delta token reset failed after retry");
     let url: string = deltaLink ?? `${GRAPH_BASE}/me/drive/root/delta`;
     const items: RemoteItem[] = [];
 
@@ -172,9 +173,9 @@ export class OneDriveAdapter extends PollingAdapterBase {
       });
 
       if (res.status === 410) {
-        // Delta token expired — full resync
+        // Delta token expired — full resync (with depth guard)
         this.clearDeltaToken();
-        return this.listDeltaItems(token, null);
+        return this.listDeltaItems(token, null, depth + 1);
       }
 
       if (!res.ok) throw new Error(`OneDrive API: ${res.status} ${res.statusText}`);
@@ -223,7 +224,9 @@ export class OneDriveAdapter extends PollingAdapterBase {
     folderName: string,
   ): Promise<Array<{ id: string; name: string; lastModified: string }>> {
     // Search for the folder
-    const searchUrl = `${GRAPH_BASE}/me/drive/root/children?$filter=name eq '${encodeURIComponent(folderName)}'&$select=id,name,folder`;
+    // Escape single quotes for OData string literals (not URL encoding)
+    const safeName = folderName.replace(/'/g, "''");
+    const searchUrl = `${GRAPH_BASE}/me/drive/root/children?$filter=name eq '${safeName}'&$select=id,name,folder`;
     const searchRes = await fetch(searchUrl, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15000),

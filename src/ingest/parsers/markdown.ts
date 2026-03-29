@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import { basename } from "path";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 import type { ParsedDocument, StructureHint, DocMetadata } from "./index.js";
 
 /**
@@ -27,14 +27,27 @@ export async function parseMarkdown(filePath: string): Promise<ParsedDocument> {
     extractFrontmatter(fmMatch[1], metadata);
   }
 
-  // ── Code block ranges (needed for skipping in all subsequent extractions) ──
+  // ── Strip dataview/dataviewjs/tasks blocks FIRST ───────────────────
+  // These are dynamic Obsidian queries, not content. Remove before
+  // building code block ranges so all offsets are consistent.
+  const dvRegex = /^```(?:dataview|dataviewjs|tasks)\r?\n[\s\S]*?\r?\n\s*```$/gm;
+  let dvMatch;
+  const dvBlocks: { start: number; end: number }[] = [];
+  while ((dvMatch = dvRegex.exec(text)) !== null) {
+    dvBlocks.push({ start: dvMatch.index, end: dvMatch.index + dvMatch[0].length });
+  }
+  // Remove in reverse order to preserve earlier offsets
+  for (let i = dvBlocks.length - 1; i >= 0; i--) {
+    text = text.slice(0, dvBlocks[i].start) + text.slice(dvBlocks[i].end);
+  }
+
+  // ── Code block ranges (on the now-clean text) ─────────────────────
   const codeBlockRegex = /^```(\w*)\r?\n[\s\S]*?\r?\n\s*```$/gm;
   let match;
-  const codeBlockRanges: { start: number; end: number; language: string }[] = [];
+  const codeBlockRanges: { start: number; end: number }[] = [];
 
   while ((match = codeBlockRegex.exec(text)) !== null) {
-    const lang = (match[1] || "").toLowerCase();
-    codeBlockRanges.push({ start: match.index, end: match.index + match[0].length, language: lang });
+    codeBlockRanges.push({ start: match.index, end: match.index + match[0].length });
     structure.push({
       type: "code_block",
       language: match[1] || undefined,
@@ -45,17 +58,6 @@ export async function parseMarkdown(filePath: string): Promise<ParsedDocument> {
 
   const isInsideCodeBlock = (pos: number): boolean =>
     codeBlockRanges.some((r) => pos >= r.start && pos <= r.end);
-
-  // ── Strip dataview/dataviewjs/tasks blocks from text ──────────────
-  // These are dynamic Obsidian queries, not actual content
-  const dataviewBlocks = codeBlockRanges
-    .filter((r) => r.language === "dataview" || r.language === "dataviewjs" || r.language === "tasks")
-    .sort((a, b) => b.start - a.start); // reverse order for safe splicing
-
-  let strippedText = text;
-  for (const block of dataviewBlocks) {
-    strippedText = strippedText.slice(0, block.start) + strippedText.slice(block.end);
-  }
 
   // ── Headings (skip inside code blocks) ────────────────────────────
   const headingRegex = /^(#{1,6})\s+(.+)$/gm;
@@ -120,7 +122,7 @@ export async function parseMarkdown(filePath: string): Promise<ParsedDocument> {
   }
 
   metadata.source = filePath;
-  return { text: strippedText, structure, metadata };
+  return { text, structure, metadata };
 }
 
 /**
@@ -130,7 +132,7 @@ export async function parseMarkdown(filePath: string): Promise<ParsedDocument> {
 function extractFrontmatter(yamlStr: string, metadata: DocMetadata): void {
   // Try js-yaml first (handles all YAML formats correctly)
   try {
-    const parsed = yaml.load(yamlStr);
+    const parsed = yamlLoad(yamlStr);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       const fm = parsed as Record<string, unknown>;
 
