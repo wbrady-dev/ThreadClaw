@@ -111,7 +111,11 @@ export class ThreadClawWatcher {
           "**/SendTo/**",
           "**/Templates/**",
           "**/Start Menu/**",
-          // Obsidian vault internals (should never be ingested regardless of adapter)
+          // OpenClaw runtime (gateway, sessions, credentials, services, browser data)
+          "**/.openclaw/**",
+          // ThreadClaw runtime data
+          "**/.threadclaw/**",
+          // Obsidian vault internals
           "**/.obsidian/**",
           "**/.trash/**",
           ...(config.watch.excludePatterns
