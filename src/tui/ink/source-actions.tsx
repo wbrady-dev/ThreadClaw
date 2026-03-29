@@ -55,12 +55,15 @@ async function configureObsidian(): Promise<void> {
     title: "Obsidian Vault",
     message: currentPath
       ? `Current vault: ${currentPath}${vaultInfo} | ${currentEnabled ? "enabled" : "disabled"}`
-      : "No vault configured yet.",
+      : detected.length > 0
+        ? `${detected.length} vault(s) detected. Select one to enable.`
+        : "No vault detected. Enter the path to your vault manually.",
     items: [
       ...detected.map((vault) => ({
         label: `Use ${vault.replace(/\\/g, "/").split("/").pop() ?? vault}${vault === currentPath ? " (current)" : ""}`,
         value: `set:${vault}`,
       })),
+      { label: "Enter vault path manually", value: "manual", description: "Type the full path to your .obsidian vault" },
       ...(currentPath && currentEnabled ? [{ label: "Disable ingestion", value: "disable" }] : []),
       ...(currentPath && !currentEnabled ? [{ label: "Enable ingestion", value: "enable" }] : []),
       ...(currentPath ? [{ label: `Template folder: ${templateDir}`, value: "template", description: "Folder to exclude from ingestion" }] : []),
@@ -82,6 +85,34 @@ async function configureObsidian(): Promise<void> {
     appendWatchPath(root, currentPath, "obsidian");
     await triggerSourcesReload();
     await showNotice("Obsidian", "Obsidian ingestion enabled.");
+    return;
+  }
+
+  if (action === "manual") {
+    const manualPath = await promptText({
+      title: "Obsidian Vault Path",
+      message: "Enter the full path to your Obsidian vault folder (the one containing .obsidian/).",
+      label: "Path",
+      initial: currentPath,
+    });
+    if (!manualPath) return;
+    const trimmed = manualPath.trim();
+    if (!existsSync(trimmed)) {
+      await showNotice("Obsidian", "That path does not exist.");
+      return;
+    }
+    if (!existsSync(resolve(trimmed, ".obsidian"))) {
+      await showNotice("Obsidian", "No .obsidian/ folder found at that path. Are you sure this is a vault?");
+      // Still allow it — user might know what they're doing
+    }
+    updateEnvValues(root, {
+      OBSIDIAN_ENABLED: "true",
+      OBSIDIAN_VAULT_PATH: trimmed,
+      OBSIDIAN_COLLECTION: "obsidian",
+    });
+    appendWatchPath(root, trimmed, "obsidian");
+    await triggerSourcesReload();
+    await showNotice("Obsidian", `Vault set to ${trimmed}.`);
     return;
   }
 
