@@ -28,7 +28,7 @@ function clampBudget(v?: number): number | undefined {
 function handleQueryError(err: unknown, reply: FastifyReply, label: string) {
   const msg = err instanceof Error ? err.message : String(err);
   if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("Failed to fetch") || msg.includes("embedding")) {
-    return reply.status(503).send({ error: toClientError(err, "Embedding service unavailable", 503) });
+    return reply.status(503).send({ error: "Embedding service unavailable. Ensure the model server is running (threadclaw start)." });
   }
   return reply.status(500).send({ error: toClientError(err, label) });
 }
