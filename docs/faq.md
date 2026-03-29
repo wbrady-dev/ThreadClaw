@@ -6,7 +6,7 @@
 A: No. All models can run locally. Cloud providers are optional for embeddings, reranking, and deep extraction.
 
 **Q: What databases does ThreadClaw use?**
-A: SQLite (3 separate files). Document store uses `better-sqlite3` with `sqlite-vec`. Memory engine uses `node:sqlite` (Node 22+ built-in). Evidence graph is shared between both via WAL mode. The evidence graph's core tables are `memory_objects` (unified knowledge store) and `provenance_links` (cross-object relationships).
+A: SQLite (2 database files). Document store and evidence graph are consolidated in `threadclaw.db` (uses `better-sqlite3` with `sqlite-vec`). Memory engine uses `memory.db` (`node:sqlite`, Node 22+ built-in). The evidence graph's core tables are `memory_objects` (unified knowledge store) and `provenance_links` (cross-object relationships).
 
 **Q: How much disk space does ThreadClaw need?**
 A: Models: 2-12 GB (depends on tier). Data: grows with usage. Typical: 50-500 MB for moderate use.
@@ -23,7 +23,7 @@ A: Yes, claims are extracted at ingest time (no compaction required). In **fast*
 A: When a tool fails, you can record an anti-runbook pattern. Anti-runbooks are surfaced with the highest priority (score 0.95) by the context compiler, warning agents to avoid known failure patterns. Their confidence decays over time if no new failures are observed.
 
 **Q: What happens if I disable relations after using them?**
-A: Setting `RELATIONS_ENABLED=false` disables all evidence features. The data remains in `graph.db` but isn't queried or surfaced. Re-enable to restore.
+A: Setting `RELATIONS_ENABLED=false` disables all evidence features. The data remains in `threadclaw.db` but isn't queried or surfaced. Re-enable to restore.
 
 **Q: Can different agents share evidence?**
 A: Yes. All agents in the same scope share the evidence graph by default. Use branches for agent-specific speculation, and `crossAgent=true` parameter for cross-agent search.

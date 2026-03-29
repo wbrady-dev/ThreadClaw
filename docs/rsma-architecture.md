@@ -94,7 +94,7 @@ memory-engine/src/ontology/           — RSMA unified ontology (new)
   writer.ts           — regex-based message understanding (fast mode), produces MemoryObjects
   semantic-extractor.ts — LLM-based message understanding (smart mode), single structured LLM call
   truth.ts            — TruthEngine: 6 reconciliation rules, 5-point correction guard, conflict creation
-  reader.ts           — unified read layer across graph.db, relevance-to-action ranking
+  reader.ts           — unified read layer across threadclaw.db, relevance-to-action ranking
   projector.ts        — provenance_links writer, supersession/conflict/evidence/mention recording
   correction.ts       — signal detection: correction, uncertainty, preference, temporal (regex, <1ms)
   migration.ts        — backfill legacy join tables → provenance_links (idempotent)

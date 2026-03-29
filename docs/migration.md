@@ -124,8 +124,8 @@ The `ontology/migration.ts` module provides `migrateToProvenanceLinks()` for bac
 # Disable all evidence features (keeps RSMA working)
 THREADCLAW_MEMORY_RELATIONS_ENABLED=false
 
-# Remove evidence data entirely
-rm ~/.threadclaw/data/graph.db
+# Remove document store + evidence data (consolidated)
+rm ~/.threadclaw/data/threadclaw.db
 ```
 
 No schema downgrade is needed -- disabling the feature flag stops all evidence operations.

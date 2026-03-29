@@ -2,7 +2,7 @@
 
 ## What Gets Stored
 
-### Evidence Graph (graph.db)
+### Evidence Graph (in threadclaw.db)
 - **memory_objects table**: All structured knowledge as MemoryObjects (claims, decisions, entities, loops, attempts, procedures, invariants, deltas, conflicts) with confidence, trust, and provenance
 - **provenance_links table**: Cross-object relationships (supports, contradicts, mentioned_in, derived_from, supersedes, resolved_by)
 - **evidence_log**: Append-only audit trail of all mutations
@@ -81,14 +81,11 @@ All API routes have rate limiting applied via the Fastify rate-limit plugin, con
 ## Deletion / Right to Forget
 
 ```bash
-# Delete all evidence data
-rm ~/.threadclaw/data/graph.db
+# Delete document store + evidence data (consolidated)
+rm ~/.threadclaw/data/threadclaw.db
 
 # Delete conversation memory
 rm ~/.threadclaw/data/memory.db
-
-# Delete document store
-rm ~/.threadclaw/data/threadclaw.db
 ```
 
 Databases rebuild automatically on next startup with empty state.

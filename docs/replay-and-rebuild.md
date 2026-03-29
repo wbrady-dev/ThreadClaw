@@ -41,8 +41,8 @@ Historical accuracy:
 
 ### Full Rebuild
 ```bash
-# Delete evidence graph
-rm ~/.threadclaw/data/graph.db
+# Delete document store + evidence graph (consolidated)
+rm ~/.threadclaw/data/threadclaw.db
 
 # Restart -- migrations re-create empty schema (memory_objects + provenance_links)
 # Then re-ingest documents to rebuild entity graph:
@@ -56,7 +56,7 @@ The evidence log itself is not rebuildable (it IS the source). But the memory_ob
 
 ```bash
 # Simple file copy (ensure no active writers)
-cp ~/.threadclaw/data/graph.db ~/.threadclaw/data/graph.db.bak
+cp ~/.threadclaw/data/threadclaw.db ~/.threadclaw/data/threadclaw.db.bak
 cp ~/.threadclaw/data/memory.db ~/.threadclaw/data/memory.db.bak
 ```
 

@@ -8,18 +8,17 @@ ThreadClaw runs as two integrated components:
 
 2. **Memory Engine Plugin** -- OpenClaw plugin providing DAG-based conversation memory, context assembly, and the Evidence OS. Uses `node:sqlite` DatabaseSync.
 
-Both components can write to the shared evidence graph database (`graph.db`) via WAL mode.
+Both components can write to the shared evidence graph (consolidated into `threadclaw.db`) via WAL mode.
 
 ## Database Architecture
 
 ```
 ~/.threadclaw/data/
   memory.db             # Conversation memory (memory engine)
-  graph.db              # Evidence graph (shared by both processes)
-  threadclaw.db           # Document store (RAG, main ThreadClaw)
+  threadclaw.db         # Document store + Evidence graph (consolidated)
 ```
 
-### Evidence Graph (graph.db)
+### Evidence Graph (in threadclaw.db)
 
 25 migrations. Core tables:
 

@@ -1,6 +1,6 @@
 # Agent Tools Reference
 
-ThreadClaw provides 13 agent tools. 4 are always available (memory engine core), and 9 are available when `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`. All tools are registered as OpenClaw plugin tools accessible by the agent during conversations.
+ThreadClaw provides 15 agent tools. 4 are always available (memory engine core), and 11 are available when `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`. All tools are registered as OpenClaw plugin tools accessible by the agent during conversations.
 
 ## Memory Engine Tools (Always Available)
 
@@ -64,6 +64,23 @@ List learned success and failure patterns (runbooks and anti-runbooks).
 - `tool_name`: Filter by tool
 - `scope_id`: Scope filter
 
+### cc_conflicts
+View and resolve contradictions between facts.
+- `action`: `list` (default) or `resolve`
+- `conflict_id`, `winner_id`: For resolving a conflict
+- `scope_id`: Scope filter
+
+### cc_state
+Aggregated view of everything known about a subject — claims, decisions, invariants, conflicts, loops, relations, procedures, entities.
+- `subject` (required): Entity or topic name
+- `scope_id`: Scope filter
+
+### cc_timeline
+Show how knowledge about a subject evolved over time — supersessions, corrections, confidence changes.
+- `subject` (required): Entity or subject name to trace
+- `from`, `to`: Date range (YYYY-MM-DD)
+- `kind`: Filter by kind (claim, decision, loop, entity)
+
 ### cc_synthesize
 Generate retrospective synthesis of evidence state. Requires LLM. On-demand only.
 - `scope_id`: Scope ID (default: 1 = global)
@@ -76,10 +93,10 @@ Show internal RSMA health: summary counts, claim counts, awareness stats, contex
 ## Tool Availability
 
 - **Always available** (4): `cc_grep`, `cc_describe`, `cc_expand`, `cc_recall`
-- **Requires `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`** (9): `cc_memory`, `cc_claims`, `cc_decisions`, `cc_loops`, `cc_attempts`, `cc_branch`, `cc_procedures`, `cc_synthesize`, `cc_diagnostics`
+- **Requires `THREADCLAW_MEMORY_RELATIONS_ENABLED=true`** (11): `cc_memory`, `cc_claims`, `cc_decisions`, `cc_loops`, `cc_attempts`, `cc_branch`, `cc_procedures`, `cc_conflicts`, `cc_state`, `cc_timeline`, `cc_synthesize`, `cc_diagnostics`
 
 All tools handle empty results gracefully and wrap queries in try/catch for non-fatal error handling.
 
 ## Extraction Mode
 
-The extraction mode (`THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE=smart|fast`) is transparent to tools. The same 13 tools work regardless of whether smart (LLM) or fast (regex) extraction is active. The extraction mode only affects how incoming messages are processed into MemoryObjects — tools read from the same underlying stores either way.
+The extraction mode (`THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE=smart|fast`) is transparent to tools. The same 15 tools work regardless of whether smart (LLM) or fast (regex) extraction is active. The extraction mode only affects how incoming messages are processed into MemoryObjects — tools read from the same underlying stores either way.

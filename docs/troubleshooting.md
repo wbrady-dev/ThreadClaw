@@ -35,9 +35,7 @@ Other useful commands:
 ```bash
 # Memory engine
 rm ~/.threadclaw/data/memory.db
-# Evidence graph
-rm ~/.threadclaw/data/graph.db
-# Document store
+# Document store + Evidence graph (consolidated)
 rm ~/.threadclaw/data/threadclaw.db
 ```
 All databases rebuild automatically on next startup.
@@ -119,12 +117,11 @@ The TUI provides 3 reset options: KB only, KB + Evidence, and Full wipe.
 # Disable evidence OS features (keeps core working)
 THREADCLAW_MEMORY_RELATIONS_ENABLED=false
 
-# Delete evidence data only
-rm ~/.threadclaw/data/graph.db
+# Delete document store + evidence data (consolidated)
+rm ~/.threadclaw/data/threadclaw.db
 
-# Full reset
+# Full reset (documents + evidence + conversation memory)
 rm ~/.threadclaw/data/memory.db
-rm ~/.threadclaw/data/graph.db
 rm ~/.threadclaw/data/threadclaw.db
 ```
 

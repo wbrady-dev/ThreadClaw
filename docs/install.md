@@ -87,9 +87,8 @@ All ThreadClaw data is stored under `~/.threadclaw/`:
 
 | Path | Contents |
 |------|----------|
-| `~/.threadclaw/data/threadclaw.db` | Document store (RAG): documents, chunks, vectors, metadata |
+| `~/.threadclaw/data/threadclaw.db` | Document store + Evidence graph (consolidated): documents, chunks, vectors, entities, claims, decisions, loops, provenance |
 | `~/.threadclaw/data/memory.db` | Conversation memory: messages, summaries, context items |
-| `~/.threadclaw/data/graph.db` | Evidence graph: entities, claims, decisions, loops, provenance |
 | `~/.threadclaw/relations-terms.json` | User-defined entity terms for graph extraction |
 | `~/.threadclaw/manifest.json` | Version tracking |
 | `~/.threadclaw/backups/` | Upgrade backups |

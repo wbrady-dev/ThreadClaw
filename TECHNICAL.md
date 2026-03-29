@@ -281,10 +281,11 @@ The `mo-store.ts` module provides unified CRUD for `memory_objects`:
 
 ## Storage Layer
 
-SQLite with sqlite-vec for vectors and FTS5 for full-text search. Three databases in `~/.threadclaw/data/`:
-- `threadclaw.db` — Document store (RAG: collections, documents, chunks, vectors)
+SQLite with sqlite-vec for vectors and FTS5 for full-text search. Two databases in `~/.threadclaw/data/`:
+- `threadclaw.db` — Document store (RAG: collections, documents, chunks, vectors) + Evidence graph (consolidated), unified under the **One True Ontology**: `memory_objects` (all knowledge kinds) + `provenance_links` (all relationships). Legacy tables renamed to `_legacy_*` by migration v18.
 - `memory.db` — Conversation memory (DAG summaries, context items, messages)
-- `graph.db` — Evidence graph, now unified under the **One True Ontology**: `memory_objects` (all knowledge kinds) + `provenance_links` (all relationships). Legacy tables (entities, claims, decisions, etc.) renamed to `_legacy_*` by migration v18
+
+Note: Previous versions used a separate `graph.db`. This was consolidated into `threadclaw.db` — existing installations auto-migrate on startup.
 
 ### Schema
 - **collections** — named groups (id, name, description)

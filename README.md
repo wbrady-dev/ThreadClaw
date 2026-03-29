@@ -2,7 +2,7 @@
 
 **Persistent, evidence-backed memory for AI agents.**
 
-![tests](https://img.shields.io/badge/tests-947%20passing-brightgreen) <!-- 858 memory-engine + 89 src -->
+![tests](https://img.shields.io/badge/tests-969%20passing-brightgreen) <!-- 866 memory-engine + 103 src -->
 ![build](https://img.shields.io/github/actions/workflow/status/wbrady-dev/ThreadClaw/ci.yml?branch=main&label=build)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![node](https://img.shields.io/badge/node-22%2B-green)
@@ -55,9 +55,10 @@ ThreadClaw has three layers that work together:
 
 You point ThreadClaw at folders, Obsidian vaults, Google Drive, or Notion — it reads your documents, breaks them into searchable chunks, and lets your AI find relevant information when answering questions.
 
-- Supports 20+ file formats (PDF, DOCX, PPTX, HTML, Markdown, CSV, JSON, code files, EPUB, email)
+- Supports 20+ file formats (PDF, DOCX, PPTX, HTML, Markdown, Canvas, CSV, JSON, code files, EPUB, email)
 - Hybrid search: combines keyword matching with semantic understanding
 - Watches your folders for changes and re-indexes automatically
+- Answer synthesis: optional LLM-generated answers with source citations
 
 ### Layer 2: Conversation Memory (DAG)
 **What it does:** Remembers what was said across conversations.
@@ -271,12 +272,13 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 
 | Source | Type | Setup |
 |--------|------|-------|
-| **Local Files** | Realtime (chokidar) | WATCH_PATHS in .env |
-| **Obsidian** | Realtime | Auto-detected during install |
+| **Local Files** | Realtime (chokidar) | WATCH_PATHS in .env or folder browser in TUI |
+| **Obsidian** | Realtime | Auto-detected or manual vault path. Wikilinks, tags, aliases, canvas files, frontmatter extraction. Excludes .obsidian/ and templates. |
 | **Google Drive** | Polling | OAuth flow in TUI Sources screen |
-| **OneDrive** | Polling | OAuth or local sync folder (in development) |
+| **OneDrive** | Polling | PKCE OAuth via Azure AD — no client secret needed. Delta sync for efficient incremental polling. |
 | **Notion** | Polling | API key in TUI Sources screen |
 | **Apple Notes** | Polling | macOS only, AppleScript |
+| **Web URLs** | Polling | Monitor web pages for changes. HTML→text extraction via jsdom. |
 
 ### Integration
 - **Interactive TUI** — terminal UI for configuration, status, service management, reset, and uninstall
@@ -287,7 +289,7 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 - **Cross-Platform** — Windows (Task Scheduler), macOS (launchd), Linux (systemd --user)
 - **Local-First** — all models run on your hardware. No data leaves your machine.
 
-### Agent Tools (12)
+### Agent Tools (15)
 
 | Tool | What it does |
 |------|-------------|
@@ -302,27 +304,31 @@ ThreadClaw is built on **RSMA (Reconciled Semantic Memory Architecture)** — a 
 | `cc_attempts` | Query tool success/failure history |
 | `cc_branch` | Manage speculative branches |
 | `cc_procedures` | Query runbooks and anti-runbooks |
+| `cc_conflicts` | View and resolve contradictions between facts |
+| `cc_state` | Aggregated view of everything known about a subject |
+| `cc_timeline` | How knowledge about a subject evolved over time |
 | `cc_diagnostics` | RSMA health check and Evidence OS stats |
 
 ---
 
 ## Databases
 
-ThreadClaw uses three SQLite databases:
+ThreadClaw uses two SQLite databases:
 
 | Database | Path | Purpose |
 |----------|------|---------|
-| **threadclaw.db** | `~/.threadclaw/data/threadclaw.db` | RAG: documents, chunks, vectors, search metadata |
-| **graph.db** | `~/.threadclaw/data/graph.db` | Evidence OS: claims, decisions, loops, entities, relations |
+| **threadclaw.db** | `~/.threadclaw/data/threadclaw.db` | RAG (documents, chunks, vectors) + Evidence OS (claims, decisions, loops, entities, relations) — consolidated |
 | **memory.db** | `~/.threadclaw/data/memory.db` | Conversations: messages, summaries, context items |
+
+Evidence graph tables (`memory_objects`, `provenance_links`) live in `threadclaw.db` alongside RAG data. Existing `graph.db` files are auto-migrated on startup.
 
 ### Reset Options (TUI)
 
-| Option | threadclaw.db | graph.db | memory.db |
-|--------|:-----------:|:--------:|:---------:|
-| **Reset KB only** | Cleared | Preserved | Preserved |
-| **Reset KB + Evidence OS** | Cleared | Cleared | Preserved |
-| **FULL WIPE** | Cleared | Cleared | Cleared |
+| Option | threadclaw.db | memory.db |
+|--------|:-----------:|:---------:|
+| **Reset KB only** | RAG data cleared, evidence preserved | Preserved |
+| **Reset KB + Evidence OS** | All data cleared | Preserved |
+| **FULL WIPE** | Cleared | Cleared |
 
 The Full Wipe requires typing "DELETE EVERYTHING" to confirm.
 
@@ -395,6 +401,14 @@ GET  /analytics/diagnostics — Full RSMA health and Evidence OS stats (localhos
 DELETE /analytics           — Clear analytics data
 GET  /sources               — Source adapter status
 POST /sources/reload        — Hot-reload source configuration (localhost only)
+GET  /graph/entities        — List entities with mention counts
+GET  /graph/claims          — List claims with confidence scores
+GET  /graph/decisions       — List decisions with rationale
+GET  /graph/loops           — List open loops (tasks, questions)
+GET  /graph/conflicts       — List unresolved contradictions
+GET  /graph/truth-health    — Confidence dashboard: changed facts, low confidence, active conflicts
+GET  /graph/timeline        — Subject-centric memory evolution over time
+GET  /events                — Server-sent events stream (query pipeline events)
 POST /shutdown              — Graceful shutdown: flushes tokens, stops sources, closes DB (localhost only)
 ```
 
@@ -411,25 +425,24 @@ Authentication: set `THREADCLAW_API_KEY` to require `Authorization: Bearer <key>
 ```
                     ThreadClaw (Node.js :18800)
                     +-------------------------------+
- threadclaw query-> |  Query Pipeline               |  
+ threadclaw query-> |  Query Pipeline               |
   HTTP POST      -> |  cache -> expand ->           |
   MCP tool       -> |  embed -> search ->           |
                     |  dedup -> gate -> rerank ->   |
                     |  pack -> highlight ->         |
-                    |  brief/titles/full            |
+                    |  brief/titles/full/synthesize |
                     +---------------+---------------+
                                     |
                     +---------------+---------------+
-                    |  3 SQLite Databases            |
-                    |  threadclaw.db: vectors + FTS5 |
-                    |  graph.db: Evidence OS         |
+                    |  2 SQLite Databases            |
+                    |  threadclaw.db: RAG + Evidence |
                     |  memory.db: conversations      |
                     +---------------+---------------+
                                     |
                     +---------------+---------------+
-                    |  Model Server (Python :8012)   |
+                    |  Model Server (optional :8012) |
                     |  embed | rerank | OCR | NER    |
-                    |  float16 | warmup | Waitress   |
+                    |  Skipped if external endpoints |
                     +-------------------------------+
 ```
 
@@ -449,12 +462,12 @@ Authentication: set `THREADCLAW_API_KEY` to require `Authorization: Bearer <key>
 
 ## Testing
 
-**947 tests** across **43 test files**, running on every push via GitHub Actions CI.
+**969 tests** across **49 test files**, running on every push via GitHub Actions CI (Ubuntu, Windows, macOS).
 
 ```bash
 # Run all tests
-npm test                    # 89 src tests (API, parsers, chunker, CLI)
-cd memory-engine && npm test # 858 memory-engine tests
+npm test                    # 103 src tests (API, parsers, chunker, CLI)
+cd memory-engine && npm test # 866 memory-engine tests
 ```
 
 ### Test Suite Breakdown
@@ -488,7 +501,7 @@ cd memory-engine && npm test # 858 memory-engine tests
 [Install](docs/install.md) | [Quick Start](docs/quickstart.md) | [Configuration](docs/configuration.md) | [Migration](docs/migration.md)
 
 **Reference:**
-[Tools (13)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
+[Tools (15)](docs/tools.md) | [Schema](docs/schema.md) | [API](docs/api.md) | [FAQ](docs/faq.md)
 
 **Concepts:**
 [Core Concepts](docs/concepts.md) | [Architecture](docs/architecture.md) | [Scopes & Branches](docs/scopes-and-branches.md) | [Promotion Policies](docs/promotion-policies.md)
@@ -507,7 +520,7 @@ cd memory-engine && npm test # 858 memory-engine tests
 ## Requirements
 
 - **Node.js** 22+
-- **Python** 3.10+
+- **Python** 3.10+ (optional — only needed for local embedding/reranking models; skipped when using external endpoints like LM Studio or cloud APIs)
 - **GPU** recommended (NVIDIA CUDA 12+, AMD ROCm, Apple MPS), CPU mode available
 - **Disk** ~15-20GB for models and data
 

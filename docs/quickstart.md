@@ -17,9 +17,9 @@ threadclaw          # Interactive TUI
 
 ## Running Services
 
-`threadclaw serve` starts both the Python model server and the ThreadClaw RAG API in a single terminal:
+`threadclaw serve` starts the ThreadClaw RAG API (and the Python model server if local models are configured):
 
-- **Model server** (embedding + reranking) on port **8012** (default)
+- **Model server** (embedding + reranking) on port **8012** -- only started when needed; lazy-spawns on first request and shuts down after idle timeout. Skipped entirely if external embedding/reranking endpoints are configured.
 - **ThreadClaw API** on port **18800** (default, localhost only)
 
 The command automatically stops any existing processes on those ports before starting. Logs from both services are streamed to the terminal with `[models]` and `[threadclaw]` prefixes.

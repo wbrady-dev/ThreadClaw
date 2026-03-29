@@ -31,7 +31,7 @@ THREADCLAW_MEMORY_RELATIONS_ENABLED=false  # Disables everything
 
 Database rollback:
 ```bash
-rm ~/.threadclaw/data/graph.db  # Delete evidence data
+rm ~/.threadclaw/data/threadclaw.db  # Delete document store + evidence data (consolidated)
 # Schema recreates on next startup
 ```
 

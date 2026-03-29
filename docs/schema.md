@@ -1,6 +1,6 @@
 # Schema Reference
 
-All evidence tables live in `graph.db` (`~/.threadclaw/data/graph.db`). 25 migrations.
+All evidence tables live in `threadclaw.db` (`~/.threadclaw/data/threadclaw.db`, consolidated with the document store). 25 migrations.
 
 ## Core Tables (Current)
 

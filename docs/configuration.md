@@ -62,14 +62,14 @@ All configuration is via environment variables. Copy `.env.example` to `.env` an
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `THREADCLAW_RELATIONS_ENABLED` | `false` | Enable entity extraction in ingest pipeline |
-| `THREADCLAW_RELATIONS_GRAPH_DB_PATH` | `~/.threadclaw/data/graph.db` | Graph database path |
+| `THREADCLAW_RELATIONS_GRAPH_DB_PATH` | `~/.threadclaw/data/threadclaw.db` | Graph database path (consolidated into threadclaw.db) |
 
 ### Memory Engine Plugin
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `THREADCLAW_MEMORY_RELATIONS_ENABLED` | `false` | Enable evidence graph in memory engine |
-| `THREADCLAW_MEMORY_RELATIONS_GRAPH_DB_PATH` | `~/.threadclaw/data/graph.db` | Graph database path |
+| `THREADCLAW_MEMORY_RELATIONS_GRAPH_DB_PATH` | `~/.threadclaw/data/threadclaw.db` | Graph database path (consolidated into threadclaw.db) |
 | `THREADCLAW_MEMORY_RELATIONS_MIN_MENTIONS` | `2` | Min mentions before entity surfaced |
 | `THREADCLAW_MEMORY_RELATIONS_STALE_DAYS` | `30` | Days before entity is stale |
 
@@ -164,6 +164,7 @@ THREADCLAW_MEMORY_RELATIONS_AWARENESS_ENABLED=false
 # Disable entire evidence engine
 THREADCLAW_MEMORY_RELATIONS_ENABLED=false
 
-# Delete all evidence data
-rm ~/.threadclaw/data/graph.db
+# Delete all evidence data (now consolidated in threadclaw.db)
+# Use the TUI reset (KB + Evidence) or API reset instead:
+# curl -X POST http://127.0.0.1:18800/reset -d '{"clearGraph": true}'
 ```
