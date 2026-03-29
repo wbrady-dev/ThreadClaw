@@ -96,7 +96,7 @@ export function upsertClaim(db: GraphDb, input: UpsertClaimInput): UpsertClaimRe
     if (subjectNorm) {
       const matchingEntities = db.prepare(
         `SELECT composite_id FROM memory_objects
-         WHERE kind = 'entity' AND status = 'active'
+         WHERE kind = 'entity' AND status = 'active' AND branch_id = 0
            AND json_extract(structured_json, '$.name') = ?
          LIMIT 3`,
       ).all(subjectNorm) as Array<{ composite_id: string }>;
@@ -228,7 +228,7 @@ function tryAutoResolveConflicts(db: GraphDb, compositeId: string, newConfidence
     const conflicts = db.prepare(`
       SELECT id, composite_id, structured_json, scope_id
       FROM memory_objects
-      WHERE kind = 'conflict' AND status = 'active'
+      WHERE kind = 'conflict' AND status = 'active' AND branch_id = 0
         AND (
           json_extract(structured_json, '$.objectIdA') = ?
           OR json_extract(structured_json, '$.objectIdB') = ?

@@ -264,7 +264,7 @@ export function inferAntiRunbookFromAttempts(
   // Query the N most recent attempts (any status) to check for consecutive failures
   const recentAttempts = db.prepare(`
     SELECT id, composite_id, structured_json FROM memory_objects
-    WHERE scope_id = ? AND kind = 'attempt' AND status = 'active'
+    WHERE scope_id = ? AND kind = 'attempt' AND status = 'active' AND branch_id = 0
       AND structured_json LIKE ? ESCAPE '\\'
     ORDER BY created_at DESC LIMIT ?
   `).all(scopeId, `%"toolName":"${escapeLikeValue(toolName)}"%`, minFailures) as Array<{

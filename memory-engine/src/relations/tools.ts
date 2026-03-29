@@ -588,17 +588,17 @@ export function createCcDiagnosticsTool(input: {
           try { return (db.prepare(sql).get() as { cnt: number }).cnt; } catch { return -1; }
         };
 
-        const entities = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity' AND status = 'active'");
+        const entities = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'entity' AND status = 'active' AND branch_id = 0");
         const mentions = safe("SELECT COUNT(*) as cnt FROM provenance_links WHERE predicate = 'mentioned_in'");
-        const claims = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'claim' AND status = 'active'");
-        const decisions = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'decision' AND status = 'active'");
-        const loops = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'loop' AND status IN ('active','blocked')");
-        const attempts = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'attempt'");
-        const rbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND (json_extract(structured_json, '$.isNegative') IS NULL OR json_extract(structured_json, '$.isNegative') = 0)");
-        const arbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND json_extract(structured_json, '$.isNegative') = 1");
+        const claims = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'claim' AND status = 'active' AND branch_id = 0");
+        const decisions = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'decision' AND status = 'active' AND branch_id = 0");
+        const loops = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'loop' AND status IN ('active','blocked') AND branch_id = 0");
+        const attempts = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'attempt' AND branch_id = 0");
+        const rbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND branch_id = 0 AND (json_extract(structured_json, '$.isNegative') IS NULL OR json_extract(structured_json, '$.isNegative') = 0)");
+        const arbooks = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'procedure' AND status = 'active' AND branch_id = 0 AND json_extract(structured_json, '$.isNegative') = 1");
         const evEvents = safe("SELECT COUNT(*) as cnt FROM evidence_log");
-        const rels = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'relation' AND status = 'active'");
-        const invariants = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'invariant' AND status = 'active'");
+        const rels = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'relation' AND status = 'active' AND branch_id = 0");
+        const invariants = safe("SELECT COUNT(*) as cnt FROM memory_objects WHERE kind = 'invariant' AND status = 'active' AND branch_id = 0");
         const n = (v: number) => v >= 0 ? String(v) : "n/a";
 
         sections.push(`[Evidence Graph]

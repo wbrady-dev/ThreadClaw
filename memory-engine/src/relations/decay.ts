@@ -45,6 +45,7 @@ export function decayAntiRunbooks(
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE scope_id = ?
       AND kind = 'procedure'
+      AND branch_id = 0
       AND json_extract(structured_json, '$.isNegative') = 1
       AND status = 'active'
       AND confidence > ?
@@ -52,6 +53,7 @@ export function decayAntiRunbooks(
         SELECT DISTINCT json_extract(mo2.structured_json, '$.toolName')
         FROM memory_objects mo2
         WHERE mo2.scope_id = ? AND mo2.kind = 'attempt' AND mo2.status = 'active'
+        AND mo2.branch_id = 0
         AND json_extract(mo2.structured_json, '$.status') = 'success'
         AND mo2.created_at > datetime('now', '-' || ? || ' days')
       )
@@ -64,6 +66,7 @@ export function decayAntiRunbooks(
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE scope_id = ?
       AND kind = 'procedure'
+      AND branch_id = 0
       AND json_extract(structured_json, '$.isNegative') = 1
       AND status = 'active'
       AND confidence > ?
@@ -77,6 +80,7 @@ export function decayAntiRunbooks(
         updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
     WHERE scope_id = ?
       AND kind = 'procedure'
+      AND branch_id = 0
       AND json_extract(structured_json, '$.isNegative') = 1
       AND confidence <= ?
       AND status = 'active'

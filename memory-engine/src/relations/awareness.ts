@@ -68,7 +68,7 @@ function rebuildEntityCache(
              json_extract(structured_json, '$.name') as name,
              COALESCE(json_extract(structured_json, '$.mentionCount'), 1) as mention_count
       FROM memory_objects
-      WHERE kind = 'entity' AND status = 'active'
+      WHERE kind = 'entity' AND status = 'active' AND branch_id = 0
       ORDER BY COALESCE(json_extract(structured_json, '$.mentionCount'), 1) DESC
       LIMIT ?
     `).all(cacheMaxSize) as Array<{
@@ -416,7 +416,7 @@ export function buildAwarenessNote(
               WHERE pl1.predicate = 'mentioned_in'
                 AND pl2.predicate = 'mentioned_in'
                 AND pl1.subject_id IN (${placeholders})
-                AND mo.kind = 'entity' AND mo.status = 'active'
+                AND mo.kind = 'entity' AND mo.status = 'active' AND mo.branch_id = 0
                 AND COALESCE(json_extract(mo.structured_json, '$.mentionCount'), 1) >= ?
               GROUP BY mo.composite_id
               ORDER BY COUNT(*) DESC, mention_count DESC
@@ -433,7 +433,7 @@ export function buildAwarenessNote(
               SELECT content AS name,
                      COALESCE(json_extract(structured_json, '$.mentionCount'), 1) AS mention_count
               FROM memory_objects
-              WHERE kind = 'entity' AND status = 'active'
+              WHERE kind = 'entity' AND status = 'active' AND branch_id = 0
                 AND COALESCE(json_extract(structured_json, '$.mentionCount'), 1) >= ?
               ORDER BY CAST(COALESCE(json_extract(structured_json, '$.mentionCount'), 1) AS INTEGER) DESC
               LIMIT 3

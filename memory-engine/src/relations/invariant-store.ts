@@ -106,7 +106,7 @@ export function getActiveInvariants(
 ): InvariantRow[] {
   return (db.prepare(`
     SELECT * FROM memory_objects
-    WHERE scope_id = ? AND kind = 'invariant' AND status = 'active'
+    WHERE scope_id = ? AND kind = 'invariant' AND status = 'active' AND branch_id = 0
     ORDER BY CASE json_extract(structured_json, '$.severity')
       WHEN 'critical' THEN 0 WHEN 'error' THEN 1 WHEN 'warning' THEN 2 WHEN 'info' THEN 3 ELSE 4
     END ASC, updated_at DESC

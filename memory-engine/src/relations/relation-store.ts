@@ -190,13 +190,13 @@ export function getRelationsForEntity(
   let args: unknown[];
 
   if (direction === "subject") {
-    whereClause = "kind = 'relation' AND status = 'active' AND json_extract(structured_json, '$.subjectCompositeId') = ?";
+    whereClause = "kind = 'relation' AND status = 'active' AND branch_id = 0 AND json_extract(structured_json, '$.subjectCompositeId') = ?";
     args = [entity.compositeId];
   } else if (direction === "object") {
-    whereClause = "kind = 'relation' AND status = 'active' AND json_extract(structured_json, '$.objectCompositeId') = ?";
+    whereClause = "kind = 'relation' AND status = 'active' AND branch_id = 0 AND json_extract(structured_json, '$.objectCompositeId') = ?";
     args = [entity.compositeId];
   } else {
-    whereClause = "kind = 'relation' AND status = 'active' AND (json_extract(structured_json, '$.subjectCompositeId') = ? OR json_extract(structured_json, '$.objectCompositeId') = ?)";
+    whereClause = "kind = 'relation' AND status = 'active' AND branch_id = 0 AND (json_extract(structured_json, '$.subjectCompositeId') = ? OR json_extract(structured_json, '$.objectCompositeId') = ?)";
     args = [entity.compositeId, entity.compositeId];
   }
 
