@@ -3,7 +3,7 @@ import { execFileSync } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, readdirSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
-import { resolve } from "path";
+import { resolve, basename } from "path";
 import {
   CLOUD_EMBED_PROVIDERS,
   CLOUD_RERANK_PROVIDERS,
@@ -22,7 +22,7 @@ import {
 } from "../platform.js";
 import { ensureEnvFile, readEnvMap, updateEnvValues } from "../env.js";
 import type { ConfigureAction } from "../configure-helpers.js";
-import { promptChecklist, promptConfirm, promptMenu, promptText } from "./prompts.js";
+import { promptChecklist, promptConfirm, promptFolderBrowser, promptMenu, promptText } from "./prompts.js";
 import { t, type MenuItem } from "./components.js";
 
 interface FieldDef {
@@ -1195,52 +1195,24 @@ async function configureEvidence(): Promise<void> {
 async function configureWatchPaths(): Promise<void> {
   const root = getRootDir();
   const current = getCurrentWatchEntries(root);
-  const discovered = discoverWatchCandidates();
-  const merged = new Map<string, { path: string; collection: string; checked: boolean }>();
 
-  for (const entry of discovered) {
-    merged.set(entry.path, { ...entry, checked: false });
-  }
-  for (const entry of current) {
-    merged.set(entry.path, { ...entry, checked: true });
-  }
-
-  const selected = await promptChecklist({
+  const selected = await promptFolderBrowser({
     title: "Watch Paths",
-    message: "Toggle directories to auto-ingest. Add custom paths after this step if needed.",
-    items: Array.from(merged.values()).map((entry) => ({
-      key: entry.path,
-      label: `${shortenPath(entry.path)} -> ${entry.collection}`,
-      checked: entry.checked,
-    })),
-    confirmLabel: "Save watch paths",
+    message: "Browse drives and folders. Space to select, arrow keys to navigate, S to save.",
+    selected: current.map((e) => e.path),
   });
 
   if (!selected) return;
 
-  const finalEntries = selected
-    .filter((entry) => entry.checked)
-    .map((entry) => merged.get(entry.key))
-    .filter((entry): entry is { path: string; collection: string; checked: boolean } => Boolean(entry))
-    .map(({ path, collection }) => ({ path, collection }));
-
-  const customPath = await promptText({
-    title: "Custom Watch Path",
-    message: "Optional. Leave blank if you do not want to add another directory.",
-    label: "Directory",
-    allowEmpty: true,
+  // Generate collection names from folder paths
+  const finalEntries = selected.map((folderPath) => {
+    // Reuse existing collection name if this path was already watched
+    const existing = current.find((e) => resolve(e.path) === resolve(folderPath));
+    if (existing) return existing;
+    // Auto-generate: use the folder name, lowercased
+    const name = basename(folderPath).toLowerCase().replace(/[^a-z0-9-]/g, "-") || "root";
+    return { path: folderPath, collection: name };
   });
-  if (customPath == null) return;
-  if (customPath.trim()) {
-    const collection = await promptText({
-      title: "Custom Collection",
-      message: "Collection name for the custom watch path.",
-      label: "Collection",
-      initial: "custom",
-    });
-    if (!collection) return;
-    finalEntries.push({ path: customPath.trim(), collection });
-  }
 
   updateEnvValues(root, {
     WATCH_PATHS: finalEntries.map((entry) => `${entry.path}|${entry.collection}`).join(","),
