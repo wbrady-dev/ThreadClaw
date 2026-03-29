@@ -197,6 +197,30 @@ Tracks what tools succeeded and failed. If a tool fails repeatedly with the same
 ### Open Loops
 Tracks things that need follow-up: pending tasks, unanswered questions, things you said you'd do "by Friday." These surface in the context injection with priority ordering.
 
+### Smart Context Injection
+The Context Compiler doesn't just rank capsules by confidence and freshness — it reads the user's current message and boosts capsules that match. The `queryRelevance()` function computes keyword overlap between the user's message and each capsule's text, producing a relevance factor from 0.2 (no overlap) to 1.0 (full overlap). Capsules that match what the user is asking about rise to the top of the budget; unrelated capsules are demoted but not zeroed. This means the AI gets the most relevant evidence for the current question, not just the highest-confidence facts overall.
+
+### Epistemic Labels
+Every claim and decision injected into the AI's context is tagged with an epistemic label based on its confidence and conflict status:
+- **[FIRM]** — confidence >= 0.9 and not contested by any active conflict
+- **[CONTESTED]** — involved in an unresolved conflict (the claim's composite_id appears in at least one active Conflict object)
+- **[PROVISIONAL]** — confidence < 0.5 (uncertain or newly extracted)
+
+This lets the AI distinguish between established facts, disputed claims, and tentative beliefs — and respond accordingly.
+
+### Session Briefing
+When you start a new conversation session, ThreadClaw injects a one-line summary of what changed in memory since your last session. Example:
+
+> `[Session Briefing] Since last session (4h ago): 2 new decisions, 1 claim superseded, 1 conflict.`
+
+This is triggered when the session ID changes (new conversation). It queries `memory_objects` for all rows updated since the last session timestamp, grouped by kind and status, and counts new decisions, superseded decisions, new claims, superseded claims, claims flagged for review (`needs_confirmation`), conflicts, and new invariants. If nothing changed, no briefing is injected.
+
+### Invariant Enforcement
+When you define a strict invariant (e.g., "Never use MongoDB"), ThreadClaw enforces it at write time. Before any new claim, decision, or other memory object is stored, `checkStrictInvariants()` scans the content and structured fields for forbidden terms extracted from strict invariant descriptions using negation patterns. If a violation is detected, the object's status is set to `needs_confirmation` instead of `active`, and an `invariant_violation` event is logged to the evidence audit trail. The object is still stored — but it won't appear in context injection until confirmed.
+
+### Deep Document Extraction
+When `THREADCLAW_DEEP_INGEST_ENABLED=true`, ThreadClaw uses an LLM to extract structured claims from ingested documents — not just entities, but factual statements like "Project X uses PostgreSQL" or "The deadline is March 15." Each claim is capped at confidence 0.4 and trust_score 0.4 so it doesn't override higher-confidence conversational knowledge. Processing is limited to 10 chunks per document, 2 concurrent extractions, with a 200ms delay between chunks. This feature is off by default.
+
 ### Branch Promotion
 Speculative memory for exploratory conversations. Facts stay in a "branch" until validated, then get promoted to the shared scope. Prevents test data or brainstorming from polluting your main knowledge base.
 

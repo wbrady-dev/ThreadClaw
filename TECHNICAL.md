@@ -279,6 +279,167 @@ The `mo-store.ts` module provides unified CRUD for `memory_objects`:
 
 ---
 
+## Smart Context Injection
+
+The context compiler (`context-compiler.ts`) accepts an optional `queryContext` field in `ContextCompilerConfig`. During `assemble()`, the engine extracts the last user message text and passes it as `queryContext` to `compileContextCapsules()`.
+
+### How It Works
+
+1. The user's message is lowercased, stripped of punctuation, and split into words (minimum 3 characters).
+2. For each capsule candidate, `queryRelevance(queryWords, capsuleText)` computes keyword overlap:
+   ```
+   overlap = matchingWords / totalQueryWords    // 0..1
+   relevance = 0.2 + 0.8 * overlap             // 0.2..1.0
+   ```
+3. Each capsule's `score` is multiplied by this relevance factor, and `scorePerToken` is recalculated.
+4. The ROI governor then fills the budget greedily by `scorePerToken`, so query-relevant capsules are prioritized.
+
+The 0.2 floor ensures that unrelated but high-value capsules (e.g., strict invariants, anti-runbooks) are demoted but never completely excluded.
+
+**Config:** No separate config key — active whenever `queryContext` is provided. The engine always passes the last user message.
+
+**Key functions:** `queryRelevance()` in `memory-engine/src/relations/context-compiler.ts`, called from `compileContextCapsules()`. Query text extracted in `engine.ts` `assemble()` method.
+
+---
+
+## Epistemic Labels
+
+Claims and decisions in the context injection are tagged with epistemic labels to signal reliability.
+
+### Label Assignment (`epistemicLabel()`)
+
+| Label | Condition | Meaning |
+|-------|-----------|---------|
+| `[FIRM]` | `confidence >= 0.9` AND composite_id not in contested set | High-confidence, uncontested |
+| `[CONTESTED]` | composite_id appears in an active Conflict object's `objectIdA` or `objectIdB` | Involved in an unresolved contradiction |
+| `[PROVISIONAL]` | `confidence < 0.5` | Low-confidence or newly extracted |
+| *(none)* | Everything else (0.5 <= confidence < 0.9, not contested) | Normal confidence |
+
+### Contested Set Construction
+
+On each compilation pass, the compiler first scans all `kind='conflict'` rows from `memory_objects`. For each conflict, it parses `structured_json` and adds both `objectIdA` and `objectIdB` to a `contestedIds: Set<string>`. This set is then passed to `claimCapsules()` and `decisionCapsules()` to tag contested items.
+
+### Output Format
+
+Labels are appended to capsule text:
+```
+[claim] staging database: PostgreSQL [FIRM]
+[decision] API framework: Express.js [CONTESTED]
+[claim] deployment target: maybe Kubernetes [PROVISIONAL]
+```
+
+**Key function:** `epistemicLabel()` in `memory-engine/src/relations/context-compiler.ts`.
+
+---
+
+## Session Briefing
+
+A one-line summary injected on the first turn of a new conversation session.
+
+### Trigger
+
+In `engine.ts` `assemble()`, the engine tracks `_lastSessionId` and `_lastSessionTimestamp`. When `params.sessionId !== this._lastSessionId`, a new session is detected. If `_lastSessionTimestamp` exists (not the very first session), `buildSessionBriefing()` is called.
+
+### Query
+
+```sql
+SELECT kind, status, COUNT(*) as cnt FROM memory_objects
+WHERE scope_id = ? AND updated_at > ?
+GROUP BY kind, status
+```
+
+### Counted Categories
+
+| Kind | Status | Label in briefing |
+|------|--------|-------------------|
+| decision | active | "N new decisions" |
+| decision | superseded | "N superseded" |
+| conflict | any | "N conflicts" |
+| claim | active | "N new claims" |
+| claim | superseded | "N claims superseded" |
+| claim | needs_confirmation | "N flagged for review" |
+| invariant | active | "N new invariants" |
+
+### Output
+
+```
+[Session Briefing] Since last session (4h ago): 2 new decisions, 1 claim superseded, 1 conflict.
+```
+
+Time formatting: `<1h` shows minutes, `1-23h` shows hours, `24h+` shows days.
+
+Returns `null` (no injection) if total count is 0.
+
+**Key file:** `memory-engine/src/relations/session-briefing.ts` (`buildSessionBriefing()`).
+
+---
+
+## Invariant Enforcement
+
+Strict invariants are enforced at write time during RSMA reconciliation, before memory objects are stored.
+
+### Write-Time Check
+
+In `engine.ts`, inside the write transaction for reconciled actions:
+
+1. For every `insert` action (except `kind='invariant'` and `kind='conflict'`), `checkStrictInvariants()` is called.
+2. It receives the graph DB, scope ID, the object's `content` string, and its `structured` JSON.
+3. If violations are found:
+   - The object's `status` is changed from `active` to `needs_confirmation`
+   - An `invariant_violation` event is logged to `evidence_log` with the violation details and truncated content
+
+### How `checkStrictInvariants()` Works
+
+1. **Cache refresh** (30-second TTL): loads all active invariants with `enforcement_mode = 'strict'` from `memory_objects`.
+2. **Forbidden term extraction**: parses each invariant's description using `NEGATION_RE` — a regex matching patterns like "never use X", "do not use X", "must not X", "avoid X", "prohibited X". Also generates stem variants (e.g., "MongoDB" also checks "mongo").
+3. **Content normalization**: concatenates `content`, `objectText`, `subject`, `decisionText`, and `object` fields. Applies NFKD normalization and strips zero-width/control characters.
+4. **Matching**: checks if any forbidden term appears in the normalized text. One match per invariant is sufficient.
+
+### Config
+
+No separate config key — active whenever relations are enabled and strict invariants exist in the database.
+
+**Key file:** `memory-engine/src/relations/invariant-check.ts` (`checkStrictInvariants()`, `extractForbiddenTerms()`).
+
+---
+
+## Deep Document Extraction
+
+Optional LLM-powered claim extraction from ingested documents. Extracts structured factual claims (subject/predicate/object) — not just entities — from document text.
+
+### Trigger
+
+Enabled via `THREADCLAW_DEEP_INGEST_ENABLED=true` (default: `false`). When enabled, `extractDeepFromDocument()` runs asynchronously after standard entity extraction during document ingestion. Non-blocking: errors are caught and logged.
+
+### Pipeline
+
+1. **Semaphore**: maximum `MAX_CONCURRENT_DEEP = 2` concurrent extractions. Additional calls wait in a polling loop.
+2. **Chunk selection**: first `MAX_CHUNKS_PER_DOC = 10` chunks, skipping chunks with fewer than 50 characters.
+3. **LLM call**: sends each chunk (truncated to 4000 chars) to the chat completions endpoint with:
+   - System prompt: `DEEP_EXTRACT_SYSTEM` — instructs the LLM to extract factual claims as a JSON array
+   - Temperature: 0.1
+   - Max tokens: 1000
+   - Model: `DEEP_EXTRACT_MODEL` env var (falls back to "default")
+   - 60-second timeout per chunk
+4. **Parse**: extracts the first JSON array from the response. Each claim must have `subject`, `predicate`, and `objectText`.
+5. **Store**: claims are stored via `storeClaimExtractionResults()` with:
+   - Confidence capped at 0.4 (document-extracted claims don't override conversational knowledge)
+   - Trust score: 0.4
+   - Source type: `document_extraction`
+   - Max 20 claims per chunk
+6. **Throttle**: 200ms delay between chunks.
+
+### Config
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `THREADCLAW_DEEP_INGEST_ENABLED` | `false` | Enable deep document extraction |
+| `DEEP_EXTRACT_MODEL` | `"default"` | LLM model for extraction |
+
+**Key file:** `src/relations/ingest-hook.ts` (`extractDeepFromDocument()`). Called from `src/ingest/pipeline.ts`.
+
+---
+
 ## Storage Layer
 
 SQLite with sqlite-vec for vectors and FTS5 for full-text search. Two databases in `~/.threadclaw/data/`:
@@ -540,6 +701,8 @@ threadclaw watch                     Start file watcher
 | `OBSIDIAN_ENABLED` | false | Enable Obsidian adapter |
 | `APPLE_NOTES_ENABLED` | false | Enable Apple Notes (macOS) |
 | `THREADCLAW_MEMORY_RELATIONS_EXTRACTION_MODE` | smart | Extraction mode: `smart` (LLM) or `fast` (regex-only, <5ms) |
+| `THREADCLAW_DEEP_INGEST_ENABLED` | false | Enable LLM-powered claim extraction from ingested documents |
+| `DEEP_EXTRACT_MODEL` | default | LLM model ID for deep document extraction |
 
 ---
 
