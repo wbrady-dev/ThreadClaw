@@ -583,7 +583,7 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
     const { ensureThreadClawHome, getAppVersion, readManifest, writeManifest, THREADCLAW_DATA_DIR } = await import("../../version.js");
     ensureThreadClawHome();
 
-    // RAG DB creation + migration (always run — fresh installs need the DB created)
+    // RAG DB + Evidence OS graph initialization (consolidated into one DB)
     const ragDbPath = resolve(THREADCLAW_DATA_DIR, "threadclaw.db");
     try {
       mkdirSync(dirname(ragDbPath), { recursive: true });
@@ -593,31 +593,26 @@ export async function performInstallPlan(plan: InstallPlan): Promise<void> {
       const ragDb = getDb(ragDbPath);
       runMigrations(ragDb);
       ensureCollection(ragDb, "default");
+
+      // Graph/evidence migrations run against the same consolidated DB
+      if (evidenceConfig.relationsEnabled) {
+        try {
+          for (const ext of [".js", ".ts"]) {
+            try {
+              const schemaPath = resolve(root, "memory-engine", "src", "relations", "schema" + ext);
+              const { runGraphMigrations } = await import(schemaPath);
+              runGraphMigrations(ragDb, ragDbPath);
+              break;
+            } catch { /* try next extension */ }
+          }
+        } catch {
+          // Graph migrations will run on first server start — non-fatal during install
+        }
+      }
+
       closeDb();
     } catch (ragErr) {
-      console.error(t.warn(`  RAG database init failed (non-fatal): ${String(ragErr).slice(0, 200)}`));
-    }
-
-    // Evidence OS graph database initialization
-    if (evidenceConfig.relationsEnabled) {
-      try {
-        const graphDbPath = resolve(THREADCLAW_DATA_DIR, "threadclaw.db");
-        mkdirSync(dirname(graphDbPath), { recursive: true });
-        const { getGraphDb, closeGraphDb } = await import("../../storage/graph-sqlite.js");
-        const graphDb = getGraphDb(graphDbPath);
-        try {
-          // Dynamic path prevents TypeScript from tracing into memory-engine (outside rootDir)
-          const schemaPath = resolve(root, "memory-engine", "src", "relations", "schema.js");
-          const { runGraphMigrations } = await import(schemaPath);
-          runGraphMigrations(graphDb, graphDbPath);
-        } catch {
-          // Graph migrations run via memory-engine which may not be importable here
-          // The graph DB file is at least created, migrations will run on first start
-        }
-        closeGraphDb();
-      } catch (graphErr) {
-        console.error(t.warn(`  Evidence OS database init failed (non-fatal): ${String(graphErr).slice(0, 200)}`));
-      }
+      console.error(t.warn(`  Database init failed (non-fatal): ${String(ragErr).slice(0, 200)}`));
     }
 
     // Write initial manifest so upgrade detection works on next launch

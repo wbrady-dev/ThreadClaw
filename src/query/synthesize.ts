@@ -56,7 +56,7 @@ export async function synthesizeAnswer(input: SynthesisInput): Promise<Synthesis
   });
 
   if (!response.ok) {
-    throw new Error(`Synthesis LLM returned ${response.status}: ${await response.text().catch(() => "")}`);
+    throw new Error(`Synthesis LLM returned ${response.status}`);
   }
 
   let data: any;

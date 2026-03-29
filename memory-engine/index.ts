@@ -53,6 +53,7 @@ import {
   createCcMemoryTool,
   createCcStateTool,
   createCcConflictsTool,
+  createCcTimelineTool,
   // createCcSynthesizeTool is available but not registered — cc_memory subsumes its functionality
 } from "./src/relations/tools.js";
 import type { LcmDependencies } from "./src/types.js";
@@ -1498,6 +1499,10 @@ const lcmPlugin = {
       api.registerTool(
         () => createCcConflictsTool({ deps, graphDb }),
         { name: "cc_conflicts" },
+      );
+      api.registerTool(
+        () => createCcTimelineTool(),
+        { name: "cc_timeline" },
       );
     }
 

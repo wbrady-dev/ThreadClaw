@@ -22,7 +22,8 @@ export type StoreKey =
   | "collections"
   | "graphStats"
   | "entities"
-  | "terms";
+  | "terms"
+  | "truthHealth";
 
 const values = new Map<StoreKey, unknown>();
 const listeners = new Map<StoreKey, Set<() => void>>();
