@@ -1,3 +1,5 @@
+import { existsSync } from "fs";
+import { resolve } from "path";
 import { detectObsidianVaults } from "../../sources/adapters/obsidian.js";
 import { hasGDriveCredentials, listDriveFolders, removeGDriveCredentials, runGDriveOAuth } from "../../sources/adapters/gdrive.js";
 import { hasOneDriveCredentials, listOneDriveFolders, removeOneDriveCredentials, runOneDriveOAuth } from "../../sources/adapters/onedrive.js";
@@ -23,12 +25,36 @@ async function configureObsidian(): Promise<void> {
   const env = readEnvMap(root);
   const currentPath = env.OBSIDIAN_VAULT_PATH ?? "";
   const currentEnabled = env.OBSIDIAN_ENABLED === "true";
+  const templateDir = env.OBSIDIAN_TEMPLATE_DIR ?? "templates";
   const detected = detectObsidianVaults();
+
+  // Quick vault stats if configured
+  let vaultInfo = "";
+  if (currentPath && existsSync(currentPath)) {
+    try {
+      const { readdirSync } = await import("fs");
+      let mdCount = 0;
+      let canvasCount = 0;
+      const walk = (dir: string) => {
+        try {
+          for (const e of readdirSync(dir, { withFileTypes: true })) {
+            if (e.name.startsWith(".") || e.name === "node_modules") continue;
+            const full = resolve(dir, e.name);
+            if (e.isDirectory()) walk(full);
+            else if (e.name.endsWith(".md")) mdCount++;
+            else if (e.name.endsWith(".canvas")) canvasCount++;
+          }
+        } catch {}
+      };
+      walk(currentPath);
+      vaultInfo = ` (${mdCount} notes${canvasCount > 0 ? `, ${canvasCount} canvases` : ""})`;
+    } catch {}
+  }
 
   const action = await promptMenu({
     title: "Obsidian Vault",
     message: currentPath
-      ? `Current vault: ${currentPath} | ${currentEnabled ? "enabled" : "disabled"}`
+      ? `Current vault: ${currentPath}${vaultInfo} | ${currentEnabled ? "enabled" : "disabled"}`
       : "No vault configured yet.",
     items: [
       ...detected.map((vault) => ({
@@ -37,6 +63,7 @@ async function configureObsidian(): Promise<void> {
       })),
       ...(currentPath && currentEnabled ? [{ label: "Disable ingestion", value: "disable" }] : []),
       ...(currentPath && !currentEnabled ? [{ label: "Enable ingestion", value: "enable" }] : []),
+      ...(currentPath ? [{ label: `Template folder: ${templateDir}`, value: "template", description: "Folder to exclude from ingestion" }] : []),
       { label: "Back", value: "__back__", color: t.dim },
     ],
   });
@@ -55,6 +82,19 @@ async function configureObsidian(): Promise<void> {
     appendWatchPath(root, currentPath, "obsidian");
     await triggerSourcesReload();
     await showNotice("Obsidian", "Obsidian ingestion enabled.");
+    return;
+  }
+
+  if (action === "template") {
+    const newDir = await promptText({
+      title: "Template Folder",
+      message: "Name of the folder to exclude from ingestion (e.g., templates, _templates).",
+      label: "Folder name",
+      initial: templateDir,
+    });
+    if (!newDir) return;
+    updateEnvValues(root, { OBSIDIAN_TEMPLATE_DIR: newDir.trim() });
+    await showNotice("Obsidian", `Template folder set to "${newDir.trim()}". Restart services to apply.`);
     return;
   }
 

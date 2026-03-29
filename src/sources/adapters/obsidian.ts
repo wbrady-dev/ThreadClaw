@@ -10,6 +10,7 @@ import { resolve, join } from "path";
 import { homedir } from "os";
 import { ThreadClawWatcher } from "../../watcher/index.js";
 import { config } from "../../config.js";
+import { initVaultIndex } from "./obsidian-index.js";
 import type { SourceAdapter, SourceConfig, SourceStatus } from "../types.js";
 
 /** Common vault locations by platform */
@@ -120,17 +121,32 @@ export class ObsidianAdapter implements SourceAdapter {
 
     // NOTE: readdirSync in detectObsidianVaults doesn't follow symlinks.
     // Symlinked vaults won't be auto-detected but can be configured manually.
+    const templateDir = process.env.OBSIDIAN_TEMPLATE_DIR ?? "templates";
     const watchConfigs = cfg.collections
       .filter((c) => existsSync(resolve(c.path)))
       .map((c) => ({
         paths: [resolve(c.path)],
         collection: c.collection,
         debounceMs: config.watch.debounceMs,
+        excludePatterns: [
+          "**/.obsidian/**",
+          "**/.trash/**",
+          `**/${templateDir}/**`,
+          `**/_${templateDir}/**`,
+        ],
       }));
 
     if (watchConfigs.length === 0) {
       this.status = { state: "error", docCount: 0, error: "Vault path not found" };
       return;
+    }
+
+    // Build vault index for wikilink resolution
+    const vaultIndex = initVaultIndex();
+    for (const wc of watchConfigs) {
+      for (const vaultPath of wc.paths) {
+        try { vaultIndex.build(vaultPath); } catch { /* non-fatal */ }
+      }
     }
 
     this.watcher = new ThreadClawWatcher(watchConfigs);

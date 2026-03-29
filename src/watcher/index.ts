@@ -24,6 +24,8 @@ export interface WatchConfig {
   ingestExisting?: boolean;
   /** Optional extension filter (e.g., [".md", ".pdf"]). If set, only these are ingested. */
   fileTypes?: string[];
+  /** Additional glob patterns to exclude (merged with global excludes) */
+  excludePatterns?: string[];
 }
 
 const DEFAULT_DEBOUNCE = 2000;
@@ -112,6 +114,7 @@ export class ThreadClawWatcher {
           ...(config.watch.excludePatterns
             ? config.watch.excludePatterns.split(",").map((p) => p.trim()).filter(Boolean)
             : []),
+          ...(wc.excludePatterns ?? []),
         ],
       });
 

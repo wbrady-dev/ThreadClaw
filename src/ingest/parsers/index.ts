@@ -11,6 +11,7 @@ import { parsePptx } from "./pptx.js";
 import { parseImage } from "./image.js";
 import { parseEpub } from "./epub.js";
 import { parseAudio } from "./audio.js";
+import { parseCanvas } from "./canvas.js";
 import { ParseError } from "../../utils/errors.js";
 import { extname } from "path";
 import { readFileSync, openSync, readSync, closeSync } from "fs";
@@ -31,6 +32,14 @@ export interface DocMetadata {
   source?: string;
   fileType: string;
   tags?: string[];
+  /** Obsidian: alternative names for this note */
+  aliases?: string[];
+  /** Obsidian: wikilinks found in the document */
+  links?: Array<{ target: string; display?: string; resolvedPath?: string }>;
+  /** Obsidian: block reference IDs (^block-id) */
+  blockRefs?: string[];
+  /** Full YAML frontmatter (all properties, including custom) */
+  frontmatter?: Record<string, unknown>;
 }
 
 export interface ParsedDocument {
@@ -85,6 +94,9 @@ const PARSER_MAP: Record<string, Parser> = {
 
   // ePub
   ".epub": parseEpub,
+
+  // Obsidian Canvas
+  ".canvas": parseCanvas,
 
   // Audio (opt-in, requires Whisper)
   ".mp3": parseAudio,

@@ -19,7 +19,7 @@ import { embedBatch } from "../embeddings/batch.js";
 import { findIntraBatchDuplicates, findExistingDuplicates } from "./dedup.js";
 import { invalidateCollection } from "../query/cache.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
-import { extractEntitiesFromDocument, deleteSourceData } from "../relations/ingest-hook.js";
+import { extractEntitiesFromDocument, deleteSourceData, storeDocumentReferences } from "../relations/ingest-hook.js";
 
 export interface IngestOptions {
   collection?: string;
@@ -438,6 +438,11 @@ async function ingestFileInner(
         position: chunks[i].position,
       }));
       await extractEntitiesFromDocument(graphDb, documentId, relationChunkTexts);
+
+      // Store wikilink references as graph provenance (Obsidian integration)
+      if (metadata.links?.some((l) => l.resolvedPath)) {
+        storeDocumentReferences(graphDb, documentId, metadata.links, db);
+      }
     } catch (graphErr) {
       logger.error(
         { documentId, error: graphErr instanceof Error ? graphErr.message : String(graphErr) },

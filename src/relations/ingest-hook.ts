@@ -350,3 +350,48 @@ export async function extractEntitiesFromDocument(
     );
   }
 }
+
+/**
+ * Store wikilink references as provenance_links in the graph DB.
+ * Links a source document to target documents via the "references" predicate.
+ * Non-fatal: errors are logged and swallowed.
+ */
+export function storeDocumentReferences(
+  graphDb: Database.Database,
+  sourceDocId: string,
+  resolvedLinks: Array<{ target: string; resolvedPath?: string }>,
+  mainDb: Database.Database,
+): void {
+  try {
+    const now = new Date().toISOString();
+    const insertLink = graphDb.prepare(`
+      INSERT OR IGNORE INTO provenance_links
+        (subject_id, predicate, object_id, confidence, created_at)
+      VALUES (?, 'references', ?, 1.0, ?)
+    `);
+
+    const findDoc = mainDb.prepare(
+      "SELECT id FROM documents WHERE source_path = ? LIMIT 1",
+    );
+
+    const tx = graphDb.transaction(() => {
+      // Remove old references from this source
+      graphDb.prepare(
+        "DELETE FROM provenance_links WHERE subject_id = ? AND predicate = 'references'",
+      ).run(`document:${sourceDocId}`);
+
+      for (const link of resolvedLinks) {
+        if (!link.resolvedPath) continue;
+        const targetRow = findDoc.get(link.resolvedPath) as { id: string } | undefined;
+        if (!targetRow) continue; // Target not ingested yet — skip
+        insertLink.run(`document:${sourceDocId}`, `document:${targetRow.id}`, now);
+      }
+    });
+    tx();
+  } catch (err) {
+    logger.debug(
+      { err: err instanceof Error ? err.message : String(err), sourceDocId },
+      "Relations: wikilink provenance failed (non-fatal)",
+    );
+  }
+}

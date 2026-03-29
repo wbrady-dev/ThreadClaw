@@ -6,6 +6,23 @@ export interface FullMetadata extends DocMetadata {
   modifiedAt?: string;
 }
 
+/** Try to resolve wikilinks via the Obsidian vault index if available. */
+async function resolveWikilinks(meta: FullMetadata): Promise<void> {
+  if (!meta.links?.length) return;
+  try {
+    const { getVaultIndex } = await import("../sources/adapters/obsidian-index.js");
+    const index = getVaultIndex();
+    if (!index) return;
+    for (const link of meta.links) {
+      if (!link.resolvedPath) {
+        link.resolvedPath = index.resolve(link.target) ?? undefined;
+      }
+    }
+  } catch {
+    // Vault index not available — skip resolution
+  }
+}
+
 /**
  * Enrich parsed metadata with filesystem stats and user-provided tags.
  *
@@ -42,6 +59,9 @@ export async function enrichMetadata(
     // Deduplicate tags with a Set
     meta.tags = [...new Set([...(meta.tags ?? []), ...userTags])];
   }
+
+  // Resolve Obsidian wikilinks to file paths if vault index is available
+  await resolveWikilinks(meta);
 
   return meta;
 }
