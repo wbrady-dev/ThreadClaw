@@ -235,8 +235,20 @@ export const config = {
     graphDbPath: env(
       "THREADCLAW_RELATIONS_GRAPH_DB_PATH",
       env("THREADCLAW_MEMORY_RELATIONS_GRAPH_DB_PATH",
-        resolve(homedir(), ".threadclaw", "data", "graph.db")),
+        resolve(env("THREADCLAW_DATA_DIR", resolve(homedir(), ".threadclaw", "data")), "threadclaw.db")),
     ),
+  },
+
+  synthesis: {
+    model: env("SYNTHESIS_MODEL", ""),
+    url: env("SYNTHESIS_LLM_URL", ""),
+    maxTokens: envInt("SYNTHESIS_MAX_TOKENS", 500),
+    timeoutMs: envInt("SYNTHESIS_TIMEOUT_MS", 30000),
+  },
+
+  web: {
+    urls: env("WEB_URLS", ""),
+    pollInterval: envInt("WEB_POLL_INTERVAL", 3600),
   },
 
   brief: {

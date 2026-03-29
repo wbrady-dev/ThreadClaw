@@ -45,6 +45,7 @@ export function registerQueryRoutes(server: FastifyInstance) {
       expand,
       brief,
       titles_only,
+      synthesize,
     } = (req.body ?? {}) as {
       query: string;
       collection?: string;
@@ -55,6 +56,7 @@ export function registerQueryRoutes(server: FastifyInstance) {
       expand?: boolean;
       brief?: boolean;
       titles_only?: boolean;
+      synthesize?: boolean;
     };
 
     if (!queryText || typeof queryText !== "string" || queryText.length > MAX_QUERY_LENGTH) {
@@ -84,6 +86,7 @@ export function registerQueryRoutes(server: FastifyInstance) {
         expand,
         brief: effectiveBrief,
         titlesOnly: titles_only,
+        synthesize,
       });
       return reply.send(result);
     } catch (err) {

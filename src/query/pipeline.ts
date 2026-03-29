@@ -35,6 +35,8 @@ export interface QueryOptions {
   brief?: boolean;
   /** Return only document titles/sources, no content */
   titlesOnly?: boolean;
+  /** Generate a synthesized answer from top chunks using an LLM */
+  synthesize?: boolean;
 }
 
 export type { SourceInfo };
@@ -44,6 +46,10 @@ export interface QueryResult {
   /** Context with matched query terms highlighted in markdown bold */
   highlighted?: string;
   sources: SourceInfo[];
+  /** LLM-synthesized answer (only when synthesize=true) */
+  answer?: string;
+  /** Source files cited in the synthesized answer */
+  answerCitations?: string[];
   queryInfo: {
     strategy: string;
     subQueries?: string[];
@@ -564,6 +570,26 @@ export async function query(
       },
     },
   };
+
+  // Optional answer synthesis — produces a direct answer from top chunks
+  if (options.synthesize && !options.brief && topChunks.length > 0) {
+    try {
+      const { synthesizeAnswer } = await import("./synthesize.js");
+      const synthesis = await synthesizeAnswer({
+        query: queryText,
+        chunks: topChunks.map(c => ({
+          text: c.text,
+          sourcePath: c.sourcePath ?? c.contextPrefix,
+          score: c.score,
+        })),
+      });
+      result.answer = synthesis.answer;
+      result.answerCitations = synthesis.citations;
+      strategy += "+synthesis";
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, "Answer synthesis failed — returning context only");
+    }
+  }
 
   setCached(ck, result);
 
