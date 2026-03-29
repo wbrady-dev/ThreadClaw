@@ -488,6 +488,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_log_scope ON evidence_log(scope_id, scop
 CREATE INDEX IF NOT EXISTS idx_evidence_log_object ON evidence_log(object_type, object_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_evidence_log_actor ON evidence_log(actor, created_at);
 CREATE INDEX IF NOT EXISTS idx_evidence_log_run ON evidence_log(run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_evidence_log_event ON evidence_log(event_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS scope_sequences (
     scope_id INTEGER PRIMARY KEY,
@@ -692,7 +693,7 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
   if (anyApplied.cnt === 0) {
     db.exec(FRESH_INSTALL_SQL);
     // Mark all migration versions as applied so the legacy chain never runs
-    for (let v = 1; v <= 28; v++) {
+    for (let v = 1; v <= 29; v++) {
       markMigrationApplied(db, v);
     }
     // File permissions
@@ -1761,6 +1762,16 @@ export function runGraphMigrations(db: GraphDb, dbPath?: string): void {
       markMigrationApplied(db, 28);
     } catch (migErr) {
       console.warn("[schema] migration v28 failed:", migErr instanceof Error ? migErr.message : String(migErr));
+    }
+  }
+
+  // Migration v29: Index on evidence_log for session briefing queries
+  if (!isMigrationApplied(db, 29)) {
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_evidence_log_event ON evidence_log(event_type, created_at DESC)`);
+      markMigrationApplied(db, 29);
+    } catch (migErr) {
+      console.warn("[rsma] migration v29 (evidence_log index) failed:", migErr);
     }
   }
 

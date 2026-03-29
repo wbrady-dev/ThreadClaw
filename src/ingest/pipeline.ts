@@ -18,7 +18,7 @@ import { embedBatch } from "../embeddings/batch.js";
 import { findIntraBatchDuplicates, findExistingDuplicates } from "./dedup.js";
 import { invalidateCollection } from "../query/cache.js";
 import { getGraphDb } from "../storage/graph-sqlite.js";
-import { extractEntitiesFromDocument, deleteSourceData, storeDocumentReferences } from "../relations/ingest-hook.js";
+import { extractEntitiesFromDocument, extractDeepFromDocument, deleteSourceData, storeDocumentReferences } from "../relations/ingest-hook.js";
 
 export interface IngestOptions {
   collection?: string;
@@ -437,6 +437,12 @@ async function ingestFileInner(
         position: chunks[i].position,
       }));
       await extractEntitiesFromDocument(graphDb, documentId, relationChunkTexts);
+
+      // Deep extraction: claims from document chunks (async, non-blocking)
+      if (config.relations?.deepIngestEnabled) {
+        extractDeepFromDocument(graphDb, documentId, relationChunkTexts)
+          .catch(err => logger.warn({ err: err instanceof Error ? err.message : String(err), documentId }, "Deep doc extraction failed (non-fatal)"));
+      }
 
       // Store wikilink references as graph provenance (Obsidian integration)
       if (metadata.links?.some((l) => l.resolvedPath)) {

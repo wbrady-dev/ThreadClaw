@@ -49,6 +49,7 @@ import { getGraphConnection } from "./relations/graph-connection.js";
 import { runGraphMigrations } from "./relations/schema.js";
 import { buildAwarenessNote } from "./relations/awareness.js";
 import { compileContextCapsules } from "./relations/context-compiler.js";
+import { checkStrictInvariants } from "./relations/invariant-check.js";
 
 type AgentMessage = Parameters<ContextEngine["ingest"]>[0]["message"];
 type AssembleResultWithSystemPrompt = AssembleResult & { systemPromptAddition?: string };
@@ -678,6 +679,8 @@ export class LcmContextEngine implements ContextEngine {
   private migrated = false;
   private readonly fts5Available: boolean;
   private sessionOperationQueues = new Map<string, Promise<void>>();
+  private _lastSessionId: string | null = null;
+  private _lastSessionTimestamp: string | null = null;
 
   /** Extract a stable agent_id from a session ID or session key. */
   private resolveAgentIdFromSessionId(sessionId: string): string {
@@ -1817,6 +1820,25 @@ export class LcmContextEngine implements ContextEngine {
           withWriteTransaction(graphDb, () => {
           for (const action of reconciled.actions) {
             if (action.type === "insert") {
+              // Invariant enforcement: check strict invariants before write
+              if (action.object.kind !== 'invariant' && action.object.kind !== 'conflict') {
+                const violations = checkStrictInvariants(
+                  graphDb,
+                  action.object.scope_id ?? 1,
+                  action.object.content,
+                  action.object.structured as Record<string, unknown> | null,
+                );
+                if (violations.length > 0) {
+                  action.object.status = 'needs_confirmation';
+                  logEvidence(graphDb, {
+                    scopeId: action.object.scope_id ?? 1,
+                    objectType: action.object.kind,
+                    objectId: 0,
+                    eventType: 'invariant_violation',
+                    payload: { violations, content: action.object.content.slice(0, 200) },
+                  });
+                }
+              }
               const insertResult = upsertMemoryObject(graphDb, action.object);
               projectProvenance(graphDb, action.object);
               logEvidence(graphDb, {
@@ -2394,6 +2416,30 @@ export class LcmContextEngine implements ContextEngine {
           : {}),
       };
 
+      // Session briefing: detect new session and prepend changes since last session
+      if (this.graphDb && this.config.relationsEnabled) {
+        try {
+          if (params.sessionId !== this._lastSessionId) {
+            if (this._lastSessionTimestamp) {
+              const { buildSessionBriefing } = await import("./relations/session-briefing.js");
+              const briefing = buildSessionBriefing(
+                this.graphDb,
+                DEFAULT_SCOPE_ID,
+                this._lastSessionTimestamp,
+              );
+              if (briefing) {
+                result.systemPromptAddition =
+                  briefing + (result.systemPromptAddition ? "\n\n" + result.systemPromptAddition : "");
+              }
+            }
+            this._lastSessionId = params.sessionId;
+            this._lastSessionTimestamp = new Date().toISOString();
+          }
+        } catch {
+          // Non-fatal: session briefing failure must not block assembly
+        }
+      }
+
       // Awareness: inject entity graph notes into system prompt
       if (this.graphDb && this.config.relationsAwarenessEnabled) {
         try {
@@ -2422,9 +2468,20 @@ export class LcmContextEngine implements ContextEngine {
       // Evidence context compiler: inject compiled capsules (claims, decisions, loops, etc.)
       if (this.graphDb && this.config.relationsEnabled) {
         try {
+          // Extract last user message text for query-aware relevance boosting
+          let lastUserText: string | undefined;
+          for (let i = params.messages.length - 1; i >= 0; i--) {
+            const msg = params.messages[i];
+            if (msg.role === "user" && "content" in msg) {
+              lastUserText = extractMessageContent(msg.content);
+              break;
+            }
+          }
+
           const compiled = compileContextCapsules(this.graphDb, {
             tier: this.config.relationsContextTier,
             scopeId: DEFAULT_SCOPE_ID, // global scope
+            queryContext: lastUserText,
             autoArchiveIntervalMs: this.config.relationsAutoArchiveIntervalMs,
             autoArchiveEventThreshold: this.config.relationsAutoArchiveEventThreshold,
             decayDays: this.config.relationsDecayIntervalDays,

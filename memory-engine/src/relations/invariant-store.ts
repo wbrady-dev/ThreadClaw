@@ -113,3 +113,7 @@ export function getActiveInvariants(
     LIMIT ?
   `).all(scopeId, limit) as Record<string, unknown>[]).map(moRowToInvariantRow);
 }
+
+export function getActiveStrictInvariants(db: GraphDb, scopeId: number, limit = 50): InvariantRow[] {
+  return getActiveInvariants(db, scopeId, limit).filter(inv => inv.enforcement_mode === 'strict');
+}

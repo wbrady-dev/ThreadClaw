@@ -115,9 +115,24 @@ const HISTORICAL_PREDICATES = new Set([
 // Legitimate preferences are valuable memory. The extraction prompt handles
 // filtering noise vs intentional preferences at extraction time.
 
-function claimCapsules(claims: ClaimRow[]): CapsuleCandidate[] {
+/**
+ * Compute epistemic label for a capsule based on confidence and contested status.
+ * - FIRM: confidence >= 0.9 AND not contested
+ * - CONTESTED: composite_id is in the contested set
+ * - PROVISIONAL: confidence < 0.5
+ * - empty string: everything else
+ */
+function epistemicLabel(confidence: number, compositeId: string | undefined, contestedIds: Set<string>): string {
+  if (compositeId && contestedIds.has(compositeId)) return " [CONTESTED]";
+  if (confidence >= 0.9) return " [FIRM]";
+  if (confidence < 0.5) return " [PROVISIONAL]";
+  return "";
+}
+
+function claimCapsules(claims: ClaimRow[], compositeIds: string[], contestedIds: Set<string>): CapsuleCandidate[] {
   const results: CapsuleCandidate[] = [];
-  for (const c of claims) {
+  for (let i = 0; i < claims.length; i++) {
+    const c = claims[i];
     const predicateLower = c.predicate.toLowerCase().trim();
 
     // Skip historical/transition claims entirely — they're not current state
@@ -125,7 +140,8 @@ function claimCapsules(claims: ClaimRow[]): CapsuleCandidate[] {
 
     const daysSince = daysSinceIso(c.last_seen_at);
     const conf = effectiveConfidence(c.confidence, c.mention_count ?? 1, daysSince);
-    const text = `[claim] ${c.subject} ${c.predicate}: ${c.object_text ?? "(no value)"} (conf=${c.confidence.toFixed(2)})`;
+    const label = epistemicLabel(c.confidence, compositeIds[i], contestedIds);
+    const text = `[claim] ${c.subject} ${c.predicate}: ${c.object_text ?? "(no value)"}${label}`;
     const tokens = estimateTokens(text);
 
     const subjectLower = c.subject.toLowerCase().trim();
@@ -146,9 +162,10 @@ function claimCapsules(claims: ClaimRow[]): CapsuleCandidate[] {
   return results;
 }
 
-function decisionCapsules(decisions: DecisionRow[]): CapsuleCandidate[] {
-  return decisions.map((d) => {
-    const text = `[decision] ${d.topic}: ${d.decision_text}`;
+function decisionCapsules(decisions: DecisionRow[], compositeIds: string[], contestedIds: Set<string>): CapsuleCandidate[] {
+  return decisions.map((d, i) => {
+    const label = epistemicLabel(0.9, compositeIds[i], contestedIds);
+    const text = `[decision] ${d.topic}: ${d.decision_text}${label}`;
     const tokens = estimateTokens(text);
     // Decisions have high usefulness — they represent active choices
     const score = 0.9;
@@ -399,6 +416,16 @@ export function compileContextCapsules(
     const maxRelations = 10;
     const maxConflicts = 5;
 
+    // Build contested composite_id set from conflict rows (first pass)
+    const contestedIds = new Set<string>();
+    for (const row of allRows) {
+      if (String(row.kind) === "conflict") {
+        const s = safeParseStructured(row.structured_json);
+        if (s.objectIdA) contestedIds.add(String(s.objectIdA));
+        if (s.objectIdB) contestedIds.add(String(s.objectIdB));
+      }
+    }
+
     // Counters
     let claimCount = 0, decisionCount = 0, loopCount = 0;
     let invariantCount = 0, runbookCount = 0, antiRunbookCount = 0, relationCount = 0, conflictCount = 0;
@@ -407,10 +434,10 @@ export function compileContextCapsules(
       const kind = String(row.kind);
       switch (kind) {
         case "claim":
-          if (claimCount++ < maxClaims) candidates.push(...claimCapsules([moRowToClaimRow(row)]));
+          if (claimCount++ < maxClaims) candidates.push(...claimCapsules([moRowToClaimRow(row)], [String(row.composite_id ?? "")], contestedIds));
           break;
         case "decision":
-          if (decisionCount++ < maxDecisions) candidates.push(...decisionCapsules([moRowToDecisionRow(row)]));
+          if (decisionCount++ < maxDecisions) candidates.push(...decisionCapsules([moRowToDecisionRow(row)], [String(row.composite_id ?? "")], contestedIds));
           break;
         case "loop":
           if (loopCount++ < maxLoops) candidates.push(...loopCapsules([moRowToLoopRow(row)]));
@@ -454,8 +481,8 @@ export function compileContextCapsules(
   // Sort by score first so we keep the best version
   candidates.sort((a, b) => b.score - a.score);
   for (const c of candidates) {
-    // Normalize text for dedup: strip confidence suffix since same claim at different conf is a duplicate
-    const dedupKey = c.text.replace(/\(conf=[\d.]+\)/, "").trim();
+    // Normalize text for dedup: strip epistemic labels since same claim at different label is a duplicate
+    const dedupKey = c.text.replace(/\s*\[(FIRM|CONTESTED|PROVISIONAL)\]/, "").trim();
     if (!seenTexts.has(dedupKey)) {
       seenTexts.add(dedupKey);
       deduped.push(c);
@@ -464,7 +491,7 @@ export function compileContextCapsules(
 
   // Query-aware relevance boosting: multiply scores by keyword overlap
   const queryWords = config.queryContext
-    ? config.queryContext.toLowerCase().split(/\s+/).filter((w) => w.length > 2)
+    ? config.queryContext.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter((w) => w.length > 2)
     : [];
   if (queryWords.length > 0) {
     for (const c of deduped) {

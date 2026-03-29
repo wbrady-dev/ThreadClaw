@@ -75,7 +75,8 @@ export {
 export { openLoop, closeLoop, updateLoop, getOpenLoops } from "./loop-store.js";
 export { recordStateDelta, getRecentDeltas } from "./delta-store.js";
 export { upsertCapability, getCapabilities } from "./capability-store.js";
-export { upsertInvariant, getActiveInvariants } from "./invariant-store.js";
+export { upsertInvariant, getActiveInvariants, getActiveStrictInvariants } from "./invariant-store.js";
+export { checkStrictInvariants, resetInvariantCacheForTests, type InvariantViolation } from "./invariant-check.js";
 export { extractClaimsFast, extractClaimsFromToolResult, extractClaimsFromUserExplicit } from "./claim-extract.js";
 
 // Horizon 2: Types

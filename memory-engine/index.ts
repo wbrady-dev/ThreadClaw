@@ -56,7 +56,7 @@ import {
   createCcTimelineTool,
   // createCcSynthesizeTool is available but not registered — cc_memory subsumes its functionality
 } from "./src/relations/tools.js";
-import type { LcmDependencies } from "./src/types.js";
+import type { LcmDependencies, CompletionContentBlock } from "./src/types.js";
 
 /** Parse `agent:<agentId>:<suffix...>` session keys. */
 function parseAgentSessionKey(sessionKey: string): { agentId: string; suffix: string } | null {
@@ -1232,7 +1232,7 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
 
         return {
           ...result,
-          content: Array.isArray(result.content) ? result.content : [],
+          content: Array.isArray(result.content) ? result.content as CompletionContentBlock[] : [],
           request_provider: providerId,
           request_model: modelId,
           request_api: resolvedModel.api,
