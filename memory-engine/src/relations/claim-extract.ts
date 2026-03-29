@@ -501,9 +501,12 @@ export function extractRelationsFast(
     }
     if (presentEntities.length < 2) continue;
 
+    // Cap to prevent O(n²) blowup with many entities in one sentence
+    const capped = presentEntities.slice(0, 10);
+
     // For each pair of entities, check for relationship verbs between them
-    for (let i = 0; i < presentEntities.length; i++) {
-      for (let j = 0; j < presentEntities.length; j++) {
+    for (let i = 0; i < capped.length; i++) {
+      for (let j = 0; j < capped.length; j++) {
         if (i === j) continue;
         const subj = presentEntities[i];
         const obj = presentEntities[j];
@@ -566,7 +569,7 @@ const SENSITIVE_PATTERNS = [
  * Returns true if the claim text contains passwords, keys, secrets, etc.
  */
 function isSensitiveClaim(claim: ClaimExtractionResult): boolean {
-  const text = `${claim.claim.subject} ${claim.claim.objectText ?? ""}`.toLowerCase();
+  const text = `${claim.claim.subject} ${claim.claim.predicate ?? ""} ${claim.claim.objectText ?? ""}`.toLowerCase();
   return SENSITIVE_PATTERNS.some((p) => p.test(text));
 }
 
@@ -737,14 +740,14 @@ export function extractClaimsFast(
 
 const INVARIANT_PATTERNS: Array<{ re: RegExp; severity: string; enforcementMode: string }> = [
   // Strict / critical: absolute prohibitions and requirements
-  { re: /\b(?:never|must\s+not|must\s+never|do\s+not\s+ever)\s+(.{5,200})/i, severity: "critical", enforcementMode: "strict" },
-  { re: /\b(?:you\s+must|must\s+always|always\s+must|always\s+ensure|always\s+verify|always\s+check)\s+(.{5,200})/i, severity: "error", enforcementMode: "strict" },
+  { re: /\b(?:never|must\s+not|must\s+never|do\s+not\s+ever)\s+(.{5,200})/gi, severity: "critical", enforcementMode: "strict" },
+  { re: /\b(?:you\s+must|must\s+always|always\s+must|always\s+ensure|always\s+verify|always\s+check)\s+(.{5,200})/gi, severity: "error", enforcementMode: "strict" },
   // Advisory: preferences and suggestions (require "you" or imperative context to avoid casual speech)
-  { re: /\b(?:should\s+not|shouldn't|avoid)\s+(.{5,200})/i, severity: "warning", enforcementMode: "advisory" },
-  { re: /\byou\s+should\s+(?:always\s+)?(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
-  { re: /\bprefer\s+to\s+(.{5,200})/i, severity: "info", enforcementMode: "advisory" },
+  { re: /\b(?:should\s+not|shouldn't|avoid)\s+(.{5,200})/gi, severity: "warning", enforcementMode: "advisory" },
+  { re: /\byou\s+should\s+(?:always\s+)?(.{5,200})/gi, severity: "info", enforcementMode: "advisory" },
+  { re: /\bprefer\s+to\s+(.{5,200})/gi, severity: "info", enforcementMode: "advisory" },
   // Explicit labels
-  { re: /\b(?:rule|constraint|invariant):\s*(.{5,200})/i, severity: "error", enforcementMode: "strict" },
+  { re: /\b(?:rule|constraint|invariant):\s*(.{5,200})/gi, severity: "error", enforcementMode: "strict" },
 ];
 
 export interface InvariantExtractionResult {

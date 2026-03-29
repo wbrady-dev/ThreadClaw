@@ -82,7 +82,7 @@ export function decayAntiRunbooks(
       AND status = 'active'
   `).run(scopeId, stalenessFloor);
 
-  if (Number(decayed.changes) > 0 || Number(reviewed.changes) > 0) {
+  if (Number(decayed.changes) > 0 || Number(reviewed.changes) > 0 || Number(toolDecayed.changes) > 0) {
     logEvidence(db, {
       scopeId,
       objectType: "procedure",
@@ -90,6 +90,7 @@ export function decayAntiRunbooks(
       eventType: "decay",
       payload: {
         subKind: "anti_runbook",
+        toolSuccessDecayed: Number(toolDecayed.changes),
         confidenceDecayed: Number(decayed.changes),
         markedStale: Number(reviewed.changes),
       },
